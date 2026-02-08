@@ -87,9 +87,31 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
         println!();
     }
 
-    // Parse fields
+    // Parse fields and filter out reserved fields (already provided by impl_data_entity! macro)
+    let reserved_fields = [
+        "id",
+        "entity_type",
+        "name",
+        "status",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+    ];
+
     let fields = match &args.fields {
-        Some(f) => parse_fields(f)?,
+        Some(f) => {
+            let parsed = parse_fields(f)?;
+            let (reserved, custom): (Vec<_>, Vec<_>) = parsed
+                .into_iter()
+                .partition(|f| reserved_fields.contains(&f.name.as_str()));
+            for field in &reserved {
+                output::print_warn(&format!(
+                    "Field '{}' is built-in (provided by impl_data_entity! macro) — skipping",
+                    field.name
+                ));
+            }
+            custom
+        }
         None => vec![],
     };
 

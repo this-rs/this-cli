@@ -822,6 +822,49 @@ fn test_dry_run_add_link_no_files_modified() {
 }
 
 // ============================================================================
+// Reserved fields filtering
+// ============================================================================
+
+#[test]
+fn test_add_entity_reserved_field_name_filtered() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("reserved-test");
+
+    run_this(&["init", "reserved-test", "--no-git"], &tmp.path());
+
+    // "name" is a reserved field (built-in in impl_data_entity! macro)
+    let (success, stdout, _) = run_this(
+        &[
+            "add",
+            "entity",
+            "category",
+            "--fields",
+            "name:String,slug:String",
+        ],
+        &project,
+    );
+
+    assert!(
+        success,
+        "add entity should succeed even with reserved fields"
+    );
+    assert!(
+        stdout.contains("built-in") || stdout.contains("skipping"),
+        "should warn about reserved field 'name'"
+    );
+
+    // Verify the generated model.rs does NOT contain 'name' in custom fields
+    let model = std::fs::read_to_string(project.join("src/entities/category/model.rs")).unwrap();
+    let name_count = model.matches("name").count();
+    // "name" appears in indexed fields ["name"] but NOT as a custom field declaration
+    assert!(
+        !model.contains("        name: String,"),
+        "reserved field 'name' should not appear in custom fields block. Model:\n{}",
+        model
+    );
+}
+
+// ============================================================================
 // Compilation test (slow — requires cargo check of generated code)
 // ============================================================================
 
