@@ -8,6 +8,7 @@ mod module;
 mod stores;
 
 use module::{{ project_name_snake | pascal_case }}Module;
+use stores::{{ project_name_snake | pascal_case }}Stores;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -17,7 +18,8 @@ async fn main() -> anyhow::Result<()> {
 
     let link_service = Arc::new(InMemoryLinkService::new());
 
-    let module = {{ project_name_snake | pascal_case }}Module::new();
+    let stores = {{ project_name_snake | pascal_case }}Stores::new_in_memory();
+    let module = {{ project_name_snake | pascal_case }}Module::new(stores);
 
     let app = ServerBuilder::new()
         .with_link_service((*link_service).clone())

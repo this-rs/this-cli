@@ -4,11 +4,17 @@ use this::core::module::Module;
 use this::prelude::*;
 use this::server::entity_registry::EntityRegistry;
 
-pub struct {{ project_name_snake | pascal_case }}Module;
+// [this:module_imports]
+
+use crate::stores::{{ project_name_snake | pascal_case }}Stores;
+
+pub struct {{ project_name_snake | pascal_case }}Module {
+    pub stores: {{ project_name_snake | pascal_case }}Stores,
+}
 
 impl {{ project_name_snake | pascal_case }}Module {
-    pub fn new() -> Self {
-        Self
+    pub fn new(stores: {{ project_name_snake | pascal_case }}Stores) -> Self {
+        Self { stores }
     }
 }
 
@@ -19,38 +25,30 @@ impl Module for {{ project_name_snake | pascal_case }}Module {
 
     fn entity_types(&self) -> Vec<&str> {
         vec![
-            // Add entity types here, e.g.:
-            // "product",
+            // [this:entity_types]
         ]
     }
 
     fn links_config(&self) -> anyhow::Result<LinksConfig> {
-        LinksConfig::from_yaml_file("config/links.yaml")
+        let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/config/links.yaml");
+        LinksConfig::from_yaml_file(config_path)
     }
 
     fn register_entities(&self, _registry: &mut EntityRegistry) {
-        // Register entity descriptors here, e.g.:
-        // registry.register(Box::new(ProductDescriptor::new_with_creator(
-        //     self.stores.products_store.clone(),
-        //     self.stores.products_entity.clone(),
-        // )));
+        // [this:register_entities]
     }
 
     fn get_entity_fetcher(&self, _entity_type: &str) -> Option<Arc<dyn EntityFetcher>> {
-        // Match entity types here, e.g.:
-        // match entity_type {
-        //     "product" => Some(self.stores.products_entity.clone()),
-        //     _ => None,
-        // }
-        None
+        match _entity_type {
+            // [this:entity_fetcher]
+            _ => None,
+        }
     }
 
     fn get_entity_creator(&self, _entity_type: &str) -> Option<Arc<dyn EntityCreator>> {
-        // Match entity types here, e.g.:
-        // match entity_type {
-        //     "product" => Some(self.stores.products_entity.clone()),
-        //     _ => None,
-        // }
-        None
+        match _entity_type {
+            // [this:entity_creator]
+            _ => None,
+        }
     }
 }

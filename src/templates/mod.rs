@@ -182,6 +182,9 @@ mod tests {
         assert!(result.is_ok(), "main.rs template should render");
         let content = result.unwrap();
         assert!(content.contains("TestProjectModule"));
+        assert!(content.contains("TestProjectStores"));
+        assert!(content.contains("Stores::new_in_memory()"));
+        assert!(content.contains("Module::new(stores)"));
         assert!(content.contains("127.0.0.1:3000"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
     }
@@ -194,6 +197,15 @@ mod tests {
         let content = result.unwrap();
         assert!(content.contains("TestProjectModule"));
         assert!(content.contains("impl Module for"));
+        // Markers for automated entity registration
+        assert!(content.contains("[this:entity_types]"));
+        assert!(content.contains("[this:register_entities]"));
+        assert!(content.contains("[this:entity_fetcher]"));
+        assert!(content.contains("[this:entity_creator]"));
+        assert!(content.contains("[this:module_imports]"));
+        // Stores integration
+        assert!(content.contains("stores: TestProjectStores"));
+        assert!(content.contains("fn new(stores: TestProjectStores)"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
     }
 
