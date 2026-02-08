@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, bail};
+use colored::Colorize;
 
 use super::AddLinkArgs;
+use crate::utils::file_writer::FileWriter;
 use crate::utils::{naming, output, project};
 
 /// Represents the links.yaml config structure (subset for CLI manipulation)
@@ -83,7 +85,7 @@ pub struct ValidationRule {
     pub targets: Vec<String>,
 }
 
-pub fn run(args: AddLinkArgs) -> Result<()> {
+pub fn run(args: AddLinkArgs, writer: &dyn FileWriter) -> Result<()> {
     let project_root = project::detect_project_root()?;
     let links_path = project_root.join("config/links.yaml");
 
@@ -99,6 +101,11 @@ pub fn run(args: AddLinkArgs) -> Result<()> {
     let link_type = args.link_type.unwrap_or_else(|| format!("has_{}", &target));
     let forward = args.forward.unwrap_or_else(|| naming::pluralize(&target));
     let reverse = args.reverse.unwrap_or_else(|| source.clone());
+
+    if writer.is_dry_run() {
+        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        println!();
+    }
 
     output::print_step(&format!(
         "Adding link '{} -> {}' to config/links.yaml...",
@@ -186,8 +193,7 @@ pub fn run(args: AddLinkArgs) -> Result<()> {
     // Write back
     let new_yaml =
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
-    std::fs::write(&links_path, &new_yaml)
-        .with_context(|| format!("Failed to write: {}", links_path.display()))?;
+    writer.update_file(&links_path, &yaml_content, &new_yaml)?;
 
     output::print_info(&format!("Link type: {}", &link_type));
     output::print_info(&format!(

@@ -13,6 +13,10 @@ use clap_complete::Shell;
 #[command(name = "this", version, about, long_about = None)]
 #[command(propagate_version = true)]
 pub struct Cli {
+    /// Simulate operations without writing any files
+    #[arg(long, global = true)]
+    pub dry_run: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }

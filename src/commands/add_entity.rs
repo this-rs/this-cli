@@ -5,6 +5,7 @@ use colored::Colorize;
 
 use super::AddEntityArgs;
 use crate::templates::TemplateEngine;
+use crate::utils::file_writer::FileWriter;
 use crate::utils::{markers, naming, output, project};
 
 /// Parsed field definition
@@ -66,19 +67,24 @@ pub fn parse_fields(input: &str) -> Result<Vec<Field>> {
     Ok(fields)
 }
 
-pub fn run(args: AddEntityArgs) -> Result<()> {
+pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
     let project_root = project::detect_project_root()?;
     let entity_name = naming::to_snake_case(&args.name);
     let entity_pascal = naming::to_pascal_case(&args.name);
     let entity_plural = naming::pluralize(&entity_name);
 
     let entity_dir = project_root.join("src/entities").join(&entity_name);
-    if entity_dir.exists() {
+    if entity_dir.exists() && !writer.is_dry_run() {
         bail!(
             "Entity '{}' already exists at {}",
             &entity_name,
             entity_dir.display()
         );
+    }
+
+    if writer.is_dry_run() {
+        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        println!();
     }
 
     // Parse fields
@@ -98,8 +104,7 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
     output::print_step(&format!("Adding entity '{}' to project...", &entity_name));
 
     // Create entity directory
-    std::fs::create_dir_all(&entity_dir)
-        .with_context(|| format!("Failed to create: {}", entity_dir.display()))?;
+    writer.create_dir_all(&entity_dir)?;
 
     // Prepare template context
     let engine = TemplateEngine::new()?;
@@ -131,9 +136,10 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
             .render(tpl, &context)
             .with_context(|| format!("Failed to render template: {}", tpl))?;
         let file_path = entity_dir.join(filename);
-        std::fs::write(&file_path, &rendered)
-            .with_context(|| format!("Failed to write: {}", file_path.display()))?;
-        output::print_file_created(&format!("src/entities/{}/{}", &entity_name, filename));
+        writer.write_file(&file_path, &rendered)?;
+        if !writer.is_dry_run() {
+            output::print_file_created(&format!("src/entities/{}/{}", &entity_name, filename));
+        }
     }
 
     // Update src/entities/mod.rs
@@ -148,30 +154,48 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
             } else {
                 format!("{}\n{}\n", content.trim_end(), &mod_declaration)
             };
-            std::fs::write(&entities_mod_path, new_content)?;
-            output::print_info(&format!(
-                "Updated src/entities/mod.rs (added pub mod {})",
-                &entity_name
-            ));
+            writer.update_file(&entities_mod_path, &content, &new_content)?;
+            if !writer.is_dry_run() {
+                output::print_info(&format!(
+                    "Updated src/entities/mod.rs (added pub mod {})",
+                    &entity_name
+                ));
+            }
         }
     } else {
-        std::fs::write(&entities_mod_path, format!("{}\n", &mod_declaration))?;
-        output::print_info("Created src/entities/mod.rs");
+        writer.write_file(&entities_mod_path, &format!("{}\n", &mod_declaration))?;
+        if !writer.is_dry_run() {
+            output::print_info("Created src/entities/mod.rs");
+        }
     }
 
     // Update src/stores.rs (marker-based insertion)
-    update_stores_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
+    update_stores_rs(
+        &project_root,
+        &entity_name,
+        &entity_pascal,
+        &entity_plural,
+        writer,
+    )?;
 
     // Update src/module.rs (marker-based insertion)
-    update_module_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
+    update_module_rs(
+        &project_root,
+        &entity_name,
+        &entity_pascal,
+        &entity_plural,
+        writer,
+    )?;
 
     // Update config/links.yaml (add entity config)
-    update_links_yaml(&project_root, &entity_name, &entity_plural)?;
+    update_links_yaml(&project_root, &entity_name, &entity_plural, writer)?;
 
-    output::print_success(&format!("Entity '{}' created!", &entity_name));
-    println!();
-    println!("  Your project is ready to run: {}", "cargo run".bold());
-    println!();
+    if !writer.is_dry_run() {
+        output::print_success(&format!("Entity '{}' created!", &entity_name));
+        println!();
+        println!("  Your project is ready to run: {}", "cargo run".bold());
+        println!();
+    }
 
     Ok(())
 }
@@ -187,6 +211,7 @@ fn update_stores_rs(
     entity_name: &str,
     entity_pascal: &str,
     entity_plural: &str,
+    writer: &dyn FileWriter,
 ) -> Result<()> {
     let stores_path = project_root.join("src/stores.rs");
     if !stores_path.exists() {
@@ -252,12 +277,14 @@ fn update_stores_rs(
     );
     updated = markers::add_import(&updated, &import_line);
 
-    std::fs::write(&stores_path, updated).with_context(|| "Failed to write src/stores.rs")?;
+    writer.update_file(&stores_path, &content, &updated)?;
 
-    output::print_info(&format!(
-        "Updated src/stores.rs (added {} store)",
-        entity_name
-    ));
+    if !writer.is_dry_run() {
+        output::print_info(&format!(
+            "Updated src/stores.rs (added {} store)",
+            entity_name
+        ));
+    }
 
     Ok(())
 }
@@ -274,6 +301,7 @@ fn update_module_rs(
     entity_name: &str,
     entity_pascal: &str,
     entity_plural: &str,
+    writer: &dyn FileWriter,
 ) -> Result<()> {
     let module_path = project_root.join("src/module.rs");
     if !module_path.exists() {
@@ -356,18 +384,25 @@ fn update_module_rs(
     );
     updated = markers::add_import(&updated, &descriptor_import);
 
-    std::fs::write(&module_path, updated).with_context(|| "Failed to write src/module.rs")?;
+    writer.update_file(&module_path, &content, &updated)?;
 
-    output::print_info(&format!(
-        "Updated src/module.rs (registered {} entity)",
-        entity_name
-    ));
+    if !writer.is_dry_run() {
+        output::print_info(&format!(
+            "Updated src/module.rs (registered {} entity)",
+            entity_name
+        ));
+    }
 
     Ok(())
 }
 
 /// Update config/links.yaml to add the entity config if not already present.
-fn update_links_yaml(project_root: &Path, entity_name: &str, entity_plural: &str) -> Result<()> {
+fn update_links_yaml(
+    project_root: &Path,
+    entity_name: &str,
+    entity_plural: &str,
+    writer: &dyn FileWriter,
+) -> Result<()> {
     let links_path = project_root.join("config/links.yaml");
     if !links_path.exists() {
         output::print_warn("config/links.yaml not found — skipping entity config");
@@ -392,12 +427,14 @@ fn update_links_yaml(project_root: &Path, entity_name: &str, entity_plural: &str
 
     let new_yaml =
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
-    std::fs::write(&links_path, &new_yaml).with_context(|| "Failed to write config/links.yaml")?;
+    writer.update_file(&links_path, &yaml_content, &new_yaml)?;
 
-    output::print_info(&format!(
-        "Updated config/links.yaml (added {} entity config)",
-        entity_name
-    ));
+    if !writer.is_dry_run() {
+        output::print_info(&format!(
+            "Updated config/links.yaml (added {} entity config)",
+            entity_name
+        ));
+    }
 
     Ok(())
 }
