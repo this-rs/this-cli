@@ -92,10 +92,7 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
         .filter(|s| !s.is_empty())
         .collect();
 
-    output::print_step(&format!(
-        "Adding entity '{}' to project...",
-        &entity_name
-    ));
+    output::print_step(&format!("Adding entity '{}' to project...", &entity_name));
 
     // Create entity directory
     std::fs::create_dir_all(&entity_dir)
@@ -127,7 +124,8 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
     ];
 
     for (tpl, filename) in entity_files {
-        let rendered = engine.render(tpl, &context)
+        let rendered = engine
+            .render(tpl, &context)
             .with_context(|| format!("Failed to render template: {}", tpl))?;
         let file_path = entity_dir.join(filename);
         std::fs::write(&file_path, &rendered)
@@ -161,13 +159,8 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
     output::print_success(&format!("Entity '{}' created!", &entity_name));
     output::print_next_steps(&[
         "Don't forget to:",
-        &format!(
-            "  1. Register the entity in src/module.rs:"
-        ),
-        &format!(
-            "     - Add to entity_types(): \"{}\"",
-            &entity_name
-        ),
+        "  1. Register the entity in src/module.rs:",
+        &format!("     - Add to entity_types(): \"{}\"", &entity_name),
         &format!(
             "     - Add to register_entities(): registry.register(Box::new({}Descriptor::new_with_creator(...)))",
             &entity_pascal
@@ -176,9 +169,7 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
             "     - Add to get_entity_fetcher/get_entity_creator: \"{}\" => ...",
             &entity_name
         ),
-        &format!(
-            "  2. Add to config/links.yaml entities section if needed"
-        ),
+        "  2. Add to config/links.yaml entities section if needed",
     ]);
 
     Ok(())
@@ -234,13 +225,23 @@ mod tests {
     fn test_parse_fields_invalid_format() {
         let result = parse_fields("invalid");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid field format"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid field format")
+        );
     }
 
     #[test]
     fn test_parse_fields_unsupported_type() {
         let result = parse_fields("x:HashMap");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unsupported field type"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported field type")
+        );
     }
 }

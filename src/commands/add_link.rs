@@ -96,12 +96,8 @@ pub fn run(args: AddLinkArgs) -> Result<()> {
 
     let source = naming::to_snake_case(&args.source);
     let target = naming::to_snake_case(&args.target);
-    let link_type = args
-        .link_type
-        .unwrap_or_else(|| format!("has_{}", &target));
-    let forward = args
-        .forward
-        .unwrap_or_else(|| naming::pluralize(&target));
+    let link_type = args.link_type.unwrap_or_else(|| format!("has_{}", &target));
+    let forward = args.forward.unwrap_or_else(|| naming::pluralize(&target));
     let reverse = args.reverse.unwrap_or_else(|| source.clone());
 
     output::print_step(&format!(
@@ -112,13 +108,14 @@ pub fn run(args: AddLinkArgs) -> Result<()> {
     // Read and parse existing config
     let yaml_content = std::fs::read_to_string(&links_path)
         .with_context(|| format!("Failed to read: {}", links_path.display()))?;
-    let mut config: LinksConfig = serde_yaml::from_str(&yaml_content)
-        .with_context(|| "Failed to parse links.yaml")?;
+    let mut config: LinksConfig =
+        serde_yaml::from_str(&yaml_content).with_context(|| "Failed to parse links.yaml")?;
 
     // Check for duplicate link
-    let duplicate = config.links.iter().any(|l| {
-        l.link_type == link_type && l.source_type == source && l.target_type == target
-    });
+    let duplicate = config
+        .links
+        .iter()
+        .any(|l| l.link_type == link_type && l.source_type == source && l.target_type == target);
     if duplicate {
         bail!(
             "Link '{}' from '{}' to '{}' already exists in links.yaml",
@@ -179,7 +176,7 @@ pub fn run(args: AddLinkArgs) -> Result<()> {
         config
             .validation_rules
             .entry(link_type.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(ValidationRule {
                 source: source.clone(),
                 targets: vec![target.clone()],
@@ -187,8 +184,8 @@ pub fn run(args: AddLinkArgs) -> Result<()> {
     }
 
     // Write back
-    let new_yaml = serde_yaml::to_string(&config)
-        .with_context(|| "Failed to serialize links.yaml")?;
+    let new_yaml =
+        serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
     std::fs::write(&links_path, &new_yaml)
         .with_context(|| format!("Failed to write: {}", links_path.display()))?;
 

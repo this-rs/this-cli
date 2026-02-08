@@ -45,7 +45,7 @@ pub fn to_snake_case(s: &str) -> String {
 /// "product-category" -> "ProductCategory"
 /// "product" -> "Product"
 pub fn to_pascal_case(s: &str) -> String {
-    s.split(|c: char| c == '_' || c == '-' || c == ' ')
+    s.split(['_', '-', ' '])
         .filter(|part| !part.is_empty())
         .map(|part| {
             let mut chars = part.chars();
@@ -75,13 +75,12 @@ pub fn pluralize(s: &str) -> String {
         return s.to_string();
     }
 
-    if s.ends_with('y') {
-        let prefix = &s[..s.len() - 1];
+    if let Some(prefix) = s.strip_suffix('y') {
         // Check if the character before 'y' is a consonant
-        if let Some(c) = prefix.chars().last() {
-            if !"aeiou".contains(c) {
-                return format!("{}ies", prefix);
-            }
+        if let Some(c) = prefix.chars().last()
+            && !"aeiou".contains(c)
+        {
+            return format!("{}ies", prefix);
         }
     }
 

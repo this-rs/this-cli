@@ -9,7 +9,10 @@ fn this_bin() -> String {
         return workspace_target.to_string_lossy().to_string();
     }
     // Fallback to crate-level target
-    manifest_dir.join("target/debug/this").to_string_lossy().to_string()
+    manifest_dir
+        .join("target/debug/this")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn run_this(args: &[&str], cwd: &Path) -> (bool, String, String) {
@@ -87,11 +90,10 @@ fn test_init_generated_cargo_toml_valid() {
 
     let content = std::fs::read_to_string(tmp.path().join("toml-test/Cargo.toml")).unwrap();
     // Parse as TOML to verify validity
-    let parsed: toml_edit::DocumentMut = content.parse().expect("Generated Cargo.toml should be valid TOML");
-    assert_eq!(
-        parsed["package"]["name"].as_str().unwrap(),
-        "toml-test"
-    );
+    let parsed: toml_edit::DocumentMut = content
+        .parse()
+        .expect("Generated Cargo.toml should be valid TOML");
+    assert_eq!(parsed["package"]["name"].as_str().unwrap(), "toml-test");
 }
 
 // ============================================================================
@@ -110,7 +112,13 @@ fn test_add_entity_creates_files() {
     let project = setup_project(&tmp);
 
     let (success, stdout, _) = run_this(
-        &["add", "entity", "product", "--fields", "sku:String,price:f64"],
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
         &project,
     );
 
@@ -130,10 +138,7 @@ fn test_add_entity_updates_mod_rs() {
     let tmp = tempfile::tempdir().unwrap();
     let project = setup_project(&tmp);
 
-    run_this(
-        &["add", "entity", "product"],
-        &project,
-    );
+    run_this(&["add", "entity", "product"], &project);
 
     let mod_content = std::fs::read_to_string(project.join("src/entities/mod.rs")).unwrap();
     assert!(mod_content.contains("pub mod product;"));
@@ -145,15 +150,19 @@ fn test_add_entity_validated_flag() {
     let project = setup_project(&tmp);
 
     let (success, _, _) = run_this(
-        &["add", "entity", "product", "--fields", "price:f64", "--validated"],
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "price:f64",
+            "--validated",
+        ],
         &project,
     );
 
     assert!(success);
-    let model = std::fs::read_to_string(
-        project.join("src/entities/product/model.rs"),
-    )
-    .unwrap();
+    let model = std::fs::read_to_string(project.join("src/entities/product/model.rs")).unwrap();
     assert!(model.contains("impl_data_entity_validated!"));
     assert!(model.contains("validate:"));
     assert!(model.contains("filters:"));
@@ -170,10 +179,7 @@ fn test_add_entity_without_validated() {
     );
 
     assert!(success);
-    let model = std::fs::read_to_string(
-        project.join("src/entities/category/model.rs"),
-    )
-    .unwrap();
+    let model = std::fs::read_to_string(project.join("src/entities/category/model.rs")).unwrap();
     assert!(model.contains("impl_data_entity!"));
     assert!(!model.contains("impl_data_entity_validated!"));
 }
@@ -209,10 +215,7 @@ fn test_add_link_basic() {
     let tmp = tempfile::tempdir().unwrap();
     let project = setup_project(&tmp);
 
-    let (success, stdout, _) = run_this(
-        &["add", "link", "order", "invoice"],
-        &project,
-    );
+    let (success, stdout, _) = run_this(&["add", "link", "order", "invoice"], &project);
 
     assert!(success, "add link should succeed");
     assert!(stdout.contains("Link added"));
@@ -230,10 +233,16 @@ fn test_add_link_custom_options() {
 
     let (success, _, _) = run_this(
         &[
-            "add", "link", "product", "category",
-            "--link-type", "belongs_to",
-            "--forward", "parent-cats",
-            "--reverse", "child-prods",
+            "add",
+            "link",
+            "product",
+            "category",
+            "--link-type",
+            "belongs_to",
+            "--forward",
+            "parent-cats",
+            "--reverse",
+            "child-prods",
         ],
         &project,
     );
@@ -275,7 +284,7 @@ fn test_add_link_no_validation_rule() {
     let rules = config.get("validation_rules").unwrap();
     if let serde_yaml::Value::Mapping(map) = rules {
         assert!(
-            !map.contains_key(&serde_yaml::Value::String("has_role".into())),
+            !map.contains_key(serde_yaml::Value::String("has_role".into())),
             "Should not have validation rule when --no-validation-rule is set"
         );
     }
@@ -310,15 +319,24 @@ fn test_full_pipeline() {
 
     // 2. Add two entities
     let (success, _, _) = run_this(
-        &["add", "entity", "product", "--fields", "sku:String,price:f64"],
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
         &project,
     );
     assert!(success, "add entity product should succeed");
 
     let (success, _, _) = run_this(
         &[
-            "add", "entity", "category",
-            "--fields", "slug:String,description:Option<String>",
+            "add",
+            "entity",
+            "category",
+            "--fields",
+            "slug:String,description:Option<String>",
             "--validated",
         ],
         &project,
@@ -326,10 +344,7 @@ fn test_full_pipeline() {
     assert!(success, "add entity category should succeed");
 
     // 3. Add link between them
-    let (success, _, _) = run_this(
-        &["add", "link", "product", "category"],
-        &project,
-    );
+    let (success, _, _) = run_this(&["add", "link", "product", "category"], &project);
     assert!(success, "add link should succeed");
 
     // Verify final state
@@ -347,15 +362,13 @@ fn test_full_pipeline() {
     assert!(project.join("src/entities/category/model.rs").exists());
 
     // Category uses validated macro
-    let cat_model = std::fs::read_to_string(
-        project.join("src/entities/category/model.rs"),
-    ).unwrap();
+    let cat_model =
+        std::fs::read_to_string(project.join("src/entities/category/model.rs")).unwrap();
     assert!(cat_model.contains("impl_data_entity_validated!"));
 
     // Product uses simple macro
-    let prod_model = std::fs::read_to_string(
-        project.join("src/entities/product/model.rs"),
-    ).unwrap();
+    let prod_model =
+        std::fs::read_to_string(project.join("src/entities/product/model.rs")).unwrap();
     assert!(prod_model.contains("impl_data_entity!"));
     assert!(!prod_model.contains("impl_data_entity_validated!"));
 
@@ -381,14 +394,22 @@ fn test_generated_code_compiles() {
 
     // Verify the this crate actually exists
     assert!(
-        std::path::Path::new(&this_crate_path).join("Cargo.toml").exists(),
+        std::path::Path::new(&this_crate_path)
+            .join("Cargo.toml")
+            .exists(),
         "this crate not found at {}. This test requires the this-rs workspace layout.",
         this_crate_path
     );
 
     // 1. Init project with local this dependency
     let (success, _, stderr) = run_this(
-        &["init", "compile-test", "--no-git", "--this-path", &this_crate_path],
+        &[
+            "init",
+            "compile-test",
+            "--no-git",
+            "--this-path",
+            &this_crate_path,
+        ],
         tmp.path(),
     );
     assert!(success, "init should succeed: {}", stderr);
@@ -396,11 +417,20 @@ fn test_generated_code_compiles() {
 
     // Verify the generated Cargo.toml uses path dependency
     let cargo_toml = std::fs::read_to_string(project.join("Cargo.toml")).unwrap();
-    assert!(cargo_toml.contains("path ="), "Cargo.toml should use path dependency");
+    assert!(
+        cargo_toml.contains("path ="),
+        "Cargo.toml should use path dependency"
+    );
 
     // 2. Add entity product with fields
     let (success, _, stderr) = run_this(
-        &["add", "entity", "product", "--fields", "sku:String,price:f64"],
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
         &project,
     );
     assert!(success, "add entity product should succeed: {}", stderr);
@@ -408,8 +438,11 @@ fn test_generated_code_compiles() {
     // 3. Add entity category with validated
     let (success, _, stderr) = run_this(
         &[
-            "add", "entity", "category",
-            "--fields", "slug:String,description:Option<String>",
+            "add",
+            "entity",
+            "category",
+            "--fields",
+            "slug:String,description:Option<String>",
             "--validated",
         ],
         &project,
@@ -417,10 +450,7 @@ fn test_generated_code_compiles() {
     assert!(success, "add entity category should succeed: {}", stderr);
 
     // 4. Add link between them
-    let (success, _, stderr) = run_this(
-        &["add", "link", "product", "category"],
-        &project,
-    );
+    let (success, _, stderr) = run_this(&["add", "link", "product", "category"], &project);
     assert!(success, "add link should succeed: {}", stderr);
 
     // 5. cargo check — the generated code MUST compile

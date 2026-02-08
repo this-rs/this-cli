@@ -20,12 +20,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     output::print_step(&format!("Creating new this-rs project: {}", &args.name));
 
     // Create directory structure
-    let dirs = [
-        "",
-        "src",
-        "src/entities",
-        "config",
-    ];
+    let dirs = ["", "src", "src/entities", "config"];
     for dir in &dirs {
         let path = project_dir.join(dir);
         std::fs::create_dir_all(&path)
@@ -51,7 +46,8 @@ pub fn run(args: InitArgs) -> Result<()> {
     ];
 
     for (template_name, output_path) in files {
-        let rendered = engine.render(template_name, &context)
+        let rendered = engine
+            .render(template_name, &context)
             .with_context(|| format!("Failed to render template: {}", template_name))?;
         let file_path = project_dir.join(output_path);
         std::fs::write(&file_path, &rendered)
@@ -82,10 +78,7 @@ pub fn run(args: InitArgs) -> Result<()> {
     output::print_next_steps(&[
         &format!("cd {}", &args.name),
         "cargo run",
-        &format!(
-            "# Server will start on http://127.0.0.1:{}",
-            &args.port
-        ),
+        &format!("# Server will start on http://127.0.0.1:{}", &args.port),
         "# Add entities with: this add entity <name>",
     ]);
 

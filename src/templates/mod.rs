@@ -121,10 +121,7 @@ mod tests {
         ctx.insert("entity_pascal", "Product");
         ctx.insert("entity_plural", "products");
         ctx.insert("validated", &false);
-        ctx.insert(
-            "indexed_fields",
-            &vec!["name".to_string()],
-        );
+        ctx.insert("indexed_fields", &vec!["name".to_string()]);
 
         #[derive(serde::Serialize)]
         struct Field {
@@ -135,9 +132,21 @@ mod tests {
         ctx.insert(
             "fields",
             &vec![
-                Field { name: "sku".into(), rust_type: "String".into(), is_optional: false },
-                Field { name: "price".into(), rust_type: "f64".into(), is_optional: false },
-                Field { name: "description".into(), rust_type: "Option<String>".into(), is_optional: true },
+                Field {
+                    name: "sku".into(),
+                    rust_type: "String".into(),
+                    is_optional: false,
+                },
+                Field {
+                    name: "price".into(),
+                    rust_type: "f64".into(),
+                    is_optional: false,
+                },
+                Field {
+                    name: "description".into(),
+                    rust_type: "Option<String>".into(),
+                    is_optional: true,
+                },
             ],
         );
         ctx
@@ -146,7 +155,10 @@ mod tests {
     #[test]
     fn test_engine_creation() {
         let engine = TemplateEngine::new();
-        assert!(engine.is_ok(), "TemplateEngine should initialize without errors");
+        assert!(
+            engine.is_ok(),
+            "TemplateEngine should initialize without errors"
+        );
     }
 
     #[test]
@@ -197,7 +209,11 @@ mod tests {
     fn test_entity_model() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/model.rs", &make_entity_context());
-        assert!(result.is_ok(), "entity model template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "entity model template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("impl_data_entity!"));
         assert!(content.contains("Product"));
@@ -212,7 +228,11 @@ mod tests {
         ctx.insert("validated", &true);
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/model_validated.rs", &ctx);
-        assert!(result.is_ok(), "validated model template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "validated model template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("impl_data_entity_validated!"));
         assert!(content.contains("validate:"));
@@ -224,7 +244,11 @@ mod tests {
     fn test_entity_store() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/store.rs", &make_entity_context());
-        assert!(result.is_ok(), "store template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "store template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("ProductStore"));
         assert!(content.contains("InMemoryProductStore"));
@@ -236,7 +260,11 @@ mod tests {
     fn test_entity_handlers() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/handlers.rs", &make_entity_context());
-        assert!(result.is_ok(), "handlers template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "handlers template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("list_products"));
         assert!(content.contains("create_product"));
@@ -248,7 +276,11 @@ mod tests {
     fn test_entity_descriptor() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/descriptor.rs", &make_entity_context());
-        assert!(result.is_ok(), "descriptor template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "descriptor template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("ProductDescriptor"));
         assert!(content.contains("EntityDescriptor"));
@@ -260,7 +292,11 @@ mod tests {
     fn test_entity_mod() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/mod.rs", &make_entity_context());
-        assert!(result.is_ok(), "entity mod template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "entity mod template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("pub use model::Product"));
         assert!(content.contains("InMemoryProductStore"));

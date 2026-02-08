@@ -15,32 +15,32 @@ pub fn print_banner() {
 
 /// Print a step in progress
 pub fn print_step(msg: &str) {
-    println!("{} {}", "✨".to_string(), msg.bold());
+    println!("✨ {}", msg.bold());
 }
 
 /// Print a file creation event
 pub fn print_file_created(path: &str) {
-    println!("  {} {}", "📄".to_string(), path.dimmed());
+    println!("  📄 {}", path.dimmed());
 }
 
 /// Print a success message
 pub fn print_success(msg: &str) {
-    println!("{} {}", "✅".to_string(), msg.green().bold());
+    println!("✅ {}", msg.green().bold());
 }
 
 /// Print an error message
 pub fn print_error(msg: &str) {
-    eprintln!("{} {}", "❌".to_string(), msg.red().bold());
+    eprintln!("❌ {}", msg.red().bold());
 }
 
 /// Print an informational message
 pub fn print_info(msg: &str) {
-    println!("  {} {}", "📝".to_string(), msg);
+    println!("  📝 {}", msg);
 }
 
 /// Print a warning message
 pub fn print_warn(msg: &str) {
-    println!("  {} {}", "⚠️".to_string(), msg.yellow());
+    println!("  ⚠️ {}", msg.yellow());
 }
 
 /// Print next steps instructions
