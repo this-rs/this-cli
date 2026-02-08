@@ -1,10 +1,12 @@
 pub mod add_entity;
 pub mod add_link;
+pub mod completions;
 pub mod doctor;
 pub mod info;
 pub mod init;
 
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 /// this - CLI scaffolding tool for this-rs projects
 #[derive(Parser)]
@@ -28,6 +30,15 @@ pub enum Commands {
 
     /// Check project health and consistency
     Doctor,
+
+    /// Generate shell completions
+    ///
+    /// Example: this completions bash > ~/.local/share/bash-completion/completions/this
+    #[command(hide = true)]
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
 }
 
 #[derive(Parser)]

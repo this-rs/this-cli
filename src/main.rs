@@ -17,6 +17,7 @@ fn main() {
         },
         Commands::Info => commands::info::run(),
         Commands::Doctor => commands::doctor::run(),
+        Commands::Completions { shell } => commands::completions::run(shell),
     };
 
     if let Err(e) = result {
