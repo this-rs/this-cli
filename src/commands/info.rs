@@ -123,40 +123,42 @@ pub fn run() -> Result<()> {
     println!("{} Status:", "📊".bold());
 
     // Module registration
+    let check =
+        if coherence.module_total > 0 && coherence.module_registered < coherence.module_total {
+            "⚠️"
+        } else {
+            "✅"
+        };
     if coherence.module_total == 0 {
-        println!("   {} Module: {}", "✅", "No entities to register".dimmed());
-    } else if coherence.module_registered == coherence.module_total {
-        println!(
-            "   {} Module: {}/{} entities registered",
-            "✅", coherence.module_registered, coherence.module_total
-        );
+        println!("   {check} Module: {}", "No entities to register".dimmed());
     } else {
         println!(
-            "   {} Module: {}/{} entities registered",
-            "⚠️", coherence.module_registered, coherence.module_total
+            "   {check} Module: {}/{} entities registered",
+            coherence.module_registered, coherence.module_total
         );
     }
 
     // Stores
+    let check =
+        if coherence.stores_total > 0 && coherence.stores_configured < coherence.stores_total {
+            "⚠️"
+        } else {
+            "✅"
+        };
     if coherence.stores_total == 0 {
-        println!("   {} Stores: {}", "✅", "No stores to configure".dimmed());
-    } else if coherence.stores_configured == coherence.stores_total {
-        println!(
-            "   {} Stores: {}/{} stores configured",
-            "✅", coherence.stores_configured, coherence.stores_total
-        );
+        println!("   {check} Stores: {}", "No stores to configure".dimmed());
     } else {
         println!(
-            "   {} Stores: {}/{} stores configured",
-            "⚠️", coherence.stores_configured, coherence.stores_total
+            "   {check} Stores: {}/{} stores configured",
+            coherence.stores_configured, coherence.stores_total
         );
     }
 
     // Links validity
     if coherence.links_valid {
-        println!("   {} Links: {}", "✅", "Valid configuration");
+        println!("   ✅ Links: Valid configuration");
     } else {
-        println!("   {} Links: {}", "⚠️", "Issues found".yellow());
+        println!("   ⚠️ Links: {}", "Issues found".yellow());
         for issue in &coherence.links_issues {
             println!("     {} {}", "→".dimmed(), issue);
         }

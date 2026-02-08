@@ -855,7 +855,6 @@ fn test_add_entity_reserved_field_name_filtered() {
 
     // Verify the generated model.rs does NOT contain 'name' in custom fields
     let model = std::fs::read_to_string(project.join("src/entities/category/model.rs")).unwrap();
-    let name_count = model.matches("name").count();
     // "name" appears in indexed fields ["name"] but NOT as a custom field declaration
     assert!(
         !model.contains("        name: String,"),

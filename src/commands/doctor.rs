@@ -133,16 +133,14 @@ pub fn run() -> Result<()> {
 /// Detect project name from Cargo.toml
 fn detect_project_name(project_root: &Path) -> String {
     let cargo_path = project_root.join("Cargo.toml");
-    if let Ok(content) = std::fs::read_to_string(&cargo_path) {
-        if let Ok(doc) = content.parse::<toml_edit::DocumentMut>() {
-            if let Some(name) = doc
-                .get("package")
-                .and_then(|p| p.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                return name.to_string();
-            }
-        }
+    if let Ok(content) = std::fs::read_to_string(&cargo_path)
+        && let Ok(doc) = content.parse::<toml_edit::DocumentMut>()
+        && let Some(name) = doc
+            .get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+    {
+        return name.to_string();
     }
     "unknown".to_string()
 }
