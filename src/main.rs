@@ -15,6 +15,7 @@ fn main() {
             AddCommands::Entity(args) => commands::add_entity::run(args),
             AddCommands::Link(args) => commands::add_link::run(args),
         },
+        Commands::Info => commands::info::run(),
     };
 
     if let Err(e) = result {

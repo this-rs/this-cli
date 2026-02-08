@@ -1,5 +1,6 @@
 pub mod add_entity;
 pub mod add_link;
+pub mod info;
 pub mod init;
 
 use clap::{Parser, Subcommand};
@@ -20,6 +21,9 @@ pub enum Commands {
 
     /// Add components to an existing this-rs project
     Add(AddCommand),
+
+    /// Show project information and status
+    Info,
 }
 
 #[derive(Parser)]
