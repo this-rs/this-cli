@@ -1,8 +1,10 @@
+use std::path::Path;
+
 use anyhow::{Context, Result, bail};
 
 use super::AddEntityArgs;
 use crate::templates::TemplateEngine;
-use crate::utils::{naming, output, project};
+use crate::utils::{markers, naming, output, project};
 
 /// Parsed field definition
 #[derive(Debug, Clone, serde::Serialize)]
@@ -156,21 +158,100 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
         output::print_info("Created src/entities/mod.rs");
     }
 
+    // Update src/stores.rs (marker-based insertion)
+    update_stores_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
+
     output::print_success(&format!("Entity '{}' created!", &entity_name));
     output::print_next_steps(&[
         "Don't forget to:",
-        "  1. Register the entity in src/module.rs:",
-        &format!("     - Add to entity_types(): \"{}\"", &entity_name),
-        &format!(
-            "     - Add to register_entities(): registry.register(Box::new({}Descriptor::new_with_creator(...)))",
-            &entity_pascal
-        ),
-        &format!(
-            "     - Add to get_entity_fetcher/get_entity_creator: \"{}\" => ...",
-            &entity_name
-        ),
-        "  2. Add to config/links.yaml entities section if needed",
+        "  1. Add to config/links.yaml entities section if needed",
     ]);
+
+    Ok(())
+}
+
+/// Update src/stores.rs to add the new entity's store fields and initialization.
+///
+/// Uses marker-based insertion for idempotent updates:
+/// - `[this:store_fields]` — struct fields
+/// - `[this:store_init_vars]` — variable initialization
+/// - `[this:store_init_fields]` — struct init fields
+fn update_stores_rs(
+    project_root: &Path,
+    entity_name: &str,
+    entity_pascal: &str,
+    entity_plural: &str,
+) -> Result<()> {
+    let stores_path = project_root.join("src/stores.rs");
+    if !stores_path.exists() {
+        output::print_warn("src/stores.rs not found — skipping stores registration");
+        return Ok(());
+    }
+
+    let content =
+        std::fs::read_to_string(&stores_path).with_context(|| "Failed to read src/stores.rs")?;
+
+    // Check markers exist
+    if !content.contains("[this:store_fields]") {
+        output::print_warn(
+            "src/stores.rs has no [this:store_fields] marker — skipping stores registration.\n\
+             Hint: regenerate your project with `this init` to get marker-based templates.",
+        );
+        return Ok(());
+    }
+
+    // Idempotence check
+    let field_needle = format!("{}_store:", entity_plural);
+    if markers::has_line_after_marker(&content, "[this:store_fields]", &field_needle) {
+        output::print_info(&format!(
+            "stores.rs already contains {} — skipping",
+            field_needle
+        ));
+        return Ok(());
+    }
+
+    // 1. Add store fields after [this:store_fields]
+    let store_field = format!(
+        "pub {plural}_store: Arc<dyn {pascal}Store>,",
+        plural = entity_plural,
+        pascal = entity_pascal
+    );
+    let entity_field = format!(
+        "pub {plural}_entity: Arc<dyn EntityStore>,",
+        plural = entity_plural
+    );
+    let mut updated = markers::insert_after_marker(&content, "[this:store_fields]", &store_field)?;
+    updated = markers::insert_after_marker(&updated, &store_field, &entity_field)?;
+
+    // 2. Add init var after [this:store_init_vars]
+    let init_var = format!(
+        "let {plural} = Arc::new(InMemory{pascal}Store::default());",
+        plural = entity_plural,
+        pascal = entity_pascal
+    );
+    updated = markers::insert_after_marker(&updated, "[this:store_init_vars]", &init_var)?;
+
+    // 3. Add init fields after [this:store_init_fields]
+    let init_store_field = format!("{plural}_store: {plural}.clone(),", plural = entity_plural);
+    let init_entity_field = format!("{plural}_entity: {plural},", plural = entity_plural);
+    updated =
+        markers::insert_after_marker(&updated, "[this:store_init_fields]", &init_store_field)?;
+    updated = markers::insert_after_marker(&updated, &init_store_field, &init_entity_field)?;
+
+    // 4. Add imports
+    let import_line = format!(
+        "use crate::entities::{name}::{{InMemory{pascal}Store, {pascal}Store}};",
+        name = entity_name,
+        pascal = entity_pascal
+    );
+    updated = markers::add_import(&updated, &import_line);
+
+    std::fs::write(&stores_path, updated).with_context(|| "Failed to write src/stores.rs")?;
+
+    output::print_info(&format!(
+        "Updated src/stores.rs (added {} store)",
+        entity_name
+    ));
 
     Ok(())
 }
