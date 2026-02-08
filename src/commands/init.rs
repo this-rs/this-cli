@@ -38,6 +38,9 @@ pub fn run(args: InitArgs) -> Result<()> {
     context.insert("project_name", &args.name);
     context.insert("project_name_snake", &args.name.replace('-', "_"));
     context.insert("port", &args.port);
+    if let Some(ref this_path) = args.this_path {
+        context.insert("this_path", this_path);
+    }
 
     let files: &[(&str, &str)] = &[
         ("project/Cargo.toml", "Cargo.toml"),

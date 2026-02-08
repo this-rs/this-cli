@@ -54,6 +54,10 @@ pub struct InitArgs {
     /// Default server port
     #[arg(long, default_value = "3000")]
     pub port: u16,
+
+    /// Path to this-rs crate for local development (uses path dependency instead of crates.io)
+    #[arg(long, hide = true)]
+    pub this_path: Option<String>,
 }
 
 /// Arguments for `this add entity <name>`
