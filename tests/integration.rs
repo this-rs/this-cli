@@ -592,6 +592,236 @@ fn test_add_entity_multi_updates_stores_and_module() {
 }
 
 // ============================================================================
+// this info tests
+// ============================================================================
+
+#[test]
+fn test_info_in_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    // Add an entity so there's something to display
+    run_this(
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
+        &project,
+    );
+
+    let (success, stdout, _) = run_this(&["info"], &project);
+
+    assert!(success, "info should succeed");
+    assert!(stdout.contains("Project:"), "Should show project name");
+    assert!(stdout.contains("this-rs"), "Should show framework");
+    assert!(stdout.contains("Entities"), "Should show entities section");
+    assert!(stdout.contains("product"), "Should list product entity");
+    assert!(stdout.contains("Status:"), "Should show status section");
+}
+
+#[test]
+fn test_info_with_links() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    run_this(
+        &["add", "entity", "product", "--fields", "sku:String"],
+        &project,
+    );
+    run_this(
+        &["add", "entity", "category", "--fields", "slug:String"],
+        &project,
+    );
+    run_this(&["add", "link", "product", "category"], &project);
+
+    let (success, stdout, _) = run_this(&["info"], &project);
+
+    assert!(success);
+    assert!(stdout.contains("Links"), "Should show links section");
+    assert!(stdout.contains("has_category"), "Should show link type");
+}
+
+#[test]
+fn test_info_outside_project_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(&["info"], tmp.path());
+
+    assert!(!success, "info should fail outside project");
+    assert!(stderr.contains("Not inside a this-rs project"));
+}
+
+// ============================================================================
+// this doctor tests
+// ============================================================================
+
+#[test]
+fn test_doctor_healthy_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    run_this(
+        &["add", "entity", "product", "--fields", "sku:String"],
+        &project,
+    );
+
+    let (success, stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(success, "doctor should succeed on healthy project");
+    assert!(stdout.contains("Cargo.toml"), "Should check Cargo.toml");
+    assert!(stdout.contains("passed"), "Should show summary");
+}
+
+#[test]
+fn test_doctor_detects_orphan_entity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    // Create entity directory manually without registering in mod.rs
+    std::fs::create_dir_all(project.join("src/entities/ghost")).unwrap();
+
+    let (success, stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(success, "doctor should succeed with warnings");
+    assert!(
+        stdout.contains("ghost"),
+        "Should detect orphan entity 'ghost'"
+    );
+}
+
+#[test]
+fn test_doctor_detects_invalid_link_entity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    // Add a link referencing entities that don't exist as directories
+    run_this(&["add", "link", "order", "invoice"], &project);
+
+    let (success, _stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(success, "doctor should succeed (warnings not errors)");
+    // The link references order/invoice which only exist in yaml, not as entity dirs
+}
+
+// ============================================================================
+// this completions tests
+// ============================================================================
+
+#[test]
+fn test_completions_bash() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["completions", "bash"], tmp.path());
+
+    assert!(success, "completions bash should succeed");
+    assert!(!stdout.is_empty(), "Should produce output");
+    assert!(
+        stdout.contains("_this"),
+        "Should contain this completion function"
+    );
+}
+
+#[test]
+fn test_completions_zsh() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["completions", "zsh"], tmp.path());
+
+    assert!(success);
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_completions_fish() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["completions", "fish"], tmp.path());
+
+    assert!(success);
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_completions_powershell() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["completions", "powershell"], tmp.path());
+
+    assert!(success);
+    assert!(!stdout.is_empty());
+}
+
+// ============================================================================
+// --dry-run tests
+// ============================================================================
+
+#[test]
+fn test_dry_run_init_no_files_created() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["--dry-run", "init", "phantom"], tmp.path());
+
+    assert!(success, "dry-run init should succeed");
+    assert!(stdout.contains("Dry run"), "Should show dry-run banner");
+    assert!(stdout.contains("Would create"), "Should list files");
+    assert!(
+        !tmp.path().join("phantom").exists(),
+        "Should NOT create the directory"
+    );
+}
+
+#[test]
+fn test_dry_run_add_entity_no_files_created() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    let (success, stdout, _) = run_this(
+        &[
+            "--dry-run",
+            "add",
+            "entity",
+            "widget",
+            "--fields",
+            "name:String",
+        ],
+        &project,
+    );
+
+    assert!(success, "dry-run add entity should succeed");
+    assert!(stdout.contains("Dry run"), "Should show dry-run banner");
+    assert!(
+        stdout.contains("Would create"),
+        "Should list files to create"
+    );
+    assert!(
+        stdout.contains("Would modify"),
+        "Should list files to modify"
+    );
+    assert!(
+        !project.join("src/entities/widget").exists(),
+        "Should NOT create entity directory"
+    );
+}
+
+#[test]
+fn test_dry_run_add_link_no_files_modified() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    // Read original links.yaml
+    let original_yaml = std::fs::read_to_string(project.join("config/links.yaml")).unwrap();
+
+    let (success, stdout, _) = run_this(&["--dry-run", "add", "link", "user", "role"], &project);
+
+    assert!(success, "dry-run add link should succeed");
+    assert!(stdout.contains("Dry run"), "Should show dry-run banner");
+
+    // Verify file was NOT modified
+    let after_yaml = std::fs::read_to_string(project.join("config/links.yaml")).unwrap();
+    assert_eq!(
+        original_yaml, after_yaml,
+        "links.yaml should NOT be modified"
+    );
+}
+
+// ============================================================================
 // Compilation test (slow — requires cargo check of generated code)
 // ============================================================================
 
