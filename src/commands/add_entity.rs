@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use colored::Colorize;
 
 use super::AddEntityArgs;
 use crate::templates::TemplateEngine;
@@ -165,10 +166,9 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
     update_module_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
 
     output::print_success(&format!("Entity '{}' created!", &entity_name));
-    output::print_next_steps(&[
-        "Don't forget to:",
-        "  1. Add to config/links.yaml entities section if needed",
-    ]);
+    println!();
+    println!("  Your project is ready to run: {}", "cargo run".bold());
+    println!();
 
     Ok(())
 }
