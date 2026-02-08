@@ -161,6 +161,9 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
     // Update src/stores.rs (marker-based insertion)
     update_stores_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
 
+    // Update src/module.rs (marker-based insertion)
+    update_module_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
+
     output::print_success(&format!("Entity '{}' created!", &entity_name));
     output::print_next_steps(&[
         "Don't forget to:",
@@ -250,6 +253,110 @@ fn update_stores_rs(
 
     output::print_info(&format!(
         "Updated src/stores.rs (added {} store)",
+        entity_name
+    ));
+
+    Ok(())
+}
+
+/// Update src/module.rs to register the new entity in all 4 marker sections.
+///
+/// Uses marker-based insertion for idempotent updates:
+/// - `[this:entity_types]` — entity type string in vec![]
+/// - `[this:register_entities]` — descriptor registration
+/// - `[this:entity_fetcher]` — match arm for get_entity_fetcher
+/// - `[this:entity_creator]` — match arm for get_entity_creator
+fn update_module_rs(
+    project_root: &Path,
+    entity_name: &str,
+    entity_pascal: &str,
+    entity_plural: &str,
+) -> Result<()> {
+    let module_path = project_root.join("src/module.rs");
+    if !module_path.exists() {
+        output::print_warn("src/module.rs not found — skipping module registration");
+        return Ok(());
+    }
+
+    let content =
+        std::fs::read_to_string(&module_path).with_context(|| "Failed to read src/module.rs")?;
+
+    // Check markers exist
+    if !content.contains("[this:entity_types]") {
+        output::print_warn(
+            "src/module.rs has no [this:entity_types] marker — skipping module registration.\n\
+             Hint: regenerate your project with `this init` to get marker-based templates.",
+        );
+        return Ok(());
+    }
+
+    // Idempotence check
+    let type_needle = format!("\"{}\"", entity_name);
+    if markers::has_line_after_marker(&content, "[this:entity_types]", &type_needle) {
+        output::print_info(&format!(
+            "module.rs already contains \"{}\" — skipping",
+            entity_name
+        ));
+        return Ok(());
+    }
+
+    // 1. Add entity type after [this:entity_types]
+    let entity_type_line = format!("\"{}\",", entity_name);
+    let mut updated =
+        markers::insert_after_marker(&content, "[this:entity_types]", &entity_type_line)?;
+
+    // 2. Add descriptor registration after [this:register_entities]
+    // Change _registry to registry since it's now used
+    updated = updated.replace(
+        "_registry: &mut EntityRegistry",
+        "registry: &mut EntityRegistry",
+    );
+    let register_line = format!(
+        "registry.register(Box::new({pascal}Descriptor::new_with_creator(self.stores.{plural}_store.clone(), self.stores.{plural}_entity.clone())));",
+        pascal = entity_pascal,
+        plural = entity_plural
+    );
+    updated = markers::insert_after_marker(&updated, "[this:register_entities]", &register_line)?;
+
+    // 3. Add match arm for entity_fetcher after [this:entity_fetcher]
+    // Change _entity_type to entity_type since it's now used
+    updated = updated.replace(
+        "fn get_entity_fetcher(&self, _entity_type: &str)",
+        "fn get_entity_fetcher(&self, entity_type: &str)",
+    );
+    updated = updated.replace("match _entity_type {", "match entity_type {");
+    let fetcher_line = format!(
+        "\"{name}\" => Some(self.stores.{plural}_entity.clone()),",
+        name = entity_name,
+        plural = entity_plural
+    );
+    updated = markers::insert_after_marker(&updated, "[this:entity_fetcher]", &fetcher_line)?;
+
+    // 4. Add match arm for entity_creator after [this:entity_creator]
+    // Change _entity_type to entity_type since it's now used
+    updated = updated.replace(
+        "fn get_entity_creator(&self, _entity_type: &str)",
+        "fn get_entity_creator(&self, entity_type: &str)",
+    );
+    let creator_line = format!(
+        "\"{name}\" => Some(self.stores.{plural}_entity.clone()),",
+        name = entity_name,
+        plural = entity_plural
+    );
+    updated = markers::insert_after_marker(&updated, "[this:entity_creator]", &creator_line)?;
+
+    // 5. Add imports
+    let descriptor_import = format!(
+        "use crate::entities::{name}::descriptor::{pascal}Descriptor;",
+        name = entity_name,
+        pascal = entity_pascal
+    );
+    updated = markers::add_import(&updated, &descriptor_import);
+
+    std::fs::write(&module_path, updated).with_context(|| "Failed to write src/module.rs")?;
+
+    output::print_info(&format!(
+        "Updated src/module.rs (registered {} entity)",
         entity_name
     ));
 
