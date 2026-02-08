@@ -380,6 +380,218 @@ fn test_full_pipeline() {
 }
 
 // ============================================================================
+// Auto-update tests (stores.rs, module.rs, links.yaml)
+// ============================================================================
+
+#[test]
+fn test_add_entity_updates_stores_rs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    run_this(
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
+        &project,
+    );
+
+    let stores = std::fs::read_to_string(project.join("src/stores.rs")).unwrap();
+    assert!(
+        stores.contains("products_store: Arc<dyn ProductStore>"),
+        "Should have products_store field"
+    );
+    assert!(
+        stores.contains("products_entity: Arc<dyn EntityStore>"),
+        "Should have products_entity field"
+    );
+    assert!(
+        stores.contains("InMemoryProductStore::default()"),
+        "Should have init var"
+    );
+    assert!(
+        stores.contains("products_store: products.clone()"),
+        "Should have init field"
+    );
+    assert!(
+        stores.contains("products_entity: products"),
+        "Should have entity init field"
+    );
+    assert!(
+        stores.contains("use crate::entities::product::{InMemoryProductStore, ProductStore};"),
+        "Should have import"
+    );
+}
+
+#[test]
+fn test_add_entity_updates_module_rs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    run_this(
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
+        &project,
+    );
+
+    let module = std::fs::read_to_string(project.join("src/module.rs")).unwrap();
+    assert!(module.contains("\"product\","), "Should have entity type");
+    assert!(
+        module.contains("ProductDescriptor::new_with_creator"),
+        "Should have descriptor registration"
+    );
+    assert!(
+        module.contains("\"product\" => Some(self.stores.products_entity.clone())"),
+        "Should have fetcher match arm"
+    );
+    assert!(
+        module.contains("use crate::entities::product::descriptor::ProductDescriptor;"),
+        "Should have descriptor import"
+    );
+}
+
+#[test]
+fn test_add_entity_updates_links_yaml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    run_this(&["add", "entity", "product"], &project);
+
+    let yaml = std::fs::read_to_string(project.join("config/links.yaml")).unwrap();
+    assert!(
+        yaml.contains("singular: product"),
+        "Should have entity config"
+    );
+    assert!(yaml.contains("plural: products"), "Should have plural");
+}
+
+#[test]
+fn test_add_entity_idempotent_stores() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    // Add entity twice — second time the entity dir already exists so the command fails.
+    // Instead, we add two different entities and check no cross-contamination.
+    run_this(
+        &["add", "entity", "product", "--fields", "sku:String"],
+        &project,
+    );
+    run_this(
+        &["add", "entity", "category", "--fields", "slug:String"],
+        &project,
+    );
+
+    let stores = std::fs::read_to_string(project.join("src/stores.rs")).unwrap();
+    // Each store field + init = 2 occurrences of "{entity}_store:"
+    assert_eq!(
+        stores.matches("products_store:").count(),
+        2,
+        "products_store should appear twice (field + init)"
+    );
+    assert_eq!(
+        stores.matches("categories_store:").count(),
+        2,
+        "categories_store should appear twice (field + init)"
+    );
+    // InMemoryXxxStore appears in import + init = 2
+    assert_eq!(
+        stores.matches("InMemoryProductStore").count(),
+        2,
+        "InMemoryProductStore should appear twice (import + init)"
+    );
+    assert_eq!(
+        stores.matches("InMemoryCategoryStore").count(),
+        2,
+        "InMemoryCategoryStore should appear twice (import + init)"
+    );
+}
+
+#[test]
+fn test_add_entity_idempotent_module() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    run_this(
+        &["add", "entity", "product", "--fields", "sku:String"],
+        &project,
+    );
+    run_this(
+        &["add", "entity", "category", "--fields", "slug:String"],
+        &project,
+    );
+
+    let module = std::fs::read_to_string(project.join("src/module.rs")).unwrap();
+    // Each entity type should appear exactly once in entity_types vec
+    assert_eq!(
+        module.matches("\"product\",").count(),
+        1,
+        "product should appear once in entity_types"
+    );
+    assert_eq!(
+        module.matches("\"category\",").count(),
+        1,
+        "category should appear once in entity_types"
+    );
+    // Each descriptor appears in import + register_entities = 2
+    assert_eq!(
+        module.matches("ProductDescriptor").count(),
+        2,
+        "ProductDescriptor should appear twice (import + register)"
+    );
+    assert_eq!(
+        module.matches("CategoryDescriptor").count(),
+        2,
+        "CategoryDescriptor should appear twice (import + register)"
+    );
+}
+
+#[test]
+fn test_add_entity_multi_updates_stores_and_module() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    // Add three entities
+    run_this(
+        &["add", "entity", "product", "--fields", "sku:String"],
+        &project,
+    );
+    run_this(
+        &["add", "entity", "category", "--fields", "slug:String"],
+        &project,
+    );
+    run_this(
+        &["add", "entity", "tag", "--fields", "label:String"],
+        &project,
+    );
+
+    // Verify stores has all three
+    let stores = std::fs::read_to_string(project.join("src/stores.rs")).unwrap();
+    assert!(stores.contains("products_store"));
+    assert!(stores.contains("categories_store"));
+    assert!(stores.contains("tags_store"));
+
+    // Verify module has all three
+    let module = std::fs::read_to_string(project.join("src/module.rs")).unwrap();
+    assert!(module.contains("\"product\","));
+    assert!(module.contains("\"category\","));
+    assert!(module.contains("\"tag\","));
+
+    // Verify links.yaml has all three
+    let yaml = std::fs::read_to_string(project.join("config/links.yaml")).unwrap();
+    assert!(yaml.contains("singular: product"));
+    assert!(yaml.contains("singular: category"));
+    assert!(yaml.contains("singular: tag"));
+}
+
+// ============================================================================
 // Compilation test (slow — requires cargo check of generated code)
 // ============================================================================
 
