@@ -40,7 +40,7 @@ fn default_auth() -> String {
     "authenticated".to_string()
 }
 
-fn default_entity_auth() -> EntityAuth {
+pub fn default_entity_auth() -> EntityAuth {
     EntityAuth {
         list: default_auth(),
         get: default_auth(),

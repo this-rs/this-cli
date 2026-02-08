@@ -165,6 +165,9 @@ pub fn run(args: AddEntityArgs) -> Result<()> {
     // Update src/module.rs (marker-based insertion)
     update_module_rs(&project_root, &entity_name, &entity_pascal, &entity_plural)?;
 
+    // Update config/links.yaml (add entity config)
+    update_links_yaml(&project_root, &entity_name, &entity_plural)?;
+
     output::print_success(&format!("Entity '{}' created!", &entity_name));
     println!();
     println!("  Your project is ready to run: {}", "cargo run".bold());
@@ -357,6 +360,42 @@ fn update_module_rs(
 
     output::print_info(&format!(
         "Updated src/module.rs (registered {} entity)",
+        entity_name
+    ));
+
+    Ok(())
+}
+
+/// Update config/links.yaml to add the entity config if not already present.
+fn update_links_yaml(project_root: &Path, entity_name: &str, entity_plural: &str) -> Result<()> {
+    let links_path = project_root.join("config/links.yaml");
+    if !links_path.exists() {
+        output::print_warn("config/links.yaml not found — skipping entity config");
+        return Ok(());
+    }
+
+    let yaml_content =
+        std::fs::read_to_string(&links_path).with_context(|| "Failed to read config/links.yaml")?;
+    let mut config: super::add_link::LinksConfig =
+        serde_yaml::from_str(&yaml_content).with_context(|| "Failed to parse links.yaml")?;
+
+    // Idempotence check
+    if config.entities.iter().any(|e| e.singular == entity_name) {
+        return Ok(());
+    }
+
+    config.entities.push(super::add_link::EntityConfig {
+        singular: entity_name.to_string(),
+        plural: entity_plural.to_string(),
+        auth: super::add_link::default_entity_auth(),
+    });
+
+    let new_yaml =
+        serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
+    std::fs::write(&links_path, &new_yaml).with_context(|| "Failed to write config/links.yaml")?;
+
+    output::print_info(&format!(
+        "Updated config/links.yaml (added {} entity config)",
         entity_name
     ));
 
