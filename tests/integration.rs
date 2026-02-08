@@ -830,7 +830,7 @@ fn test_add_entity_reserved_field_name_filtered() {
     let tmp = tempfile::tempdir().unwrap();
     let project = tmp.path().join("reserved-test");
 
-    run_this(&["init", "reserved-test", "--no-git"], &tmp.path());
+    run_this(&["init", "reserved-test", "--no-git"], tmp.path());
 
     // "name" is a reserved field (built-in in impl_data_entity! macro)
     let (success, stdout, _) = run_this(
