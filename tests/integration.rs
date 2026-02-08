@@ -2,8 +2,14 @@ use std::path::Path;
 use std::process::Command;
 
 fn this_bin() -> String {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    format!("{}/target/debug/this", manifest_dir)
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // When built in a workspace, the binary is in the workspace target dir
+    let workspace_target = manifest_dir.parent().unwrap().join("target/debug/this");
+    if workspace_target.exists() {
+        return workspace_target.to_string_lossy().to_string();
+    }
+    // Fallback to crate-level target
+    manifest_dir.join("target/debug/this").to_string_lossy().to_string()
 }
 
 fn run_this(args: &[&str], cwd: &Path) -> (bool, String, String) {
@@ -358,4 +364,79 @@ fn test_full_pipeline() {
     assert!(yaml.contains("has_category"));
     assert!(yaml.contains("source_type: product"));
     assert!(yaml.contains("target_type: category"));
+}
+
+// ============================================================================
+// Compilation test (slow — requires cargo check of generated code)
+// ============================================================================
+
+#[test]
+#[ignore] // Run with: cargo test -- --ignored
+fn test_generated_code_compiles() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Calculate path to the this crate relative to the generated project
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let this_crate_path = format!("{}/../this", manifest_dir);
+
+    // Verify the this crate actually exists
+    assert!(
+        std::path::Path::new(&this_crate_path).join("Cargo.toml").exists(),
+        "this crate not found at {}. This test requires the this-rs workspace layout.",
+        this_crate_path
+    );
+
+    // 1. Init project with local this dependency
+    let (success, _, stderr) = run_this(
+        &["init", "compile-test", "--no-git", "--this-path", &this_crate_path],
+        tmp.path(),
+    );
+    assert!(success, "init should succeed: {}", stderr);
+    let project = tmp.path().join("compile-test");
+
+    // Verify the generated Cargo.toml uses path dependency
+    let cargo_toml = std::fs::read_to_string(project.join("Cargo.toml")).unwrap();
+    assert!(cargo_toml.contains("path ="), "Cargo.toml should use path dependency");
+
+    // 2. Add entity product with fields
+    let (success, _, stderr) = run_this(
+        &["add", "entity", "product", "--fields", "sku:String,price:f64"],
+        &project,
+    );
+    assert!(success, "add entity product should succeed: {}", stderr);
+
+    // 3. Add entity category with validated
+    let (success, _, stderr) = run_this(
+        &[
+            "add", "entity", "category",
+            "--fields", "slug:String,description:Option<String>",
+            "--validated",
+        ],
+        &project,
+    );
+    assert!(success, "add entity category should succeed: {}", stderr);
+
+    // 4. Add link between them
+    let (success, _, stderr) = run_this(
+        &["add", "link", "product", "category"],
+        &project,
+    );
+    assert!(success, "add link should succeed: {}", stderr);
+
+    // 5. cargo check — the generated code MUST compile
+    let output = Command::new("cargo")
+        .args(["check"])
+        .current_dir(&project)
+        .output()
+        .expect("Failed to execute cargo check");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr_cargo = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Generated code should compile!\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr_cargo
+    );
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-{% if this_path %}this = { path = "{{ this_path }}" }{% else %}this = "0.0.6"{% endif %}
+{% if this_path %}this = { package = "this-rs", path = "{{ this_path }}" }{% else %}this = { package = "this-rs", version = "0.0.6" }{% endif %}
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
