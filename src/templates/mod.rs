@@ -13,6 +13,7 @@ const TPL_PROJECT_CARGO_TOML: &str = include_str!("project/Cargo.toml.tera");
 const TPL_PROJECT_MAIN_RS: &str = include_str!("project/main.rs.tera");
 const TPL_PROJECT_MODULE_RS: &str = include_str!("project/module.rs.tera");
 const TPL_PROJECT_ENTITIES_MOD_RS: &str = include_str!("project/entities_mod.rs.tera");
+const TPL_PROJECT_STORES_RS: &str = include_str!("project/stores.rs.tera");
 const TPL_PROJECT_LINKS_YAML: &str = include_str!("project/links.yaml.tera");
 
 // ============================================================================
@@ -40,6 +41,7 @@ impl TemplateEngine {
             ("project/main.rs", TPL_PROJECT_MAIN_RS),
             ("project/module.rs", TPL_PROJECT_MODULE_RS),
             ("project/entities_mod.rs", TPL_PROJECT_ENTITIES_MOD_RS),
+            ("project/stores.rs", TPL_PROJECT_STORES_RS),
             ("project/links.yaml", TPL_PROJECT_LINKS_YAML),
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
@@ -285,6 +287,25 @@ mod tests {
         assert!(content.contains("ProductDescriptor"));
         assert!(content.contains("EntityDescriptor"));
         assert!(content.contains("/products"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_project_stores_rs() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("project/stores.rs", &make_project_context());
+        assert!(
+            result.is_ok(),
+            "stores.rs template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("TestProjectStores"));
+        assert!(content.contains("new_in_memory"));
+        assert!(content.contains("EntityStore"));
+        assert!(content.contains("[this:store_fields]"));
+        assert!(content.contains("[this:store_init_vars]"));
+        assert!(content.contains("[this:store_init_fields]"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
     }
 

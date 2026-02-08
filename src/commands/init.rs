@@ -41,6 +41,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         ("project/Cargo.toml", "Cargo.toml"),
         ("project/main.rs", "src/main.rs"),
         ("project/module.rs", "src/module.rs"),
+        ("project/stores.rs", "src/stores.rs"),
         ("project/entities_mod.rs", "src/entities/mod.rs"),
         ("project/links.yaml", "config/links.yaml"),
     ];

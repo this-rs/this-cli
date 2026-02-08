@@ -5,6 +5,7 @@ use this::storage::InMemoryLinkService;
 
 mod entities;
 mod module;
+mod stores;
 
 use module::{{ project_name_snake | pascal_case }}Module;
 

@@ -1,0 +1,21 @@
+use std::sync::Arc;
+
+use this::prelude::*;
+
+// Combined trait for entity stores
+pub trait EntityStore: EntityFetcher + EntityCreator + Send + Sync {}
+impl<T> EntityStore for T where T: EntityFetcher + EntityCreator + Send + Sync {}
+
+pub struct {{ project_name_snake | pascal_case }}Stores {
+    // [this:store_fields]
+}
+
+impl {{ project_name_snake | pascal_case }}Stores {
+    pub fn new_in_memory() -> Self {
+        // [this:store_init_vars]
+
+        Self {
+            // [this:store_init_fields]
+        }
+    }
+}
