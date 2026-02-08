@@ -1,0 +1,32 @@
+use std::sync::Arc;
+
+use this::server::builder::ServerBuilder;
+use this::storage::InMemoryLinkService;
+
+mod entities;
+mod module;
+
+use module::{{ project_name_snake | pascal_case }}Module;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("info")
+        .init();
+
+    let link_service = Arc::new(InMemoryLinkService::new());
+
+    let module = {{ project_name_snake | pascal_case }}Module::new();
+
+    let app = ServerBuilder::new()
+        .with_link_service((*link_service).clone())
+        .register_module(module)?
+        .build()?;
+
+    println!("🚀 Server running on http://127.0.0.1:{{ port }}");
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:{{ port }}").await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}

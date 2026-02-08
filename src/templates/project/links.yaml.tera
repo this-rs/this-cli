@@ -1,0 +1,9 @@
+# Links configuration for {{ project_name }}
+# Add entity configs and link definitions here.
+# See: https://github.com/this-rs/this-rs
+
+entities: []
+
+links: []
+
+validation_rules: {}

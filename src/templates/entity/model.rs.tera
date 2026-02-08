@@ -1,0 +1,10 @@
+use this::prelude::*;
+
+impl_data_entity!(
+    {{ entity_pascal }},
+    "{{ entity_name }}",
+    [{% for field in indexed_fields %}"{{ field }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    {
+{% for field in fields %}        {{ field.name }}: {{ field.rust_type }},
+{% endfor %}    }
+);

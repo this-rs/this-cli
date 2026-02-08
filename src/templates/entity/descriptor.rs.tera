@@ -1,0 +1,51 @@
+use axum::routing::get;
+use std::sync::Arc;
+use this::prelude::Router;
+use this::server::entity_registry::EntityDescriptor;
+
+use super::{{ entity_pascal }}Store;
+use super::handlers::{
+    {{ entity_pascal }}State, create_{{ entity_name }}, delete_{{ entity_name }}, get_{{ entity_name }}, list_{{ entity_plural }}, update_{{ entity_name }},
+};
+
+#[derive(Clone)]
+pub struct {{ entity_pascal }}Descriptor {
+    store: Arc<dyn {{ entity_pascal }}Store + Send + Sync>,
+    entity_creator: Arc<dyn this::prelude::EntityCreator + Send + Sync>,
+}
+
+impl {{ entity_pascal }}Descriptor {
+    pub fn new_with_creator(
+        store: Arc<dyn {{ entity_pascal }}Store + Send + Sync>,
+        entity_creator: Arc<dyn this::prelude::EntityCreator + Send + Sync>,
+    ) -> Self {
+        Self {
+            store,
+            entity_creator,
+        }
+    }
+}
+
+impl EntityDescriptor for {{ entity_pascal }}Descriptor {
+    fn entity_type(&self) -> &str {
+        "{{ entity_name }}"
+    }
+
+    fn plural(&self) -> &str {
+        "{{ entity_plural }}"
+    }
+
+    fn build_routes(&self) -> Router {
+        let state = {{ entity_pascal }}State {
+            store: self.store.clone(),
+            entity_creator: self.entity_creator.clone(),
+        };
+        Router::new()
+            .route("/{{ entity_plural }}", get(list_{{ entity_plural }}).post(create_{{ entity_name }}))
+            .route(
+                "/{{ entity_plural }}/{id}",
+                get(get_{{ entity_name }}).put(update_{{ entity_name }}).delete(delete_{{ entity_name }}),
+            )
+            .with_state(state)
+    }
+}

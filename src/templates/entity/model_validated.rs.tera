@@ -1,0 +1,35 @@
+use this::prelude::*;
+
+impl_data_entity_validated!(
+    {{ entity_pascal }},
+    "{{ entity_name }}",
+    [{% for field in indexed_fields %}"{{ field }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    {
+{% for field in fields %}        {{ field.name }}: {{ field.rust_type }},
+{% endfor %}    },
+    validate: {
+        create: {
+{% for field in fields %}{% if not field.is_optional %}{% if field.rust_type == "String" %}            {{ field.name }}: [required],
+{% elif field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [required positive],
+{% elif field.rust_type == "i32" or field.rust_type == "i64" or field.rust_type == "u32" or field.rust_type == "u64" %}            {{ field.name }}: [required],
+{% else %}            {{ field.name }}: [required],
+{% endif %}{% endif %}{% endfor %}            status: [required in_list("active", "inactive")],
+        },
+        update: {
+{% for field in fields %}{% if not field.is_optional %}{% if field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [optional positive],
+{% else %}            {{ field.name }}: [optional],
+{% endif %}{% endif %}{% endfor %}            status: [optional in_list("active", "inactive")],
+        },
+    },
+    filters: {
+        create: {
+{% for field in fields %}{% if field.rust_type == "String" %}            {{ field.name }}: [trim],
+{% elif field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [round_decimals(2)],
+{% endif %}{% endfor %}            status: [trim lowercase],
+        },
+        update: {
+{% for field in fields %}{% if field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [round_decimals(2)],
+{% endif %}{% endfor %}            status: [trim lowercase],
+        },
+    }
+);

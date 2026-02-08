@@ -1,0 +1,66 @@
+use axum::Json;
+use axum::extract::{Path, State};
+use std::sync::Arc;
+use this::prelude::*;
+
+use super::{{ entity_pascal }};
+use super::{{ entity_pascal }}Store;
+
+#[derive(Clone)]
+pub struct {{ entity_pascal }}State {
+    pub store: Arc<dyn {{ entity_pascal }}Store>,
+    pub entity_creator: Arc<dyn EntityCreator>,
+}
+
+pub async fn list_{{ entity_plural }}(State(state): State<{{ entity_pascal }}State>) -> Json<serde_json::Value> {
+    match state.store.list().await {
+        Ok(items) => Json(serde_json::to_value(items).unwrap_or_else(|_| serde_json::json!([]))),
+        Err(e) => {
+            eprintln!("List {{ entity_plural }} error: {:?}", e);
+            Json(serde_json::json!({
+                "error": "Failed to list {{ entity_plural }}",
+                "details": e.to_string()
+            }))
+        }
+    }
+}
+
+pub async fn get_{{ entity_name }}(
+    State(state): State<{{ entity_pascal }}State>,
+    Path(id): Path<Uuid>,
+) -> Json<Option<{{ entity_pascal }}>> {
+    let item = state.store.get(&id).await.ok();
+    Json(item)
+}
+
+pub async fn create_{{ entity_name }}(
+    State(state): State<{{ entity_pascal }}State>,
+    Json(entity_data): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    match state.entity_creator.create_from_json(entity_data).await {
+        Ok(created) => Json(created),
+        Err(e) => {
+            eprintln!("Create {{ entity_name }} error: {:?}", e);
+            Json(serde_json::json!({
+                "error": "Failed to create {{ entity_name }}",
+                "details": e.to_string()
+            }))
+        }
+    }
+}
+
+pub async fn update_{{ entity_name }}(
+    State(state): State<{{ entity_pascal }}State>,
+    Json(entity): Json<{{ entity_pascal }}>,
+) -> Json<Option<{{ entity_pascal }}>> {
+    let updated = state.store.update(entity).await.ok();
+    Json(updated)
+}
+
+pub async fn delete_{{ entity_name }}(
+    State(state): State<{{ entity_pascal }}State>,
+    Path(id): Path<Uuid>,
+) -> Json<bool> {
+    let ok = state.store.delete(&id).await.is_ok();
+    Json(ok)
+}

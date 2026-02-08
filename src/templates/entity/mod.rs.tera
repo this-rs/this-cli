@@ -1,0 +1,7 @@
+pub mod descriptor;
+pub mod handlers;
+pub mod model;
+pub mod store;
+
+pub use model::{{ entity_pascal }};
+pub use store::{InMemory{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};

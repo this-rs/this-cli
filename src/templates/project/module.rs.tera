@@ -1,0 +1,56 @@
+use std::sync::Arc;
+
+use this::core::module::Module;
+use this::prelude::*;
+use this::server::entity_registry::EntityRegistry;
+
+pub struct {{ project_name_snake | pascal_case }}Module;
+
+impl {{ project_name_snake | pascal_case }}Module {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Module for {{ project_name_snake | pascal_case }}Module {
+    fn name(&self) -> &str {
+        "{{ project_name }}"
+    }
+
+    fn entity_types(&self) -> Vec<&str> {
+        vec![
+            // Add entity types here, e.g.:
+            // "product",
+        ]
+    }
+
+    fn links_config(&self) -> anyhow::Result<LinksConfig> {
+        LinksConfig::from_yaml_file("config/links.yaml")
+    }
+
+    fn register_entities(&self, _registry: &mut EntityRegistry) {
+        // Register entity descriptors here, e.g.:
+        // registry.register(Box::new(ProductDescriptor::new_with_creator(
+        //     self.stores.products_store.clone(),
+        //     self.stores.products_entity.clone(),
+        // )));
+    }
+
+    fn get_entity_fetcher(&self, _entity_type: &str) -> Option<Arc<dyn EntityFetcher>> {
+        // Match entity types here, e.g.:
+        // match entity_type {
+        //     "product" => Some(self.stores.products_entity.clone()),
+        //     _ => None,
+        // }
+        None
+    }
+
+    fn get_entity_creator(&self, _entity_type: &str) -> Option<Arc<dyn EntityCreator>> {
+        // Match entity types here, e.g.:
+        // match entity_type {
+        //     "product" => Some(self.stores.products_entity.clone()),
+        //     _ => None,
+        // }
+        None
+    }
+}
