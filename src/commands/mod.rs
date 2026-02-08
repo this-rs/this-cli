@@ -1,5 +1,6 @@
 pub mod add_entity;
 pub mod add_link;
+pub mod doctor;
 pub mod info;
 pub mod init;
 
@@ -24,6 +25,9 @@ pub enum Commands {
 
     /// Show project information and status
     Info,
+
+    /// Check project health and consistency
+    Doctor,
 }
 
 #[derive(Parser)]

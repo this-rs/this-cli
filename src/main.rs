@@ -16,6 +16,7 @@ fn main() {
             AddCommands::Link(args) => commands::add_link::run(args),
         },
         Commands::Info => commands::info::run(),
+        Commands::Doctor => commands::doctor::run(),
     };
 
     if let Err(e) = result {
