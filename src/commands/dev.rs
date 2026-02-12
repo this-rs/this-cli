@@ -9,9 +9,10 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
 use super::DevArgs;
+use crate::commands::info;
 use crate::config::{self, TargetType};
-use crate::utils::output;
 use crate::utils::project;
+use crate::utils::{naming, output};
 
 /// Detected Rust watcher tool on the system.
 #[derive(Debug, PartialEq)]
@@ -61,6 +62,9 @@ pub fn run(args: DevArgs) -> Result<()> {
 
     // 6. Print dev banner
     print_banner(port, &watcher, webapp, args.api_only);
+
+    // 6b. Print contextual usage examples (best-effort, never fails)
+    print_usage_examples(port);
 
     // 7. Setup Ctrl+C handler
     let running = Arc::new(AtomicBool::new(true));
@@ -324,6 +328,143 @@ fn print_banner(
     println!();
 }
 
+/// Print contextual usage examples based on project introspection.
+/// Best-effort: silently skips if introspection fails (e.g. not a this-rs project).
+fn print_usage_examples(port: u16) {
+    let project_info = match info::collect_info() {
+        Ok(info) => info,
+        Err(_) => return, // graceful fallback — no examples if introspection fails
+    };
+
+    let first_entity_route = project_info
+        .entities
+        .first()
+        .map(|e| naming::pluralize(&e.name));
+
+    println!("   {}", "Examples:".bold());
+    println!();
+
+    // REST example — always available
+    if let Some(ref route) = first_entity_route {
+        println!(
+            "   {}  curl http://127.0.0.1:{}/{}",
+            "[REST]".cyan(),
+            port,
+            route
+        );
+    } else {
+        println!(
+            "   {}  curl http://127.0.0.1:{}/health",
+            "[REST]".cyan(),
+            port
+        );
+    }
+
+    // GraphQL example — only if feature enabled
+    if project_info.features.graphql {
+        if !project_info.entities.is_empty() {
+            let entity_name = &project_info.entities[0].name;
+            println!(
+                "   {}  curl -X POST http://127.0.0.1:{}/graphql -H 'Content-Type: application/json' \\",
+                "[GQL] ".magenta(),
+                port
+            );
+            println!(
+                "                 -d '{{\"query\": \"{{ {} {{ id }} }}\"}}'",
+                naming::pluralize(entity_name)
+            );
+        } else {
+            println!(
+                "   {}  open http://127.0.0.1:{}/graphql/playground",
+                "[GQL] ".magenta(),
+                port
+            );
+        }
+    }
+
+    // gRPC example — only if feature enabled
+    if project_info.features.grpc {
+        println!(
+            "   {}  grpcurl -plaintext 127.0.0.1:{} list",
+            "[gRPC]".yellow(),
+            port
+        );
+    }
+
+    // WebSocket example — only if feature enabled
+    if project_info.features.websocket {
+        println!(
+            "   {}  websocat ws://127.0.0.1:{}/ws",
+            "[WS]  ".green(),
+            port
+        );
+    }
+
+    println!();
+}
+
+/// Build usage examples as a list of (label, command) pairs — useful for testing.
+#[cfg(test)]
+fn build_usage_examples(
+    port: u16,
+    entities: &[info::EntityInfo],
+    features: &info::FeatureFlags,
+) -> Vec<(String, String)> {
+    let mut examples = Vec::new();
+
+    let first_entity_route = entities.first().map(|e| naming::pluralize(&e.name));
+
+    // REST — always
+    if let Some(ref route) = first_entity_route {
+        examples.push((
+            "REST".to_string(),
+            format!("curl http://127.0.0.1:{}/{}", port, route),
+        ));
+    } else {
+        examples.push((
+            "REST".to_string(),
+            format!("curl http://127.0.0.1:{}/health", port),
+        ));
+    }
+
+    // GraphQL
+    if features.graphql {
+        if let Some(entity) = entities.first() {
+            examples.push((
+                "GQL".to_string(),
+                format!(
+                    "curl -X POST http://127.0.0.1:{}/graphql -H 'Content-Type: application/json' -d '{{\"query\": \"{{ {} {{ id }} }}\"}}' ",
+                    port,
+                    naming::pluralize(&entity.name)
+                ),
+            ));
+        } else {
+            examples.push((
+                "GQL".to_string(),
+                format!("open http://127.0.0.1:{}/graphql/playground", port),
+            ));
+        }
+    }
+
+    // gRPC
+    if features.grpc {
+        examples.push((
+            "gRPC".to_string(),
+            format!("grpcurl -plaintext 127.0.0.1:{} list", port),
+        ));
+    }
+
+    // WebSocket
+    if features.websocket {
+        examples.push((
+            "WS".to_string(),
+            format!("websocat ws://127.0.0.1:{}/ws", port),
+        ));
+    }
+
+    examples
+}
+
 /// Color enum for output prefixing.
 #[derive(Clone, Copy)]
 enum Color {
@@ -406,5 +547,87 @@ mod tests {
         assert_eq!(RustWatcher::Watchexec.label(), "watchexec");
         assert_eq!(RustWatcher::Bacon.label(), "bacon");
         assert_eq!(RustWatcher::None.label(), "none");
+    }
+
+    fn make_entity(name: &str) -> info::EntityInfo {
+        info::EntityInfo {
+            name: name.to_string(),
+            fields: vec![],
+            is_validated: false,
+        }
+    }
+
+    #[test]
+    fn test_build_usage_examples_all_features() {
+        let entities = vec![make_entity("order"), make_entity("invoice")];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: true,
+            grpc: true,
+        };
+
+        let examples = build_usage_examples(4242, &entities, &features);
+
+        assert_eq!(examples.len(), 4);
+        assert_eq!(examples[0].0, "REST");
+        assert!(examples[0].1.contains("/orders"));
+        assert_eq!(examples[1].0, "GQL");
+        assert!(examples[1].1.contains("/graphql"));
+        assert!(examples[1].1.contains("orders"));
+        assert_eq!(examples[2].0, "gRPC");
+        assert!(examples[2].1.contains("grpcurl"));
+        assert_eq!(examples[3].0, "WS");
+        assert!(examples[3].1.contains("ws://"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_rest_only() {
+        let entities = vec![make_entity("product")];
+        let features = info::FeatureFlags {
+            graphql: false,
+            websocket: false,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+
+        assert_eq!(examples.len(), 1);
+        assert_eq!(examples[0].0, "REST");
+        assert!(examples[0].1.contains("/products"));
+        assert!(examples[0].1.contains("3000"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_no_entities_fallback() {
+        let entities: Vec<info::EntityInfo> = vec![];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: false,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(8080, &entities, &features);
+
+        assert_eq!(examples.len(), 2);
+        // REST fallback to /health
+        assert!(examples[0].1.contains("/health"));
+        // GraphQL fallback to playground
+        assert!(examples[1].1.contains("/graphql/playground"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_uses_correct_port() {
+        let entities = vec![make_entity("store")];
+        let features = info::FeatureFlags {
+            graphql: false,
+            websocket: true,
+            grpc: true,
+        };
+
+        let examples = build_usage_examples(9999, &entities, &features);
+
+        for (_, cmd) in &examples {
+            assert!(cmd.contains("9999"), "Port 9999 missing in: {}", cmd);
+        }
     }
 }

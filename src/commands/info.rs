@@ -57,6 +57,7 @@ pub struct TargetInfo {
 /// Feature flags detected from this-rs dependency
 #[derive(Debug, Serialize)]
 pub struct FeatureFlags {
+    pub graphql: bool,
     pub websocket: bool,
     pub grpc: bool,
 }
@@ -136,6 +137,11 @@ pub fn run() -> Result<()> {
     println!();
     println!("{} Project: {}", "📦".bold(), project_name.cyan().bold());
     println!("   Framework: this-rs {}", this_version.dimmed());
+    if info.features.graphql {
+        println!("   GraphQL:   {}", "✓ enabled".green());
+    } else {
+        println!("   GraphQL:   {}", "✗ disabled".dimmed());
+    }
     if info.features.websocket {
         println!("   WebSocket: {}", "✓ enabled".green());
     } else {
@@ -347,6 +353,7 @@ pub fn detect_this_features(project_root: &Path) -> FeatureFlags {
         Ok(c) => c,
         Err(_) => {
             return FeatureFlags {
+                graphql: false,
                 websocket: false,
                 grpc: false,
             };
@@ -357,6 +364,7 @@ pub fn detect_this_features(project_root: &Path) -> FeatureFlags {
         Ok(d) => d,
         Err(_) => {
             return FeatureFlags {
+                graphql: false,
                 websocket: false,
                 grpc: false,
             };
@@ -369,12 +377,19 @@ pub fn detect_this_features(project_root: &Path) -> FeatureFlags {
         .and_then(|this_dep| this_dep.get("features"))
         .and_then(|features| features.as_array());
 
+    let graphql =
+        features_array.is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("graphql")));
+
     let websocket =
         features_array.is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("websocket")));
 
     let grpc = features_array.is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("grpc")));
 
-    FeatureFlags { websocket, grpc }
+    FeatureFlags {
+        graphql,
+        websocket,
+        grpc,
+    }
 }
 
 /// Scan src/entities/ to discover entities and their fields
