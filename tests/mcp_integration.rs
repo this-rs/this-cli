@@ -400,3 +400,99 @@ fn test_mcp_unknown_tool_error() {
     assert!(content.contains("Unknown tool"));
     assert_eq!(resp["result"]["isError"], true);
 }
+
+// ============================================================================
+// Workspace MCP tests
+// ============================================================================
+
+#[test]
+fn test_mcp_init_project_workspace() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {
+                "name": "ws_mcp_test",
+                "cwd": cwd,
+                "no_git": true,
+                "workspace": true
+            }
+        })),
+        2,
+    );
+    let responses = mcp_call(&[&init, &call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    assert!(resp["result"].is_object());
+
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let result: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["project_name"], "ws_mcp_test");
+
+    // Verify workspace structure on disk
+    let ws_dir = tmpdir.path().join("ws_mcp_test");
+    assert!(ws_dir.exists(), "Workspace dir should exist");
+    assert!(ws_dir.join("this.yaml").exists(), "this.yaml should exist");
+    assert!(
+        ws_dir.join("api/Cargo.toml").exists(),
+        "api/Cargo.toml should exist"
+    );
+    assert!(
+        ws_dir.join("api/src/main.rs").exists(),
+        "api/src/main.rs should exist"
+    );
+    assert!(
+        ws_dir.join("api/dist/.gitkeep").exists(),
+        "api/dist/.gitkeep should exist"
+    );
+}
+
+#[test]
+fn test_mcp_get_project_info_workspace() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+    let init = initialize_msg();
+
+    // Create workspace project
+    let init_call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {"name": "ws_info_test", "cwd": cwd, "no_git": true, "workspace": true}
+        })),
+        2,
+    );
+
+    // Get info from workspace root
+    let ws_cwd = tmpdir
+        .path()
+        .join("ws_info_test")
+        .to_string_lossy()
+        .to_string();
+    let info_call = json_rpc(
+        "tools/call",
+        Some(json!({"name": "get_project_info", "arguments": {"cwd": &ws_cwd}})),
+        3,
+    );
+    let responses = mcp_call(&[&init, &init_call, &info_call]);
+
+    assert_eq!(responses.len(), 3);
+    let resp = &responses[2];
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let result: Value = serde_json::from_str(content).unwrap();
+
+    // Should have workspace info in the response
+    assert!(
+        result["workspace"].is_object(),
+        "Should include workspace info"
+    );
+    assert_eq!(result["workspace"]["name"], "ws_info_test");
+    assert_eq!(result["workspace"]["api_path"], "api");
+    assert_eq!(result["workspace"]["api_port"], 3000);
+}

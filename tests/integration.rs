@@ -97,6 +97,226 @@ fn test_init_generated_cargo_toml_valid() {
 }
 
 // ============================================================================
+// this init --workspace tests
+// ============================================================================
+
+#[test]
+fn test_init_workspace_creates_structure() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["init", "my-ws", "--workspace"], tmp.path());
+
+    assert!(success, "init --workspace should succeed");
+    assert!(stdout.contains("Workspace 'my-ws' created successfully"));
+
+    let ws_dir = tmp.path().join("my-ws");
+
+    // Workspace root files
+    assert!(ws_dir.join("this.yaml").exists(), "this.yaml should exist");
+    assert!(
+        ws_dir.join(".gitignore").exists(),
+        ".gitignore should exist"
+    );
+    assert!(
+        ws_dir.join(".git").exists(),
+        "git repo should be initialized"
+    );
+
+    // Verify this.yaml content
+    let this_yaml = std::fs::read_to_string(ws_dir.join("this.yaml")).unwrap();
+    assert!(
+        this_yaml.contains("name: my-ws"),
+        "this.yaml should contain project name"
+    );
+    assert!(
+        this_yaml.contains("api:"),
+        "this.yaml should contain api section"
+    );
+
+    // API subdirectory with classic scaffold
+    assert!(
+        ws_dir.join("api/Cargo.toml").exists(),
+        "api/Cargo.toml should exist"
+    );
+    assert!(
+        ws_dir.join("api/src/main.rs").exists(),
+        "api/src/main.rs should exist"
+    );
+    assert!(
+        ws_dir.join("api/src/module.rs").exists(),
+        "api/src/module.rs should exist"
+    );
+    assert!(
+        ws_dir.join("api/src/entities/mod.rs").exists(),
+        "api/src/entities/mod.rs should exist"
+    );
+    assert!(
+        ws_dir.join("api/config/links.yaml").exists(),
+        "api/config/links.yaml should exist"
+    );
+    assert!(
+        ws_dir.join("api/dist/.gitkeep").exists(),
+        "api/dist/.gitkeep should exist"
+    );
+
+    // Workspace .gitignore should include frontend artifacts
+    let gitignore = std::fs::read_to_string(ws_dir.join(".gitignore")).unwrap();
+    assert!(
+        gitignore.contains("node_modules/"),
+        ".gitignore should contain node_modules"
+    );
+    assert!(
+        gitignore.contains("dist/"),
+        ".gitignore should contain dist/"
+    );
+}
+
+#[test]
+fn test_init_classic_unchanged() {
+    // Regression test: classic init (without --workspace) MUST produce the same result
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(&["init", "classic-proj", "--no-git"], tmp.path());
+
+    assert!(success, "classic init should succeed");
+    assert!(stdout.contains("Project 'classic-proj' created successfully"));
+
+    let project_dir = tmp.path().join("classic-proj");
+
+    // Classic structure: flat, no this.yaml, no api/ subdirectory
+    assert!(
+        project_dir.join("Cargo.toml").exists(),
+        "Cargo.toml at root"
+    );
+    assert!(
+        project_dir.join("src/main.rs").exists(),
+        "src/main.rs at root"
+    );
+    assert!(
+        !project_dir.join("this.yaml").exists(),
+        "No this.yaml in classic mode"
+    );
+    assert!(
+        !project_dir.join("api").exists(),
+        "No api/ directory in classic mode"
+    );
+}
+
+#[test]
+fn test_init_workspace_dry_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, stdout, _) = run_this(
+        &["--dry-run", "init", "phantom-ws", "--workspace"],
+        tmp.path(),
+    );
+
+    assert!(success, "dry-run init --workspace should succeed");
+    assert!(stdout.contains("Dry run"), "Should show dry-run banner");
+    assert!(stdout.contains("Would create"), "Should list files");
+    assert!(
+        !tmp.path().join("phantom-ws").exists(),
+        "Should NOT create the directory"
+    );
+}
+
+#[test]
+fn test_init_workspace_custom_port() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "port-ws", "--workspace", "--port", "8080"],
+        tmp.path(),
+    );
+
+    assert!(success);
+    let ws_dir = tmp.path().join("port-ws");
+
+    // this.yaml should have custom port
+    let this_yaml = std::fs::read_to_string(ws_dir.join("this.yaml")).unwrap();
+    assert!(
+        this_yaml.contains("8080"),
+        "this.yaml should contain custom port"
+    );
+    assert!(
+        !this_yaml.contains("3000"),
+        "this.yaml should NOT contain default port"
+    );
+
+    // api/src/main.rs should also have custom port
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("8080"),
+        "main.rs should contain custom port"
+    );
+}
+
+#[test]
+fn test_init_workspace_directory_exists_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(tmp.path().join("existing-ws")).unwrap();
+
+    let (success, _, stderr) = run_this(&["init", "existing-ws", "--workspace"], tmp.path());
+
+    assert!(
+        !success,
+        "init --workspace should fail when directory exists"
+    );
+    assert!(stderr.contains("already exists"));
+}
+
+#[test]
+fn test_workspace_add_entity_from_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-entity", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success, "workspace init should succeed");
+
+    let ws_dir = tmp.path().join("ws-entity");
+
+    // Add entity from workspace root — should resolve to api/ via detect_project_root()
+    let (success, stdout, stderr) = run_this(
+        &[
+            "add",
+            "entity",
+            "product",
+            "--fields",
+            "sku:String,price:f64",
+        ],
+        &ws_dir,
+    );
+
+    assert!(
+        success,
+        "add entity from workspace root should succeed. stderr: {}",
+        stderr
+    );
+    assert!(stdout.contains("Entity 'product' created"));
+
+    // Entity files should be in api/src/entities/product/
+    assert!(ws_dir.join("api/src/entities/product/model.rs").exists());
+    assert!(ws_dir.join("api/src/entities/product/store.rs").exists());
+    assert!(ws_dir.join("api/src/entities/product/handlers.rs").exists());
+}
+
+#[test]
+fn test_workspace_info_from_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "ws-info", "--workspace", "--no-git"], tmp.path());
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-info");
+
+    // Info from workspace root should work
+    let (success, stdout, stderr) = run_this(&["info"], &ws_dir);
+
+    assert!(
+        success,
+        "info from workspace root should succeed. stderr: {}",
+        stderr
+    );
+    assert!(stdout.contains("Project:"), "Should show project info");
+}
+
+// ============================================================================
 // this add entity tests
 // ============================================================================
 
@@ -653,6 +873,47 @@ fn test_info_outside_project_fails() {
     assert!(stderr.contains("Not inside a this-rs project"));
 }
 
+#[test]
+fn test_info_workspace_displays_workspace_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-info-full", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-info-full");
+    let (success, stdout, _) = run_this(&["info"], &ws_dir);
+
+    assert!(success, "info should succeed in workspace");
+    assert!(
+        stdout.contains("Workspace:"),
+        "Should show Workspace section"
+    );
+    assert!(
+        stdout.contains("ws-info-full"),
+        "Should show workspace name"
+    );
+    assert!(stdout.contains("API:"), "Should show API info");
+    assert!(stdout.contains("Targets:"), "Should show Targets section");
+}
+
+#[test]
+fn test_info_classic_no_workspace_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "classic-info", "--no-git"], tmp.path());
+    assert!(success);
+
+    let project_dir = tmp.path().join("classic-info");
+    let (success, stdout, _) = run_this(&["info"], &project_dir);
+
+    assert!(success, "info should succeed in classic project");
+    assert!(
+        !stdout.contains("Workspace:"),
+        "Should NOT show Workspace section in classic mode"
+    );
+}
+
 // ============================================================================
 // this doctor tests
 // ============================================================================
@@ -703,6 +964,62 @@ fn test_doctor_detects_invalid_link_entity() {
 
     assert!(success, "doctor should succeed (warnings not errors)");
     // The link references order/invoice which only exist in yaml, not as entity dirs
+}
+
+#[test]
+fn test_doctor_workspace_healthy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-doctor", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-doctor");
+    let (success, stdout, _) = run_this(&["doctor"], &ws_dir);
+
+    assert!(success, "doctor should succeed in healthy workspace");
+    assert!(
+        stdout.contains("this.yaml valid"),
+        "Should validate this.yaml"
+    );
+    assert!(
+        stdout.contains("api/Cargo.toml found"),
+        "Should find api/Cargo.toml"
+    );
+}
+
+#[test]
+fn test_doctor_workspace_missing_target_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-missing", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-missing");
+
+    // Manually add a target to this.yaml that has no directory
+    let this_yaml = r#"name: ws-missing
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#;
+    std::fs::write(ws_dir.join("this.yaml"), this_yaml).unwrap();
+
+    let (success, stdout, _) = run_this(&["doctor"], &ws_dir);
+
+    assert!(success, "doctor should succeed (warnings not errors)");
+    assert!(
+        stdout.contains("not found"),
+        "Should warn about missing target directory 'front'"
+    );
+    assert!(stdout.contains("webapp"), "Should mention the target type");
 }
 
 // ============================================================================

@@ -7,9 +7,10 @@ Generate fully compilable this-rs projects and entities from the command line --
 ## Features
 
 - **Zero-touch scaffolding** -- `this init` + `this add entity` produces code that compiles and runs immediately
+- **Workspace mode** -- `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
 - **Automatic code registration** -- entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
-- **Project introspection** -- `this info` shows entities, links, and coherence status at a glance
-- **Health diagnostics** -- `this doctor` checks project consistency and reports issues
+- **Project introspection** -- `this info` shows entities, links, workspace context, and coherence status at a glance
+- **Health diagnostics** -- `this doctor` checks project and workspace consistency and reports issues
 - **Dry-run mode** -- preview all file operations before they happen with `--dry-run`
 - **Shell completions** -- autocompletion for bash, zsh, fish, and PowerShell
 - **Idempotent operations** -- running `add entity` twice won't duplicate registrations
@@ -32,6 +33,8 @@ cargo build -p this-cli
 
 ## Quick Start
 
+### Classic project
+
 ```sh
 # Create a new project
 this init my-api
@@ -48,6 +51,22 @@ this add link product category
 cargo run
 ```
 
+### Workspace project (multi-target)
+
+```sh
+# Create a workspace with this.yaml + api/ subdirectory
+this init my-app --workspace
+
+# All commands work from the workspace root
+cd my-app
+this add entity product --fields "sku:String,price:f64"
+this info
+this doctor
+
+# Run the API server
+cargo run --manifest-path api/Cargo.toml
+```
+
 The generated project includes:
 - A working HTTP server on `http://127.0.0.1:3000`
 - Full CRUD endpoints for each entity
@@ -58,7 +77,8 @@ The generated project includes:
 
 | Command | Description |
 |---------|-------------|
-| `this init <name>` | Create a new this-rs project |
+| `this init <name>` | Create a new this-rs project (classic flat layout) |
+| `this init <name> --workspace` | Create a workspace with `this.yaml` and `api/` subdirectory |
 | `this add entity <name>` | Add an entity with model, store, handlers, descriptor |
 | `this add link <source> <target>` | Configure a relationship between two entities |
 | `this info` | Display project summary and coherence status |
@@ -73,6 +93,7 @@ All write commands support the `--dry-run` flag to preview changes without writi
 this init my-api                    # Create project in ./my-api
 this init my-api --port 8080        # Custom server port
 this init my-api --no-git           # Skip git init
+this init my-app --workspace        # Create workspace layout (this.yaml + api/)
 this --dry-run init my-api          # Preview without creating files
 ```
 
@@ -163,17 +184,20 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 ### Implemented
 
 - Project scaffolding (`init`) with compilable output
+- Workspace mode (`init --workspace`) with `this.yaml` and multi-target layout
 - Entity generation (`add entity`) with zero-touch pipeline
 - Link configuration (`add link`) with smart defaults
 - Automatic `module.rs` / `stores.rs` / `links.yaml` updates
-- Project introspection (`info`) and diagnostics (`doctor`)
+- Project introspection (`info`) and diagnostics (`doctor`) with workspace awareness
+- MCP server (`this mcp`) for AI agent integration (5 tools)
 - Shell completions, dry-run mode
-- 80 tests (42 unit + 38 integration), CI with fmt/clippy/cross-platform
+- 141 tests (79 unit + 48 integration + 14 MCP), CI with fmt/clippy/cross-platform
 
 ### Not yet implemented
 
 - PostgreSQL store generation (waiting on this-rs `postgres` feature)
-- Multi-module support
+- Frontend targets (`this add target webapp`)
+- Native targets (`this add target mobile`)
 - `this remove entity` / `this remove link`
 - OpenAPI generation
 - Custom user templates

@@ -1,0 +1,7 @@
+name: {{ project_name }}
+
+api:
+  path: api
+  port: {{ port }}
+
+targets: []

@@ -85,6 +85,10 @@ pub struct InitArgs {
     /// Path to this-rs crate for local development (uses path dependency instead of crates.io)
     #[arg(long, hide = true)]
     pub this_path: Option<String>,
+
+    /// Create a workspace layout with this.yaml and api/ subdirectory
+    #[arg(long)]
+    pub workspace: bool,
 }
 
 /// Arguments for `this add entity <name>`

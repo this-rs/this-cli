@@ -17,6 +17,12 @@ const TPL_PROJECT_STORES_RS: &str = include_str!("project/stores.rs.tera");
 const TPL_PROJECT_LINKS_YAML: &str = include_str!("project/links.yaml.tera");
 
 // ============================================================================
+// Workspace Templates
+// ============================================================================
+
+const TPL_WORKSPACE_THIS_YAML: &str = include_str!("workspace/this.yaml.tera");
+
+// ============================================================================
 // Entity Templates
 // ============================================================================
 
@@ -43,6 +49,7 @@ impl TemplateEngine {
             ("project/entities_mod.rs", TPL_PROJECT_ENTITIES_MOD_RS),
             ("project/stores.rs", TPL_PROJECT_STORES_RS),
             ("project/links.yaml", TPL_PROJECT_LINKS_YAML),
+            ("workspace/this.yaml", TPL_WORKSPACE_THIS_YAML),
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
@@ -333,6 +340,23 @@ mod tests {
         let content = result.unwrap();
         assert!(content.contains("pub use model::Product"));
         assert!(content.contains("InMemoryProductStore"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_workspace_this_yaml() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("workspace/this.yaml", &make_project_context());
+        assert!(
+            result.is_ok(),
+            "workspace this.yaml template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("name: test-project"));
+        assert!(content.contains("port: 3000"));
+        assert!(content.contains("path: api"));
+        assert!(content.contains("targets: []"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
     }
 }

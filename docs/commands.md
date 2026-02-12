@@ -73,8 +73,9 @@ this init [OPTIONS] <NAME>
 | `--path <PATH>` | `.` | Parent directory for the project |
 | `--no-git` | false | Do not initialize a git repository |
 | `--port <PORT>` | `3000` | Default server port in `main.rs` |
+| `--workspace` | false | Create a workspace layout with `this.yaml` and `api/` subdirectory |
 
-### Generated Files
+### Generated Files (Classic mode)
 
 ```
 <name>/
@@ -90,10 +91,43 @@ this init [OPTIONS] <NAME>
     └── links.yaml          # Link configuration (empty initially)
 ```
 
+### Generated Files (Workspace mode: `--workspace`)
+
+```
+<name>/
+├── this.yaml               # Workspace configuration (name, api path, port, targets)
+├── .gitignore              # Workspace gitignore (includes node_modules/, dist/, .next/, .nuxt/)
+├── api/                    # API target (classic this-rs scaffold)
+│   ├── Cargo.toml
+│   ├── src/
+│   │   ├── main.rs
+│   │   ├── module.rs
+│   │   ├── stores.rs
+│   │   └── entities/
+│   │       └── mod.rs
+│   ├── config/
+│   │   └── links.yaml
+│   └── dist/
+│       └── .gitkeep        # Placeholder for future frontend embed
+└── (future targets: webapp/, mobile/, ...)
+```
+
+The `this.yaml` file is the workspace source of truth:
+
+```yaml
+name: my-app
+api:
+  path: api
+  port: 3000
+targets: []
+```
+
+When inside a workspace, all commands (`add entity`, `info`, `doctor`) automatically resolve to the `api/` directory via `this.yaml`.
+
 ### Examples
 
 ```sh
-# Basic project creation
+# Basic project creation (classic flat layout)
 this init my-api
 
 # Custom port
@@ -104,6 +138,15 @@ this init my-api --no-git
 
 # Create in a specific directory
 this init my-api --path /tmp/projects
+
+# Create a workspace layout for multi-target projects
+this init my-app --workspace
+
+# Workspace with custom port
+this init my-app --workspace --port 8080
+
+# Preview workspace creation without writing files
+this --dry-run init my-app --workspace
 ```
 
 ### Errors
@@ -117,6 +160,8 @@ this init my-api --path /tmp/projects
 - The generated project targets this-rs v0.0.6
 - `module.rs` and `stores.rs` contain marker comments (`// [this:xxx]`) used by `add entity` for automatic code insertion
 - The project compiles immediately with `cargo build` (no entities required)
+- In workspace mode, `api/dist/.gitkeep` is created as a placeholder for future frontend embedding
+- The workspace `.gitignore` includes frontend-related patterns (`node_modules/`, `dist/`, `.next/`, `.nuxt/`)
 
 ---
 
@@ -326,7 +371,7 @@ this add link product tag --no-validation-rule
 
 ## this info
 
-Display a summary of the current this-rs project: entities, links, and coherence status.
+Display a summary of the current this-rs project: entities, links, workspace context, and coherence status.
 
 ### Synopsis
 
@@ -336,15 +381,16 @@ this info
 
 ### Output Sections
 
-1. **Project** -- name (from `Cargo.toml`) and this-rs version
-2. **Entities** -- list of entities with their custom fields, parsed from `model.rs` files
-3. **Links** -- relationships with forward/reverse routes, parsed from `links.yaml`
-4. **Status** -- coherence checks:
+1. **Workspace** (if inside a workspace) -- workspace name, API path, port, configured targets
+2. **Project** -- name (from `Cargo.toml`) and this-rs version
+3. **Entities** -- list of entities with their custom fields, parsed from `model.rs` files
+4. **Links** -- relationships with forward/reverse routes, parsed from `links.yaml`
+5. **Status** -- coherence checks:
    - Module registration (entities in `module.rs` vs. entities on disk)
    - Store configuration (stores in `stores.rs` vs. entities on disk)
    - Link validity (link targets reference existing entities)
 
-### Example Output
+### Example Output (Classic project)
 
 ```
 📦 Project: my-api
@@ -365,6 +411,25 @@ this info
    ✅ Links: Valid configuration
 ```
 
+### Example Output (Workspace project)
+
+```
+🏗️ Workspace: my-app
+   API: api (port 3000)
+   Targets: (none)
+
+📦 Project: my-app
+   Framework: this-rs v0.0.6
+
+📋 Entities (1):
+   • product (fields: sku, price)
+
+📊 Status:
+   ✅ Module: 1/1 entities registered
+   ✅ Stores: 1/1 stores configured
+   ✅ Links: Valid configuration
+```
+
 ### Errors
 
 | Error | Cause |
@@ -373,7 +438,9 @@ this info
 
 ### Notes
 
-- Must be run inside a this-rs project directory
+- Must be run inside a this-rs project directory (or a workspace containing `this.yaml`)
+- When run from a workspace root, automatically resolves to the API directory via `this.yaml`
+- Displays workspace section (name, API path, port, targets) when inside a workspace
 - Works on both pre-v0.0.2 projects (without markers) and v0.0.2+ projects
 - Fields are parsed from `impl_data_entity!` blocks in each entity's `model.rs`
 
@@ -393,6 +460,7 @@ this doctor
 
 | Check | What it verifies |
 |-------|-----------------|
+| **Workspace** (if applicable) | `this.yaml` is parseable, `api/Cargo.toml` exists, target directories are present |
 | **Cargo.toml** | this-rs dependency exists and version is detected |
 | **Entities** | All entity directories in `src/entities/` are declared in `entities/mod.rs` |
 | **Module** | All entities are registered in `module.rs` (via markers) |
@@ -445,6 +513,8 @@ Summary: 3 passed, 1 warning, 1 error
 ### Notes
 
 - Read-only: `doctor` never modifies any files
+- When run from a workspace root, automatically resolves to the API directory and also checks workspace integrity
+- Workspace checks include: `this.yaml` validity, API directory existence, and target directory presence
 - A future `--fix` flag is planned to auto-correct simple issues
 
 ---

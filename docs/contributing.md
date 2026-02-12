@@ -58,7 +58,7 @@ path = "src/main.rs"
 cargo test -p this-cli
 ```
 
-This runs 42 unit tests and 37 integration tests (~0.3s total).
+This runs 79 unit tests, 48 integration tests, and 14 MCP tests (~0.3s total).
 
 ### End-to-end compilation test (slow)
 
@@ -149,6 +149,7 @@ AddCommands::RemoveEntity(args) => commands::remove_entity::run(args, writer),
 
 - Unit tests in the command file (`#[cfg(test)] mod tests`)
 - Integration tests in `tests/integration.rs` (using the `run_this()` helper)
+- MCP integration tests in `tests/mcp_integration.rs`
 
 ### 5. Update documentation
 
@@ -313,10 +314,12 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 | Scope | What it covers |
 |-------|---------------|
 | `init` | `this init` command |
+| `workspace` | Workspace mode (`--workspace`, `this.yaml`, config) |
 | `add-entity` | `this add entity` command |
 | `add-link` | `this add link` command |
 | `info` | `this info` command |
 | `doctor` | `this doctor` command |
+| `mcp` | MCP server and tools |
 | `completions` | Shell completions |
 | `dry-run` | Dry-run mode |
 | `templates` | Template changes |
@@ -326,8 +329,9 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 
 ```
 feat(info): add `this info` command for project introspection
+feat(workspace): add --workspace flag to this init
 fix(add-entity): filter reserved fields from impl_data_entity! macro
-test(v0.0.3): add 13 integration tests for info, doctor, completions, dry-run
+test(mcp): add workspace integration tests for MCP tools
 refactor(templates): extract store initialization into helper
 docs: add README.md and documentation
 ```
@@ -356,5 +360,6 @@ docs: add README.md and documentation
 
 - Unit tests: `#[cfg(test)] mod tests` at the bottom of each file
 - Integration tests: `tests/integration.rs`, using the `run_this()` helper
+- MCP integration tests: `tests/mcp_integration.rs`, using JSON-RPC stdio protocol
 - Slow tests: mark with `#[ignore]`, run with `cargo test -- --ignored`
 - Test names: `test_<feature>_<scenario>` (e.g., `test_add_entity_reserved_field_name_filtered`)
