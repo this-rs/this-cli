@@ -165,8 +165,7 @@ fn test_init_workspace_creates_structure() {
     );
 
     // Verify embedded_frontend.rs content
-    let ef_content =
-        std::fs::read_to_string(ws_dir.join("api/src/embedded_frontend.rs")).unwrap();
+    let ef_content = std::fs::read_to_string(ws_dir.join("api/src/embedded_frontend.rs")).unwrap();
     assert!(
         ef_content.contains("RustEmbed"),
         "embedded_frontend.rs should contain RustEmbed"
@@ -218,8 +217,7 @@ fn test_init_classic_unchanged() {
     let project_dir = tmp.path().join("classic-proj");
 
     // Classic mode should NOT have embed features
-    let cargo_toml =
-        std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+    let cargo_toml = std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
     assert!(
         !cargo_toml.contains("[features]"),
         "Classic Cargo.toml should NOT have [features]"
@@ -228,8 +226,7 @@ fn test_init_classic_unchanged() {
         !cargo_toml.contains("rust-embed"),
         "Classic Cargo.toml should NOT have rust-embed"
     );
-    let main_rs =
-        std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
+    let main_rs = std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
     assert!(
         !main_rs.contains("attach_frontend"),
         "Classic main.rs should NOT have attach_frontend"
@@ -1122,6 +1119,184 @@ fn test_completions_powershell() {
 
     assert!(success);
     assert!(!stdout.is_empty());
+}
+
+// ============================================================================
+// this build tests
+// ============================================================================
+
+fn setup_workspace(tmp: &tempfile::TempDir, name: &str) -> std::path::PathBuf {
+    let (success, _, stderr) = run_this(&["init", name, "--workspace", "--no-git"], tmp.path());
+    assert!(success, "workspace init should succeed: {}", stderr);
+    tmp.path().join(name)
+}
+
+#[test]
+fn test_build_outside_workspace_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let (success, _, stderr) = run_this(&["build"], tmp.path());
+
+    assert!(!success, "build outside workspace should fail");
+    assert!(
+        stderr.contains("Not a this-rs workspace"),
+        "Should say not a workspace. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_build_in_classic_project_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    let (success, _, stderr) = run_this(&["build"], &project);
+
+    assert!(!success, "build in classic project should fail");
+    assert!(
+        stderr.contains("Not a this-rs workspace"),
+        "Should say not a workspace. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_build_embed_without_webapp_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws_dir = setup_workspace(&tmp, "ws-no-webapp");
+
+    let (success, _, stderr) = run_this(&["build", "--embed"], &ws_dir);
+
+    assert!(!success, "build --embed without webapp should fail");
+    assert!(
+        stderr.contains("No webapp target configured"),
+        "Should say no webapp target. stderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--embed"),
+        "Should mention the flag. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_build_front_only_without_webapp_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws_dir = setup_workspace(&tmp, "ws-no-front");
+
+    let (success, _, stderr) = run_this(&["build", "--front-only"], &ws_dir);
+
+    assert!(!success, "build --front-only without webapp should fail");
+    assert!(
+        stderr.contains("No webapp target configured"),
+        "Should say no webapp target. stderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--front-only"),
+        "Should mention the flag. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_build_docker_without_webapp_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws_dir = setup_workspace(&tmp, "ws-no-docker");
+
+    let (success, _, stderr) = run_this(&["build", "--docker"], &ws_dir);
+
+    assert!(!success, "build --docker without webapp should fail");
+    assert!(
+        stderr.contains("No webapp target configured"),
+        "Should say no webapp target. stderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--docker"),
+        "Should mention the flag. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_build_docker_generates_dockerfile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws_dir = setup_workspace(&tmp, "ws-docker");
+
+    // Manually add a webapp target to this.yaml
+    let this_yaml = r#"name: ws-docker
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#;
+    std::fs::write(ws_dir.join("this.yaml"), this_yaml).unwrap();
+
+    let (success, stdout, stderr) = run_this(&["build", "--docker"], &ws_dir);
+
+    assert!(success, "build --docker should succeed. stderr: {}", stderr);
+    assert!(
+        stdout.contains("Dockerfile generated"),
+        "Should say Dockerfile generated. stdout: {}",
+        stdout
+    );
+
+    // Verify Dockerfile was created
+    let dockerfile = ws_dir.join("Dockerfile");
+    assert!(dockerfile.exists(), "Dockerfile should exist");
+
+    let content = std::fs::read_to_string(&dockerfile).unwrap();
+    assert!(
+        content.contains("FROM rust:1-alpine"),
+        "Should contain Rust builder stage"
+    );
+    assert!(
+        content.contains("FROM node:20-alpine"),
+        "Should contain Node frontend stage"
+    );
+    assert!(content.contains("ws-docker"), "Should contain project name");
+    assert!(content.contains("front"), "Should contain webapp path");
+    assert!(content.contains("EXPOSE 3000"), "Should contain port");
+}
+
+#[test]
+fn test_build_docker_dry_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws_dir = setup_workspace(&tmp, "ws-docker-dry");
+
+    // Manually add a webapp target
+    let this_yaml = r#"name: ws-docker-dry
+api:
+  path: api
+  port: 4000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#;
+    std::fs::write(ws_dir.join("this.yaml"), this_yaml).unwrap();
+
+    let (success, stdout, stderr) = run_this(&["--dry-run", "build", "--docker"], &ws_dir);
+
+    assert!(
+        success,
+        "dry-run build --docker should succeed. stderr: {}",
+        stderr
+    );
+    assert!(
+        stdout.contains("Would create") || stdout.contains("Dockerfile"),
+        "Should show dry-run output. stdout: {}",
+        stdout
+    );
+    assert!(
+        !ws_dir.join("Dockerfile").exists(),
+        "Should NOT create Dockerfile in dry-run mode"
+    );
 }
 
 // ============================================================================

@@ -22,6 +22,7 @@ const TPL_PROJECT_EMBEDDED_FRONTEND_RS: &str = include_str!("project/embedded_fr
 // ============================================================================
 
 const TPL_WORKSPACE_THIS_YAML: &str = include_str!("workspace/this.yaml.tera");
+const TPL_WORKSPACE_DOCKERFILE: &str = include_str!("workspace/Dockerfile.tera");
 
 // ============================================================================
 // Entity Templates
@@ -50,8 +51,12 @@ impl TemplateEngine {
             ("project/entities_mod.rs", TPL_PROJECT_ENTITIES_MOD_RS),
             ("project/stores.rs", TPL_PROJECT_STORES_RS),
             ("project/links.yaml", TPL_PROJECT_LINKS_YAML),
-            ("project/embedded_frontend.rs", TPL_PROJECT_EMBEDDED_FRONTEND_RS),
+            (
+                "project/embedded_frontend.rs",
+                TPL_PROJECT_EMBEDDED_FRONTEND_RS,
+            ),
             ("workspace/this.yaml", TPL_WORKSPACE_THIS_YAML),
+            ("workspace/Dockerfile", TPL_WORKSPACE_DOCKERFILE),
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
