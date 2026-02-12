@@ -1,0 +1,68 @@
+// Prevents an additional console window on Windows in release builds.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use std::time::Duration;
+
+/// Start the this-rs API server in background and launch the Tauri desktop app.
+///
+/// The API server is spawned via `tokio::spawn` and the app waits for it to be
+/// healthy before opening the webview window.
+#[tokio::main]
+async fn main() {
+    let api_port: u16 = std::env::var("API_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or({{ api_port }});
+
+    // Spawn the this-rs API server in background
+    tokio::spawn(async move {
+        if let Err(e) = start_api_server(api_port).await {
+            eprintln!("API server error: {}", e);
+        }
+    });
+
+    // Wait for API to be ready (health check loop)
+    wait_for_api(api_port).await;
+
+    // Launch Tauri app
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
+/// Start the this-rs API server on the given port.
+async fn start_api_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    use {{ project_name_snake }}::*;
+
+    let stores = Stores::new_in_memory().await;
+    let module = Module::new(stores);
+    let router = module.into_router();
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    println!("[desktop] API server listening on http://{}", addr);
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+
+/// Wait for the API server to respond to health checks.
+async fn wait_for_api(port: u16) {
+    let url = format!("http://127.0.0.1:{}/api/health", port);
+    let client = reqwest::Client::new();
+    let max_retries = 300; // 30 seconds at 100ms intervals
+
+    for i in 0..max_retries {
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                println!("[desktop] API server ready after {}ms", i * 100);
+                return;
+            }
+            _ => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+
+    eprintln!("[desktop] Warning: API server did not become ready within 30s");
+}

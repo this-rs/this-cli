@@ -23,8 +23,9 @@ pub(crate) fn run_in(
 ) -> Result<()> {
     match args.target_type {
         TargetType::Webapp => run_webapp(args, writer, cwd),
+        TargetType::Desktop => run_desktop(args, writer, cwd),
         other => bail!(
-            "Target type '{}' is not yet supported. Currently only 'webapp' is implemented.",
+            "Target type '{}' is not yet supported. Currently supported: webapp, desktop.",
             other
         ),
     }
@@ -115,6 +116,119 @@ fn run_webapp(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Pat
     println!("  {}", "Next steps:".bold());
     println!("    cd {} && npm install", target_dir_name);
     println!("    this dev");
+    println!();
+
+    Ok(())
+}
+
+fn run_desktop(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Path) -> Result<()> {
+    // 1. Must be inside a workspace
+    let workspace_root = project::find_workspace_root_from(cwd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Not a this-rs workspace. Run `this init <name> --workspace` first, or cd into a workspace directory."
+        )
+    })?;
+
+    let this_yaml_path = workspace_root.join("this.yaml");
+    let config_snapshot = config::load_workspace_config(&this_yaml_path)?;
+
+    // 2. Check that a webapp target exists (desktop requires a frontend to wrap)
+    let webapp_target = config_snapshot
+        .targets
+        .iter()
+        .find(|t| t.target_type == TargetType::Webapp);
+    if webapp_target.is_none() {
+        bail!(
+            "A webapp target is required before adding a desktop target.\n\
+             The desktop app wraps the webapp SPA in a native window.\n\
+             Run `this add target webapp` first."
+        );
+    }
+    let front_path = webapp_target.unwrap().path.clone();
+
+    // 3. Check if desktop target already exists
+    let already_exists = config_snapshot
+        .targets
+        .iter()
+        .any(|t| t.target_type == TargetType::Desktop);
+    if already_exists {
+        bail!(
+            "A desktop target already exists in this workspace. Remove it from this.yaml first if you want to recreate it."
+        );
+    }
+
+    // 4. Determine target directory
+    let target_dir_name = args.name.as_deref().unwrap_or("targets/desktop");
+    let target_path = workspace_root.join(target_dir_name);
+    let tauri_path = target_path.join("src-tauri");
+
+    if target_path.exists() {
+        bail!(
+            "Directory '{}' already exists. Remove it or use --name to choose a different name.",
+            target_dir_name
+        );
+    }
+
+    let project_name = &config_snapshot.name;
+    let api_port = config_snapshot.api.port;
+    let project_name_snake = crate::utils::naming::to_snake_case(project_name);
+
+    output::print_step(&format!(
+        "Adding desktop target (Tauri 2, {})",
+        target_dir_name
+    ));
+
+    // 5. Create directory structure
+    writer.create_dir_all(&tauri_path.join("src"))?;
+    writer.create_dir_all(&tauri_path.join("icons"))?;
+    writer.create_dir_all(&tauri_path.join("capabilities"))?;
+
+    // 6. Render and write templates
+    let engine = TemplateEngine::new()?;
+    let mut ctx = tera::Context::new();
+    ctx.insert("project_name", project_name);
+    ctx.insert("project_name_snake", &project_name_snake);
+    ctx.insert("api_port", &api_port);
+    ctx.insert("front_path", &front_path);
+
+    let templates = [
+        ("desktop/tauri-cargo.toml", "src-tauri/Cargo.toml"),
+        ("desktop/tauri.conf.json", "src-tauri/tauri.conf.json"),
+        ("desktop/tauri-main.rs", "src-tauri/src/main.rs"),
+        ("desktop/tauri-build.rs", "src-tauri/build.rs"),
+        (
+            "desktop/capabilities.json",
+            "src-tauri/capabilities/default.json",
+        ),
+    ];
+
+    for (template_name, output_file) in &templates {
+        let content = engine.render(template_name, &ctx)?;
+        let file_path = target_path.join(output_file);
+        writer.write_file(&file_path, &content)?;
+        output::print_file_created(&format!("{}/{}", target_dir_name, output_file));
+    }
+
+    // 7. Update this.yaml
+    let mut config = config::load_workspace_config(&this_yaml_path)?;
+    config.targets.push(TargetConfig {
+        target_type: TargetType::Desktop,
+        framework: None,
+        runtime: Some("tauri".to_string()),
+        path: target_dir_name.to_string(),
+    });
+    config::save_workspace_config(&this_yaml_path, &config)?;
+    output::print_info("Updated this.yaml with desktop target");
+
+    // 8. Print next steps
+    println!();
+    println!("  {}", "Next steps:".bold());
+    println!("    Install Tauri CLI: cargo install tauri-cli@^2");
+    println!(
+        "    Run desktop app:  cargo tauri dev --manifest-path {}/src-tauri/Cargo.toml",
+        target_dir_name
+    );
+    println!("    Build desktop:    this build --target desktop");
     println!();
 
     Ok(())
@@ -294,7 +408,7 @@ mod tests {
         let ws = setup_workspace(&tmp, "unsupported");
         let writer = DryRunWriter::new();
         let args = AddTargetArgs {
-            target_type: TargetType::Desktop,
+            target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
         };
@@ -305,6 +419,198 @@ mod tests {
             err.contains("not yet supported"),
             "Should mention not supported: {}",
             err
+        );
+    }
+
+    // ========================================================================
+    // Desktop target tests
+    // ========================================================================
+
+    /// Create a workspace with a webapp target already added
+    fn setup_workspace_with_webapp(tmp: &TempDir, name: &str) -> std::path::PathBuf {
+        let ws = tmp.path().join(name);
+        std::fs::create_dir_all(ws.join("api/src")).unwrap();
+        std::fs::create_dir_all(ws.join("front/src")).unwrap();
+        let yaml = format!(
+            "name: {}\napi:\n  path: api\n  port: 3000\ntargets:\n  - target_type: webapp\n    framework: react\n    path: front\n",
+            name
+        );
+        std::fs::write(ws.join("this.yaml"), yaml).unwrap();
+        ws
+    }
+
+    #[test]
+    fn test_add_target_desktop_requires_webapp() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace(&tmp, "no_webapp");
+        let writer = DryRunWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: None,
+        };
+        let result = run_in(args, &writer, &ws);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("webapp target is required"),
+            "Should mention webapp prerequisite: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_target_desktop_creates_files() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "desktop_files");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: None,
+        };
+        let result = run_in(args, &writer, &ws);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+
+        // Check Tauri files were created
+        assert!(ws.join("targets/desktop/src-tauri/Cargo.toml").exists());
+        assert!(
+            ws.join("targets/desktop/src-tauri/tauri.conf.json")
+                .exists()
+        );
+        assert!(ws.join("targets/desktop/src-tauri/src/main.rs").exists());
+        assert!(ws.join("targets/desktop/src-tauri/build.rs").exists());
+        assert!(
+            ws.join("targets/desktop/src-tauri/capabilities/default.json")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn test_add_target_desktop_updates_this_yaml() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "desktop_yaml");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let config = config::load_workspace_config(&ws.join("this.yaml")).unwrap();
+        assert_eq!(config.targets.len(), 2); // webapp + desktop
+        let desktop = config
+            .targets
+            .iter()
+            .find(|t| t.target_type == TargetType::Desktop)
+            .expect("Should have desktop target");
+        assert_eq!(desktop.runtime, Some("tauri".to_string()));
+        assert_eq!(desktop.path, "targets/desktop");
+    }
+
+    #[test]
+    fn test_add_target_desktop_duplicate_error() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "desktop_dup");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        // First time: success
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        // Second time: should fail
+        let args2 = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: Some("targets/desktop2".to_string()),
+        };
+        let result = run_in(args2, &writer, &ws);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("already exists"),
+            "Error should mention duplicate: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_target_desktop_custom_name() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "desktop_custom");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: Some("my-desktop".to_string()),
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        assert!(ws.join("my-desktop/src-tauri/Cargo.toml").exists());
+        assert!(!ws.join("targets/desktop/src-tauri/Cargo.toml").exists());
+
+        let config = config::load_workspace_config(&ws.join("this.yaml")).unwrap();
+        let desktop = config
+            .targets
+            .iter()
+            .find(|t| t.target_type == TargetType::Desktop)
+            .unwrap();
+        assert_eq!(desktop.path, "my-desktop");
+    }
+
+    #[test]
+    fn test_add_target_desktop_tauri_conf_content() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "desktop_conf");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let conf =
+            std::fs::read_to_string(ws.join("targets/desktop/src-tauri/tauri.conf.json")).unwrap();
+        assert!(conf.contains("desktop_conf"), "Should contain project name");
+        assert!(
+            conf.contains("../../../front/dist"),
+            "Should point to front dist"
+        );
+        assert!(
+            conf.contains("http://localhost:5173"),
+            "Should have dev URL"
+        );
+    }
+
+    #[test]
+    fn test_add_target_desktop_main_rs_content() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "desktop_main");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Desktop,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let main_rs =
+            std::fs::read_to_string(ws.join("targets/desktop/src-tauri/src/main.rs")).unwrap();
+        assert!(main_rs.contains("tokio::spawn"), "Should spawn API server");
+        assert!(
+            main_rs.contains("wait_for_api"),
+            "Should wait for health check"
+        );
+        assert!(main_rs.contains("tauri::Builder"), "Should build Tauri app");
+        assert!(
+            main_rs.contains("desktop_main"),
+            "Should reference project crate"
         );
     }
 }
