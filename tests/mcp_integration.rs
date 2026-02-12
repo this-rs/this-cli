@@ -40,7 +40,7 @@ fn mcp_call(messages: &[&str]) -> Vec<Value> {
 
     let responses: Vec<Value> = reader
         .lines()
-        .filter_map(|line| line.ok())
+        .map_while(Result::ok)
         .filter(|line| !line.is_empty())
         .filter_map(|line| serde_json::from_str(&line).ok())
         .collect();
@@ -201,7 +201,7 @@ fn test_mcp_init_project() {
     let result: Value = serde_json::from_str(content).unwrap();
     assert_eq!(result["status"], "success");
     assert_eq!(result["project_name"], "test_mcp_project");
-    assert!(result["files_created"].as_array().unwrap().len() > 0);
+    assert!(!result["files_created"].as_array().unwrap().is_empty());
 
     // Verify files actually exist on disk
     let project_dir = tmpdir.path().join("test_mcp_project");
@@ -346,7 +346,7 @@ fn test_mcp_get_project_info() {
     let content = resp["result"]["content"][0]["text"].as_str().unwrap();
     let result: Value = serde_json::from_str(content).unwrap();
     assert_eq!(result["project_name"], "info_test");
-    assert!(result["entities"].as_array().unwrap().len() > 0);
+    assert!(!result["entities"].as_array().unwrap().is_empty());
     assert!(result["this_version"].is_string());
 }
 

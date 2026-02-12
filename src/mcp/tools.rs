@@ -211,7 +211,7 @@ mod tests {
                 .input_schema
                 .properties
                 .as_ref()
-                .expect(&format!("Tool {} has no properties", tool.name));
+                .unwrap_or_else(|| panic!("Tool {} has no properties", tool.name));
             assert!(
                 props.get("cwd").is_some(),
                 "Tool {} is missing 'cwd' parameter",
