@@ -136,12 +136,18 @@ fn handle_init_project(args: &Value) -> Result<Value> {
     let _cwd_guard = CwdGuard::from_args(args)?;
     let writer = McpFileWriter::new();
 
+    let workspace = args
+        .get("workspace")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     let init_args = InitArgs {
         name: name.clone(),
         path: path.clone(),
         no_git,
         port,
         this_path: None,
+        workspace,
     };
 
     crate::commands::init::run(init_args, &writer)?;

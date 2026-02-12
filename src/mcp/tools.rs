@@ -37,6 +37,10 @@ fn init_project_tool() -> ToolDefinition {
                     "type": "integer",
                     "description": "Default server port (default: 3000)"
                 },
+                "workspace": {
+                    "type": "boolean",
+                    "description": "If true, create a workspace layout with this.yaml and api/ subdirectory for multi-target projects (default: false)"
+                },
                 "cwd": {
                     "type": "string",
                     "description": "Working directory for the command. If provided, the command runs as if invoked from this directory."
