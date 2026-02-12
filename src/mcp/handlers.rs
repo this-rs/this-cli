@@ -131,10 +131,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let port = args
-        .get("port")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3000) as u16;
+    let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(3000) as u16;
 
     let _cwd_guard = CwdGuard::from_args(args)?;
     let writer = McpFileWriter::new();

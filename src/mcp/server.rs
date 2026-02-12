@@ -7,7 +7,7 @@ use super::handlers::ToolHandler;
 use super::protocol::*;
 use super::tools::all_tools;
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -287,7 +287,8 @@ mod tests {
     fn test_handle_notification_no_response() {
         let mut server = McpServer::new();
         // Notification has no id field
-        let resp = server.handle_message(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+        let resp =
+            server.handle_message(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
         assert!(resp.is_none());
     }
 

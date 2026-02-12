@@ -3,7 +3,7 @@
 //! These tests spawn `this mcp` as a child process, send JSON-RPC messages
 //! on stdin, and verify the responses on stdout.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
@@ -107,10 +107,7 @@ fn test_mcp_tools_list() {
     let tools = resp["result"]["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 5);
 
-    let tool_names: Vec<&str> = tools
-        .iter()
-        .map(|t| t["name"].as_str().unwrap())
-        .collect();
+    let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"init_project"));
     assert!(tool_names.contains(&"add_entity"));
     assert!(tool_names.contains(&"add_link"));
@@ -119,7 +116,11 @@ fn test_mcp_tools_list() {
 
     // Verify each tool has inputSchema
     for tool in tools {
-        assert!(tool["inputSchema"].is_object(), "Tool {} missing inputSchema", tool["name"]);
+        assert!(
+            tool["inputSchema"].is_object(),
+            "Tool {} missing inputSchema",
+            tool["name"]
+        );
         assert_eq!(tool["inputSchema"]["type"], "object");
     }
 }
@@ -227,7 +228,11 @@ fn test_mcp_add_entity() {
     );
 
     // Then add an entity (cwd must be inside the project)
-    let project_cwd = tmpdir.path().join("entity_test").to_string_lossy().to_string();
+    let project_cwd = tmpdir
+        .path()
+        .join("entity_test")
+        .to_string_lossy()
+        .to_string();
     let entity_call = json_rpc(
         "tools/call",
         Some(json!({
@@ -267,10 +272,16 @@ fn test_mcp_add_link() {
     // Create project + 2 entities
     let init_call = json_rpc(
         "tools/call",
-        Some(json!({"name": "init_project", "arguments": {"name": "link_test", "cwd": cwd, "no_git": true}})),
+        Some(
+            json!({"name": "init_project", "arguments": {"name": "link_test", "cwd": cwd, "no_git": true}}),
+        ),
         2,
     );
-    let project_cwd = tmpdir.path().join("link_test").to_string_lossy().to_string();
+    let project_cwd = tmpdir
+        .path()
+        .join("link_test")
+        .to_string_lossy()
+        .to_string();
     let entity1 = json_rpc(
         "tools/call",
         Some(json!({"name": "add_entity", "arguments": {"name": "order", "cwd": &project_cwd}})),
@@ -308,10 +319,16 @@ fn test_mcp_get_project_info() {
 
     let init_call = json_rpc(
         "tools/call",
-        Some(json!({"name": "init_project", "arguments": {"name": "info_test", "cwd": cwd, "no_git": true}})),
+        Some(
+            json!({"name": "init_project", "arguments": {"name": "info_test", "cwd": cwd, "no_git": true}}),
+        ),
         2,
     );
-    let project_cwd = tmpdir.path().join("info_test").to_string_lossy().to_string();
+    let project_cwd = tmpdir
+        .path()
+        .join("info_test")
+        .to_string_lossy()
+        .to_string();
     let entity_call = json_rpc(
         "tools/call",
         Some(json!({"name": "add_entity", "arguments": {"name": "product", "cwd": &project_cwd}})),
@@ -341,10 +358,16 @@ fn test_mcp_check_project_health() {
 
     let init_call = json_rpc(
         "tools/call",
-        Some(json!({"name": "init_project", "arguments": {"name": "health_test", "cwd": cwd, "no_git": true}})),
+        Some(
+            json!({"name": "init_project", "arguments": {"name": "health_test", "cwd": cwd, "no_git": true}}),
+        ),
         2,
     );
-    let project_cwd = tmpdir.path().join("health_test").to_string_lossy().to_string();
+    let project_cwd = tmpdir
+        .path()
+        .join("health_test")
+        .to_string_lossy()
+        .to_string();
     let doctor_call = json_rpc(
         "tools/call",
         Some(json!({"name": "check_project_health", "arguments": {"cwd": &project_cwd}})),

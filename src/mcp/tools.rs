@@ -171,14 +171,22 @@ mod tests {
     #[test]
     fn test_all_tools_have_non_empty_description() {
         for tool in all_tools() {
-            assert!(!tool.description.is_empty(), "Tool {} has empty description", tool.name);
+            assert!(
+                !tool.description.is_empty(),
+                "Tool {} has empty description",
+                tool.name
+            );
         }
     }
 
     #[test]
     fn test_all_tools_have_valid_schema() {
         for tool in all_tools() {
-            assert_eq!(tool.input_schema.schema_type, "object", "Tool {} schema is not object", tool.name);
+            assert_eq!(
+                tool.input_schema.schema_type, "object",
+                "Tool {} schema is not object",
+                tool.name
+            );
         }
     }
 
@@ -199,7 +207,10 @@ mod tests {
     #[test]
     fn test_all_tools_have_cwd_param() {
         for tool in all_tools() {
-            let props = tool.input_schema.properties.as_ref()
+            let props = tool
+                .input_schema
+                .properties
+                .as_ref()
                 .expect(&format!("Tool {} has no properties", tool.name));
             assert!(
                 props.get("cwd").is_some(),
