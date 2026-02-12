@@ -13,6 +13,7 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         check_project_health_tool(),
         build_project_tool(),
         start_dev_tool(),
+        add_target_tool(),
     ]
 }
 
@@ -231,13 +232,43 @@ fn start_dev_tool() -> ToolDefinition {
     }
 }
 
+fn add_target_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "add_target".to_string(),
+        description: "Add a deployment target to the workspace: webapp (React/Vue/Svelte SPA), desktop (Tauri), or mobile (iOS/Android via Capacitor). Updates this.yaml and scaffolds the target directory with framework boilerplate.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "target_type": {
+                    "type": "string",
+                    "enum": ["webapp", "desktop", "ios", "android"],
+                    "description": "Type of target to add"
+                },
+                "framework": {
+                    "type": "string",
+                    "description": "Frontend framework for webapp target (react, vue, svelte). Default: react"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Custom name for the target directory (default: auto-generated from type, e.g. 'front' for webapp)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs workspace)"
+                }
+            })),
+            required: Some(vec!["target_type".to_string()]),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_all_tools_count() {
-        assert_eq!(all_tools().len(), 7);
+        assert_eq!(all_tools().len(), 8);
     }
 
     #[test]
