@@ -1537,3 +1537,206 @@ fn test_generated_code_compiles() {
         stderr_cargo
     );
 }
+
+// ============================================================================
+// this init --websocket tests
+// ============================================================================
+
+#[test]
+fn test_init_websocket_cargo_toml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(&["init", "ws-proj", "--websocket", "--no-git"], tmp.path());
+
+    assert!(success, "init --websocket should succeed: {}", stderr);
+
+    let cargo_toml =
+        std::fs::read_to_string(tmp.path().join("ws-proj/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["websocket"]"#),
+        "Cargo.toml should contain websocket feature, got:\n{}",
+        cargo_toml
+    );
+}
+
+#[test]
+fn test_init_websocket_main_rs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "ws-main", "--websocket", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    let main_rs =
+        std::fs::read_to_string(tmp.path().join("ws-main/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("WebSocketExposure"),
+        "main.rs should contain WebSocketExposure"
+    );
+    assert!(
+        main_rs.contains("build_host"),
+        "main.rs should use build_host() for WebSocket mode"
+    );
+    assert!(
+        main_rs.contains("with_event_bus"),
+        "main.rs should configure EventBus for WebSocket"
+    );
+    assert!(
+        main_rs.contains("/ws"),
+        "main.rs should mention /ws endpoint"
+    );
+}
+
+#[test]
+fn test_init_without_websocket_unchanged() {
+    // Regression: without --websocket, no WS code should appear
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "no-ws", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    let cargo_toml =
+        std::fs::read_to_string(tmp.path().join("no-ws/Cargo.toml")).unwrap();
+    assert!(
+        !cargo_toml.contains("websocket"),
+        "Cargo.toml should NOT contain websocket without flag"
+    );
+
+    let main_rs =
+        std::fs::read_to_string(tmp.path().join("no-ws/src/main.rs")).unwrap();
+    assert!(
+        !main_rs.contains("WebSocketExposure"),
+        "main.rs should NOT contain WebSocketExposure without flag"
+    );
+    assert!(
+        main_rs.contains(".build()?"),
+        "main.rs should use .build() without WebSocket"
+    );
+}
+
+#[test]
+fn test_init_workspace_websocket_combined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &["init", "combo-ws", "--workspace", "--websocket", "--no-git"],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --workspace --websocket should succeed: {}",
+        stderr
+    );
+
+    let ws_dir = tmp.path().join("combo-ws");
+
+    // Cargo.toml should have both websocket feature AND embedded-frontend
+    let cargo_toml =
+        std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["websocket"]"#),
+        "Cargo.toml should contain websocket feature"
+    );
+    assert!(
+        cargo_toml.contains("embedded-frontend"),
+        "Cargo.toml should still have embedded-frontend feature"
+    );
+
+    // main.rs should have both WebSocketExposure AND attach_frontend
+    let main_rs =
+        std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("WebSocketExposure"),
+        "main.rs should contain WebSocketExposure"
+    );
+    assert!(
+        main_rs.contains("attach_frontend"),
+        "main.rs should still contain attach_frontend"
+    );
+}
+
+#[test]
+fn test_info_websocket_enabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-info-proj", "--websocket", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let project = tmp.path().join("ws-info-proj");
+    let (success, stdout, _) = run_this(&["info"], &project);
+
+    assert!(success, "info should succeed in websocket project");
+    assert!(
+        stdout.contains("enabled"),
+        "info should show WebSocket: ✓ enabled, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn test_info_websocket_disabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "no-ws-info", "--no-git"], tmp.path());
+    assert!(success);
+
+    let project = tmp.path().join("no-ws-info");
+    let (success, stdout, _) = run_this(&["info"], &project);
+
+    assert!(success, "info should succeed in non-websocket project");
+    assert!(
+        stdout.contains("disabled"),
+        "info should show WebSocket: ✗ disabled, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn test_doctor_websocket_healthy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-doc-proj", "--websocket", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let project = tmp.path().join("ws-doc-proj");
+    let (success, stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(success, "doctor should pass on healthy websocket project");
+    assert!(
+        stdout.contains("WebSocket"),
+        "doctor should check WebSocket, got:\n{}",
+        stdout
+    );
+    // Should be a pass, not a warning
+    assert!(
+        !stdout.contains("not found in main.rs"),
+        "doctor should not warn on healthy websocket project"
+    );
+}
+
+#[test]
+fn test_doctor_websocket_incoherent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-bad-proj", "--websocket", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let project = tmp.path().join("ws-bad-proj");
+
+    // Tamper with main.rs: remove WebSocketExposure to create incoherence
+    let main_path = project.join("src/main.rs");
+    let main_content = std::fs::read_to_string(&main_path).unwrap();
+    let tampered = main_content.replace("WebSocketExposure", "/* removed */");
+    std::fs::write(&main_path, tampered).unwrap();
+
+    let (_, stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(
+        stdout.contains("WebSocketExposure not found"),
+        "doctor should warn about missing WebSocketExposure, got:\n{}",
+        stdout
+    );
+}
