@@ -4,6 +4,7 @@ use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::config;
 use crate::utils::{markers, naming, project};
 
 /// Result of a single diagnostic check
@@ -98,6 +99,12 @@ pub fn collect_diagnostics() -> Result<Vec<SerializableDiagnostic>> {
 /// Run all diagnostic checks and return results
 fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
     let mut results = Vec::new();
+
+    // Workspace checks (only if inside a workspace)
+    if let Some(ws_root) = project::find_workspace_root() {
+        results.extend(check_workspace(&ws_root));
+    }
+
     results.push(check_cargo_toml(project_root));
     results.extend(check_entities(project_root));
     results.extend(check_module_registration(project_root));
@@ -111,11 +118,19 @@ pub fn run() -> Result<()> {
 
     let project_name = detect_project_name(&project_root);
     println!();
-    println!(
-        "{} Checking project: {}",
-        "🔍".bold(),
-        project_name.cyan().bold()
-    );
+    if project::find_workspace_root().is_some() {
+        println!(
+            "{} Checking workspace project: {}",
+            "🔍".bold(),
+            project_name.cyan().bold()
+        );
+    } else {
+        println!(
+            "{} Checking project: {}",
+            "🔍".bold(),
+            project_name.cyan().bold()
+        );
+    }
     println!();
 
     let results = run_checks(&project_root);
@@ -171,6 +186,68 @@ fn detect_project_name(project_root: &Path) -> String {
         return name.to_string();
     }
     "unknown".to_string()
+}
+
+/// Check workspace integrity: this.yaml parsable, api/ exists, target dirs present
+fn check_workspace(ws_root: &Path) -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+    let this_yaml_path = ws_root.join("this.yaml");
+
+    // Check this.yaml is parsable
+    let ws_config = match config::load_workspace_config(&this_yaml_path) {
+        Ok(config) => {
+            results.push(DiagnosticResult::pass(
+                "Workspace",
+                &format!("this.yaml valid (workspace: {})", config.name),
+            ));
+            config
+        }
+        Err(e) => {
+            results.push(DiagnosticResult::error(
+                "Workspace",
+                &format!("this.yaml invalid: {}", e),
+            ));
+            return results;
+        }
+    };
+
+    // Check api/ directory exists with Cargo.toml
+    let api_dir = ws_root.join(&ws_config.api.path);
+    if api_dir.join("Cargo.toml").exists() {
+        results.push(DiagnosticResult::pass(
+            "Workspace",
+            &format!("{}/Cargo.toml found", ws_config.api.path),
+        ));
+    } else {
+        results.push(DiagnosticResult::error(
+            "Workspace",
+            &format!(
+                "{}/Cargo.toml not found — API directory missing or incomplete",
+                ws_config.api.path
+            ),
+        ));
+    }
+
+    // Check each declared target has its directory
+    for target in &ws_config.targets {
+        let target_dir = ws_root.join(&target.path);
+        if target_dir.exists() {
+            results.push(DiagnosticResult::pass(
+                "Workspace",
+                &format!("Target {} → {} exists", target.target_type, target.path),
+            ));
+        } else {
+            results.push(DiagnosticResult::warn(
+                "Workspace",
+                &format!(
+                    "Target {} declared but directory {} not found",
+                    target.target_type, target.path
+                ),
+            ));
+        }
+    }
+
+    results
 }
 
 /// Check Cargo.toml has this-rs dependency

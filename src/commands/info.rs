@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::config;
 use crate::utils::{markers, project};
 
 /// Parsed entity info from scanning the project
@@ -35,6 +36,24 @@ pub struct CoherenceStatus {
     pub links_issues: Vec<String>,
 }
 
+/// Workspace information (only present if inside a workspace)
+#[derive(Debug, Serialize)]
+pub struct WorkspaceInfo {
+    pub name: String,
+    pub api_path: String,
+    pub api_port: u16,
+    pub targets: Vec<TargetInfo>,
+}
+
+/// Target information within a workspace
+#[derive(Debug, Serialize)]
+pub struct TargetInfo {
+    pub target_type: String,
+    pub path: String,
+    pub framework: Option<String>,
+    pub runtime: Option<String>,
+}
+
 /// Complete project information — returned by collect_info() for structured (MCP) use
 #[derive(Debug, Serialize)]
 pub struct ProjectInfo {
@@ -43,6 +62,8 @@ pub struct ProjectInfo {
     pub entities: Vec<EntityInfo>,
     pub links: Vec<LinkInfo>,
     pub coherence: CoherenceStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceInfo>,
 }
 
 /// Collect project information as a structured object.
@@ -54,12 +75,41 @@ pub fn collect_info() -> Result<ProjectInfo> {
     let links = parse_links_yaml(&project_root)?;
     let coherence = check_coherence(&project_root, &entities)?;
 
+    // Detect workspace context
+    let workspace = detect_workspace_info();
+
     Ok(ProjectInfo {
         project_name,
         this_version,
         entities,
         links,
         coherence,
+        workspace,
+    })
+}
+
+/// Detect workspace context by looking for this.yaml
+fn detect_workspace_info() -> Option<WorkspaceInfo> {
+    let ws_root = project::find_workspace_root()?;
+    let this_yaml_path = ws_root.join("this.yaml");
+    let ws_config = config::load_workspace_config(&this_yaml_path).ok()?;
+
+    let targets = ws_config
+        .targets
+        .iter()
+        .map(|t| TargetInfo {
+            target_type: t.target_type.to_string(),
+            path: t.path.clone(),
+            framework: t.framework.clone(),
+            runtime: t.runtime.clone(),
+        })
+        .collect();
+
+    Some(WorkspaceInfo {
+        name: ws_config.name,
+        api_path: ws_config.api.path,
+        api_port: ws_config.api.port,
+        targets,
     })
 }
 
@@ -77,6 +127,36 @@ pub fn run() -> Result<()> {
     println!("{} Project: {}", "📦".bold(), project_name.cyan().bold());
     println!("   Framework: this-rs {}", this_version.dimmed());
     println!();
+
+    // Workspace section (only if inside a workspace)
+    if let Some(ws) = &info.workspace {
+        println!("{} Workspace: {}", "🏗️".bold(), ws.name.cyan().bold());
+        println!(
+            "   API: {} (port {})",
+            ws.api_path.dimmed(),
+            ws.api_port.to_string().dimmed()
+        );
+        if ws.targets.is_empty() {
+            println!("   Targets: {}", "none".dimmed());
+        } else {
+            println!("   Targets ({}):", ws.targets.len());
+            for target in &ws.targets {
+                let detail = match (&target.framework, &target.runtime) {
+                    (Some(fw), _) => format!(" ({})", fw),
+                    (_, Some(rt)) => format!(" ({})", rt),
+                    _ => String::new(),
+                };
+                println!(
+                    "     {} {} → {}{}",
+                    "•".dimmed(),
+                    target.target_type.bold(),
+                    target.path.dimmed(),
+                    detail.dimmed()
+                );
+            }
+        }
+        println!();
+    }
 
     // Entities section
     if entities.is_empty() {

@@ -873,6 +873,47 @@ fn test_info_outside_project_fails() {
     assert!(stderr.contains("Not inside a this-rs project"));
 }
 
+#[test]
+fn test_info_workspace_displays_workspace_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-info-full", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-info-full");
+    let (success, stdout, _) = run_this(&["info"], &ws_dir);
+
+    assert!(success, "info should succeed in workspace");
+    assert!(
+        stdout.contains("Workspace:"),
+        "Should show Workspace section"
+    );
+    assert!(
+        stdout.contains("ws-info-full"),
+        "Should show workspace name"
+    );
+    assert!(stdout.contains("API:"), "Should show API info");
+    assert!(stdout.contains("Targets:"), "Should show Targets section");
+}
+
+#[test]
+fn test_info_classic_no_workspace_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "classic-info", "--no-git"], tmp.path());
+    assert!(success);
+
+    let project_dir = tmp.path().join("classic-info");
+    let (success, stdout, _) = run_this(&["info"], &project_dir);
+
+    assert!(success, "info should succeed in classic project");
+    assert!(
+        !stdout.contains("Workspace:"),
+        "Should NOT show Workspace section in classic mode"
+    );
+}
+
 // ============================================================================
 // this doctor tests
 // ============================================================================
@@ -923,6 +964,62 @@ fn test_doctor_detects_invalid_link_entity() {
 
     assert!(success, "doctor should succeed (warnings not errors)");
     // The link references order/invoice which only exist in yaml, not as entity dirs
+}
+
+#[test]
+fn test_doctor_workspace_healthy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-doctor", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-doctor");
+    let (success, stdout, _) = run_this(&["doctor"], &ws_dir);
+
+    assert!(success, "doctor should succeed in healthy workspace");
+    assert!(
+        stdout.contains("this.yaml valid"),
+        "Should validate this.yaml"
+    );
+    assert!(
+        stdout.contains("api/Cargo.toml found"),
+        "Should find api/Cargo.toml"
+    );
+}
+
+#[test]
+fn test_doctor_workspace_missing_target_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "ws-missing", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let ws_dir = tmp.path().join("ws-missing");
+
+    // Manually add a target to this.yaml that has no directory
+    let this_yaml = r#"name: ws-missing
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#;
+    std::fs::write(ws_dir.join("this.yaml"), this_yaml).unwrap();
+
+    let (success, stdout, _) = run_this(&["doctor"], &ws_dir);
+
+    assert!(success, "doctor should succeed (warnings not errors)");
+    assert!(
+        stdout.contains("not found"),
+        "Should warn about missing target directory 'front'"
+    );
+    assert!(stdout.contains("webapp"), "Should mention the target type");
 }
 
 // ============================================================================

@@ -51,14 +51,12 @@ pub fn detect_project_root() -> Result<PathBuf> {
 
 /// Find the workspace root by walking up from the current directory, looking for `this.yaml`.
 /// Returns `None` if not inside a workspace.
-#[allow(dead_code)] // Will be used by `this info` workspace display (Task 3)
 pub fn find_workspace_root() -> Option<PathBuf> {
     find_workspace_root_from(&std::env::current_dir().ok()?)
 }
 
 /// Find the workspace root starting from a given path.
 /// Useful for testing without changing the current directory.
-#[allow(dead_code)] // Will be used by `this info` workspace display (Task 3)
 pub fn find_workspace_root_from(start: &Path) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
 
