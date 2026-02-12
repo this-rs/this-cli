@@ -40,6 +40,9 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
             AddCommands::Target(args) => commands::add_target::run(args, writer),
         },
         Commands::Info => commands::info::run(),
+        Commands::Generate(generate) => match generate.command {
+            commands::GenerateCommands::Client(args) => commands::generate::run(args, writer),
+        },
         Commands::Doctor => commands::doctor::run(),
         Commands::Completions { shell } => commands::completions::run(shell),
         Commands::Build(args) => commands::build::run(args, writer),

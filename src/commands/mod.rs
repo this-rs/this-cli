@@ -5,6 +5,7 @@ pub mod build;
 pub mod completions;
 pub mod dev;
 pub mod doctor;
+pub mod generate;
 pub mod info;
 pub mod init;
 
@@ -40,6 +41,9 @@ pub enum Commands {
 
     /// Start development servers (API + frontend in parallel)
     Dev(DevArgs),
+
+    /// Generate code from project introspection (TypeScript API client, etc.)
+    Generate(GenerateCommand),
 
     /// Check project health and consistency
     Doctor,
@@ -208,4 +212,28 @@ pub struct DevArgs {
     /// Override the API port from this.yaml
     #[arg(long)]
     pub port: Option<u16>,
+}
+
+#[derive(Parser)]
+pub struct GenerateCommand {
+    #[command(subcommand)]
+    pub command: GenerateCommands,
+}
+
+#[derive(Subcommand)]
+pub enum GenerateCommands {
+    /// Generate a typed API client from project entities
+    Client(GenerateClientArgs),
+}
+
+/// Arguments for `this generate client`
+#[derive(Parser)]
+pub struct GenerateClientArgs {
+    /// Target language for the generated client
+    #[arg(long, default_value = "typescript")]
+    pub lang: String,
+
+    /// Output file path (default: auto-detected from this.yaml webapp target)
+    #[arg(long)]
+    pub output: Option<std::path::PathBuf>,
 }
