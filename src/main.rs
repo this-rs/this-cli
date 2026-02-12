@@ -1,3 +1,4 @@
+mod codegen;
 mod commands;
 mod config;
 mod mcp;
