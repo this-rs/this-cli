@@ -78,6 +78,7 @@ this init [OPTIONS] <NAME>
 | `--no-git` | false | Do not initialize a git repository |
 | `--port <PORT>` | `3000` | Default server port in `main.rs` |
 | `--websocket` | false | Enable WebSocket support (adds `websocket` feature to this-rs dependency and `WebSocketExposure` in main.rs) |
+| `--grpc` | false | Enable gRPC support (adds `grpc` feature to this-rs dependency and `GrpcExposure` in main.rs) |
 | `--workspace` | false | Create a workspace layout with `this.yaml` and `api/` subdirectory |
 
 ### Generated Files (Classic mode)
@@ -147,8 +148,17 @@ this init my-api --path /tmp/projects
 # Enable WebSocket support (adds WebSocketExposure + EventBus)
 this init my-api --websocket
 
+# Enable gRPC support (adds GrpcExposure + proto export endpoint)
+this init my-api --grpc
+
+# Combine gRPC and WebSocket
+this init my-api --grpc --websocket
+
 # Combine WebSocket with workspace mode
 this init my-app --workspace --websocket
+
+# Combine gRPC + WebSocket + workspace
+this init my-app --workspace --grpc --websocket
 
 # Create a workspace layout for multi-target projects
 this init my-app --workspace
@@ -168,13 +178,15 @@ this --dry-run init my-app --workspace
 
 ### Notes
 
-- The generated project targets this-rs v0.0.6
+- The generated project targets this-rs v0.0.7
 - `module.rs` and `stores.rs` contain marker comments (`// [this:xxx]`) used by `add entity` for automatic code insertion
 - The project compiles immediately with `cargo build` (no entities required)
 - In workspace mode, `api/dist/.gitkeep` is created as a placeholder for future frontend embedding
 - The workspace `.gitignore` includes frontend-related patterns (`node_modules/`, `dist/`, `.next/`, `.nuxt/`)
 - `--websocket` adds `features = ["websocket"]` to the this-rs dependency in `Cargo.toml` and generates `main.rs` with `WebSocketExposure` + `EventBus`. The WebSocket endpoint is available at `ws://127.0.0.1:<port>/ws`
-- Optional features (`--websocket`) can be combined freely with `--workspace`
+- `--grpc` adds `features = ["grpc"]` to the this-rs dependency in `Cargo.toml` and generates `main.rs` with `GrpcExposure`. The gRPC endpoint is available on the same port as REST, and proto definitions are exported at `http://127.0.0.1:<port>/grpc/proto`
+- `--grpc` and `--websocket` can be combined: both features are added (`features = ["websocket", "grpc"]`) and both exposures are merged into the same router
+- Optional features (`--websocket`, `--grpc`) can be combined freely with `--workspace`
 
 ---
 
@@ -895,7 +907,7 @@ this info
 
 1. **Workspace** (if inside a workspace) -- workspace name, API path, port, configured targets
 2. **Project** -- name (from `Cargo.toml`) and this-rs version
-3. **Feature flags** -- WebSocket status (enabled/disabled), detected from Cargo.toml features
+3. **Feature flags** -- WebSocket and gRPC status (enabled/disabled), detected from Cargo.toml features
 4. **Entities** -- list of entities with their custom fields, parsed from `model.rs` files
 5. **Links** -- relationships with forward/reverse routes, parsed from `links.yaml`
 6. **Status** -- coherence checks:
@@ -907,7 +919,7 @@ this info
 
 ```
 📦 Project: my-api
-   Framework: this-rs v0.0.6
+   Framework: this-rs v0.0.7
 
 📋 Entities (2):
    • category (fields: slug)
@@ -932,7 +944,7 @@ this info
    Targets: (none)
 
 📦 Project: my-app
-   Framework: this-rs v0.0.6
+   Framework: this-rs v0.0.7
 
 📋 Entities (1):
    • product (fields: sku, price)
@@ -980,6 +992,7 @@ this doctor
 | **Stores** | All entities have stores configured in `stores.rs` (via markers) |
 | **Links** | All entities referenced in `links.yaml` exist as actual entities |
 | **WebSocket** | If `websocket` feature is enabled in Cargo.toml, verifies that `main.rs` contains `WebSocketExposure` |
+| **gRPC** | If `grpc` feature is enabled in Cargo.toml, verifies that `main.rs` contains `GrpcExposure` |
 
 ### Diagnostic Levels
 
@@ -1001,7 +1014,7 @@ this doctor
 ```
 🔍 Checking project: my-api
 
-  ✅ Cargo.toml — this-rs v0.0.6 detected
+  ✅ Cargo.toml — this-rs v0.0.7 detected
   ✅ Entities — 2 entities found, all declared in mod.rs
   ✅ Module — All 2 entities registered
   ✅ Stores — All 2 stores configured
@@ -1015,7 +1028,7 @@ Summary: 5 passed
 ```
 🔍 Checking project: my-api
 
-  ✅ Cargo.toml — this-rs v0.0.6 detected
+  ✅ Cargo.toml — this-rs v0.0.7 detected
   ⚠️ Entities — Entity 'review' has directory but is not in mod.rs
   ✅ Module — All 1 entities registered
   ✅ Stores — All 1 stores configured

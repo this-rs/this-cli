@@ -111,6 +111,7 @@ fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
     results.extend(check_stores_configuration(project_root));
     results.extend(check_links(project_root));
     results.extend(check_websocket(project_root));
+    results.extend(check_grpc(project_root));
     results
 }
 
@@ -705,6 +706,41 @@ fn check_websocket(project_root: &Path) -> Vec<DiagnosticResult> {
         vec![DiagnosticResult::warn(
             "WebSocket",
             "websocket feature enabled in Cargo.toml but WebSocketExposure not found in main.rs",
+        )]
+    }
+}
+
+/// Check gRPC configuration coherence:
+/// If the grpc feature is enabled in Cargo.toml, main.rs should use GrpcExposure.
+fn check_grpc(project_root: &Path) -> Vec<DiagnosticResult> {
+    let features = super::info::detect_this_features(project_root);
+
+    if !features.grpc {
+        // gRPC not enabled — nothing to check
+        return vec![];
+    }
+
+    // gRPC feature is enabled — verify main.rs uses GrpcExposure
+    let main_path = project_root.join("src/main.rs");
+    let main_content = match std::fs::read_to_string(&main_path) {
+        Ok(c) => c,
+        Err(_) => {
+            return vec![DiagnosticResult::warn(
+                "gRPC",
+                "grpc feature enabled but src/main.rs not found",
+            )];
+        }
+    };
+
+    if main_content.contains("GrpcExposure") {
+        vec![DiagnosticResult::pass(
+            "gRPC",
+            "Feature enabled and GrpcExposure configured in main.rs",
+        )]
+    } else {
+        vec![DiagnosticResult::warn(
+            "gRPC",
+            "grpc feature enabled in Cargo.toml but GrpcExposure not found in main.rs",
         )]
     }
 }

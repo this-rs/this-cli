@@ -150,6 +150,8 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    let grpc = args.get("grpc").and_then(|v| v.as_bool()).unwrap_or(false);
+
     let init_args = InitArgs {
         name: name.clone(),
         path: path.clone(),
@@ -158,6 +160,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         this_path: None,
         workspace,
         websocket,
+        grpc,
     };
 
     crate::commands::init::run(init_args, &writer)?;
@@ -174,6 +177,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         "project_path": project_path,
         "port": port,
         "websocket_enabled": websocket,
+        "grpc_enabled": grpc,
         "files_created": writer.files_created(),
     }))
 }

@@ -58,6 +58,7 @@ pub struct TargetInfo {
 #[derive(Debug, Serialize)]
 pub struct FeatureFlags {
     pub websocket: bool,
+    pub grpc: bool,
 }
 
 /// Complete project information — returned by collect_info() for structured (MCP) use
@@ -139,6 +140,11 @@ pub fn run() -> Result<()> {
         println!("   WebSocket: {}", "✓ enabled".green());
     } else {
         println!("   WebSocket: {}", "✗ disabled".dimmed());
+    }
+    if info.features.grpc {
+        println!("   gRPC:      {}", "✓ enabled".green());
+    } else {
+        println!("   gRPC:      {}", "✗ disabled".dimmed());
     }
     println!();
 
@@ -339,22 +345,36 @@ pub fn detect_this_features(project_root: &Path) -> FeatureFlags {
     let cargo_path = project_root.join("Cargo.toml");
     let content = match std::fs::read_to_string(&cargo_path) {
         Ok(c) => c,
-        Err(_) => return FeatureFlags { websocket: false },
+        Err(_) => {
+            return FeatureFlags {
+                websocket: false,
+                grpc: false,
+            };
+        }
     };
 
     let doc = match content.parse::<toml_edit::DocumentMut>() {
         Ok(d) => d,
-        Err(_) => return FeatureFlags { websocket: false },
+        Err(_) => {
+            return FeatureFlags {
+                websocket: false,
+                grpc: false,
+            };
+        }
     };
 
-    let websocket = doc
+    let features_array = doc
         .get("dependencies")
         .and_then(|deps| deps.get("this"))
         .and_then(|this_dep| this_dep.get("features"))
-        .and_then(|features| features.as_array())
-        .is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("websocket")));
+        .and_then(|features| features.as_array());
 
-    FeatureFlags { websocket }
+    let websocket =
+        features_array.is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("websocket")));
+
+    let grpc = features_array.is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("grpc")));
+
+    FeatureFlags { websocket, grpc }
 }
 
 /// Scan src/entities/ to discover entities and their fields

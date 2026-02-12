@@ -58,7 +58,7 @@ path = "src/main.rs"
 cargo test -p this-cli
 ```
 
-This runs 175 unit tests, 65 integration tests, and 18 MCP tests (~0.5s total).
+This runs 175 unit tests, 72 integration tests, and 20 MCP tests (~0.5s total).
 
 ### End-to-end compilation test (slow)
 
@@ -260,7 +260,7 @@ cargo check
 
 - Template changes can break existing projects. Test thoroughly.
 - If adding new markers, update the marker documentation in [Architecture > Marker System](architecture.md#marker-system).
-- Generated code must compile against the currently supported this-rs version (v0.0.6).
+- Generated code must compile against the currently supported this-rs version (v0.0.7).
 
 ---
 
@@ -330,6 +330,7 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 | `codegen` | Code generation modules (`codegen/introspect.rs`, `codegen/typescript.rs`) |
 | `generate` | `this generate client` command |
 | `websocket` | WebSocket support (`--websocket` flag, feature detection, doctor check) |
+| `grpc` | gRPC support (`--grpc` flag, feature detection, doctor check) |
 | `mcp` | MCP server and tools |
 | `completions` | Shell completions |
 | `dry-run` | Dry-run mode |
