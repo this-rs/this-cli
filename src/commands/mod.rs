@@ -105,6 +105,10 @@ pub struct InitArgs {
     /// Create a workspace layout with this.yaml and api/ subdirectory
     #[arg(long)]
     pub workspace: bool,
+
+    /// Enable WebSocket support (adds websocket feature and WebSocketExposure in main.rs)
+    #[arg(long)]
+    pub websocket: bool,
 }
 
 /// Arguments for `this add entity <name>`
