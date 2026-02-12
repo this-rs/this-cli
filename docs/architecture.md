@@ -28,16 +28,22 @@ src/
 │   ├── init.rs                      # `this init` (classic + workspace modes)
 │   ├── add_entity.rs                # `this add entity` + auto-registration
 │   ├── add_link.rs                  # `this add link` + YAML manipulation
+│   ├── add_target.rs                # `this add target` — scaffold deployment targets (webapp, etc.)
+│   ├── generate.rs                  # `this generate client` — typed API client generation
 │   ├── build.rs                     # `this build` — 5 modes (default, embed, api-only, front-only, docker)
 │   ├── dev.rs                       # `this dev` — parallel API + frontend with watcher detection
 │   ├── info.rs                      # `this info` — project + workspace introspection
 │   ├── doctor.rs                    # `this doctor` — health + workspace diagnostics
 │   └── completions.rs               # `this completions` — shell autocompletion
+├── codegen/                         # Code generation from project introspection
+│   ├── mod.rs                       # Module exports
+│   ├── introspect.rs                # Parse entities, descriptors, links from source files
+│   └── typescript.rs                # TypeScript API client generator
 ├── mcp/                             # MCP server (JSON-RPC 2.0 over stdio)
 │   ├── mod.rs                       # Module exports
 │   ├── protocol.rs                  # MCP protocol types
 │   ├── server.rs                    # stdio JSON-RPC server loop
-│   ├── tools.rs                     # Tool definitions (7 tools)
+│   ├── tools.rs                     # Tool definitions (9 tools)
 │   └── handlers.rs                  # Tool execution handlers
 ├── templates/
 │   ├── mod.rs                       # TemplateEngine + custom Tera filters
@@ -52,13 +58,22 @@ src/
 │   ├── workspace/                   # Templates for `this init --workspace` + build
 │   │   ├── this.yaml.tera           # Workspace configuration template
 │   │   └── Dockerfile.tera          # Multi-stage Dockerfile (Node + Rust + Alpine)
-│   └── entity/                      # Templates for `this add entity`
-│       ├── model.rs.tera
-│       ├── model_validated.rs.tera
-│       ├── store.rs.tera
-│       ├── handlers.rs.tera
-│       ├── descriptor.rs.tera
-│       └── mod.rs.tera
+│   ├── entity/                      # Templates for `this add entity`
+│   │   ├── model.rs.tera
+│   │   ├── model_validated.rs.tera
+│   │   ├── store.rs.tera
+│   │   ├── handlers.rs.tera
+│   │   ├── descriptor.rs.tera
+│   │   └── mod.rs.tera
+│   └── targets/
+│       └── webapp/                  # Templates for `this add target webapp`
+│           ├── package.json.tera
+│           ├── tsconfig.json.tera
+│           ├── vite.config.ts.tera
+│           ├── index.html.tera
+│           ├── main.tsx.tera
+│           ├── App.tsx.tera
+│           └── App.css.tera
 ├── utils/
 │   ├── mod.rs
 │   ├── file_writer.rs               # FileWriter trait (real + dry-run + MCP)
@@ -89,7 +104,13 @@ main()
               │     └── else              → run_classic(args, writer)
               ├── Add(add)
               │     ├── Entity(args) → commands::add_entity::run(args, writer)
-              │     └── Link(args)   → commands::add_link::run(args, writer)
+              │     ├── Link(args)   → commands::add_link::run(args, writer)
+              │     └── Target(args) → commands::add_target::run(args, writer)
+              ├── Generate(gen)
+              │     └── Client(args) → commands::generate::run(args, writer)
+              │           ├── introspect::introspect(api_root) → ProjectIntrospection
+              │           ├── typescript::generate(&project)   → String (api-client.ts)
+              │           └── writer.write_file(output_path, ts_content)
               ├── Build(args)     → commands::build::run(args, writer)
               │     ├── --docker    → run_docker(config, webapp, root, writer)
               │     ├── --embed     → run_embed(config, webapp, api_path, root)
@@ -110,12 +131,14 @@ main()
 ### Key types (in `commands/mod.rs`)
 
 - `Cli` — top-level struct with `--dry-run` flag and `Commands` subcommand
-- `Commands` — enum: `Init`, `Add`, `Build`, `Dev`, `Info`, `Doctor`, `Completions`, `Mcp`
-- `AddCommands` — nested enum: `Entity`, `Link`
+- `Commands` — enum: `Init`, `Add`, `Generate`, `Build`, `Dev`, `Info`, `Doctor`, `Completions`, `Mcp`
+- `AddCommands` — nested enum: `Entity`, `Link`, `Target`
+- `GenerateCommands` — nested enum: `Client`
 - `InitArgs` — includes `--workspace` flag for workspace mode dispatch
 - `BuildArgs` — flags: `--embed`, `--api-only`, `--front-only`, `--docker`, `--release`
 - `DevArgs` — flags: `--api-only`, `--no-watch`, `--port`
-- `AddEntityArgs`, `AddLinkArgs` — argument structs
+- `AddEntityArgs`, `AddLinkArgs`, `AddTargetArgs` — argument structs
+- `GenerateClientArgs` — arguments for `this generate client`
 
 ### Writer injection
 
@@ -185,6 +208,18 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 |----------|--------|---------|
 | `this.yaml.tera` | `this.yaml` | Workspace configuration (name, api path, port, targets) |
 | `Dockerfile.tera` | `Dockerfile` | Multi-stage Docker build (Node frontend → Rust builder → Alpine runtime) |
+
+### Webapp Target Templates (7)
+
+| Template | Output | Purpose |
+|----------|--------|---------|
+| `package.json.tera` | `package.json` | Dependencies for React/Vue/Svelte + Vite + TypeScript |
+| `tsconfig.json.tera` | `tsconfig.json` | TypeScript compiler configuration |
+| `vite.config.ts.tera` | `vite.config.ts` | Vite config with API proxy to backend port |
+| `index.html.tera` | `index.html` | HTML entry point for Vite |
+| `main.tsx.tera` | `src/main.tsx` | Framework entry point (React/Vue/Svelte) |
+| `App.tsx.tera` | `src/App.tsx` | Main component with API connectivity check |
+| `App.css.tera` | `src/App.css` | Default application styles |
 
 ### Entity Templates (6)
 
@@ -351,15 +386,18 @@ struct ApiConfig {
 }
 
 struct TargetConfig {
-    name: String,               // Target name (e.g., "webapp")
-    path: String,               // Relative path to target directory
     target_type: TargetType,    // Target type enum
+    framework: Option<String>,  // Framework (e.g., "react", "vue", "svelte")
+    runtime: Option<String>,    // Runtime (future use)
+    path: String,               // Relative path to target directory
 }
 
 enum TargetType {
-    Webapp,                     // Frontend web application
-    Mobile,                     // Mobile application
-    Desktop,                    // Desktop application
+    Webapp,                     // Frontend web application (React/Vue/Svelte)
+    Website,                    // Static website
+    Desktop,                    // Desktop application (Tauri)
+    Ios,                        // iOS mobile app (Capacitor)
+    Android,                    // Android mobile app (Capacitor)
 }
 ```
 
@@ -471,6 +509,54 @@ this add entity product --fields "sku:String,price:f64"
     └── Add entity to entities[] section
 ```
 
+### `this add target webapp`
+
+```
+this add target webapp --framework react
+│
+├── find_workspace_root() → find this.yaml
+├── load_workspace_config() → WorkspaceConfig
+├── Check for duplicate target path
+│
+├── CREATE 7 files:
+│   ├── Render targets/webapp/package.json.tera     → front/package.json
+│   ├── Render targets/webapp/tsconfig.json.tera    → front/tsconfig.json
+│   ├── Render targets/webapp/vite.config.ts.tera   → front/vite.config.ts
+│   ├── Render targets/webapp/index.html.tera       → front/index.html
+│   ├── Render targets/webapp/main.tsx.tera         → front/src/main.tsx
+│   ├── Render targets/webapp/App.tsx.tera          → front/src/App.tsx
+│   └── Render targets/webapp/App.css.tera          → front/src/App.css
+│
+└── UPDATE this.yaml:
+    └── Add TargetConfig { type: Webapp, framework: "react", path: "front" }
+```
+
+### `this generate client`
+
+```
+this generate client [--output PATH]
+│
+├── find_workspace_root() → find this.yaml
+├── load_workspace_config() → WorkspaceConfig
+├── Resolve API root from config.api.path
+│
+├── INTROSPECT:
+│   ├── Scan src/entities/*/model.rs      → parse impl_data_entity! → EntityMeta[]
+│   ├── Scan src/entities/*/descriptor.rs → parse routes, plural   → RouteMeta[]
+│   └── Parse config/links.yaml           → LinkMeta[]
+│   └── Result: ProjectIntrospection { entities, links }
+│
+├── GENERATE:
+│   └── typescript::generate(&project) → api-client.ts content
+│
+├── RESOLVE output path:
+│   ├── --output flag → use as-is
+│   ├── webapp target → <webapp.path>/src/api-client.ts
+│   └── fallback      → <workspace>/api-client.ts
+│
+└── writer.write_file(output_path, ts_content)
+```
+
 ### `this add link <source> <target>`
 
 ```
@@ -567,6 +653,82 @@ this dev [--api-only] [--no-watch] [--port PORT]
       ├── Kill frontend process
       └── Join output threads
 ```
+
+---
+
+## Code Generation
+
+The `codegen` module provides project introspection and code generation capabilities, used by `this generate client`.
+
+### Pipeline
+
+```
+Source files                    Introspection              Code Generation
+─────────────                   ──────────────             ───────────────
+entities/*/model.rs      ──┐
+  impl_data_entity!(...)   ├──► introspect()  ──► ProjectIntrospection
+entities/*/descriptor.rs ──┤     (regex parsing)     │
+  routes, plural name      │                         ├──► typescript::generate()
+config/links.yaml        ──┘                         │      → api-client.ts
+  link definitions                                   │
+                                                     └──► (future: openapi, etc.)
+```
+
+### Introspection (`codegen/introspect.rs`)
+
+Parses the project source files to extract metadata without compiling:
+
+| Function | Input | Output |
+|----------|-------|--------|
+| `introspect(api_root)` | Path to API directory | `ProjectIntrospection` |
+| `parse_entity_model_content(content)` | `model.rs` file content | `Option<EntityMeta>` |
+| `parse_descriptor_content(content)` | `descriptor.rs` file content | `(plural, Vec<RouteMeta>)` |
+| `parse_links_yaml_content(content)` | `links.yaml` content | `Vec<LinkMeta>` |
+
+**Key data structures:**
+
+```rust
+struct ProjectIntrospection {
+    entities: Vec<EntityMeta>,  // Sorted by name
+    links: Vec<LinkMeta>,
+}
+
+struct EntityMeta {
+    name: String,              // snake_case (e.g., "product")
+    pascal_name: String,       // PascalCase (e.g., "Product")
+    plural: String,            // Pluralized (e.g., "products")
+    fields: Vec<FieldMeta>,    // Custom fields (not built-in)
+    indexed_fields: Vec<String>,
+    routes: Vec<RouteMeta>,
+}
+
+struct LinkMeta {
+    source: String,
+    target: String,
+    link_type: String,
+    forward_route: String,
+}
+```
+
+**Parsing strategy:** Uses regex on the raw source text (no AST parsing). The `impl_data_entity!` macro has a predictable format that can be reliably matched with:
+
+```rust
+r#"impl_data_entity(?:_validated)?\!\(\s*(\w+)\s*,\s*"(\w+)"\s*,\s*\[([^\]]*)\]\s*,\s*\{([^}]*)\}"#
+```
+
+### TypeScript Generator (`codegen/typescript.rs`)
+
+Generates a self-contained TypeScript API client from `ProjectIntrospection`:
+
+| Function | Purpose |
+|----------|---------|
+| `generate(project)` | Produces the complete `api-client.ts` content |
+| `rust_type_to_ts(type)` | Maps Rust types to TypeScript types |
+| `generate_interface(entity)` | Creates `{Entity}`, `Create{Entity}`, `Update{Entity}` interfaces |
+| `generate_crud_functions(entity)` | Creates list, get, create, update, delete functions |
+| `generate_link_function(link)` | Creates link traversal function |
+
+The generated client uses native `fetch()` with no external dependencies.
 
 ---
 

@@ -23,6 +23,8 @@ impl ToolHandler {
             "check_project_health" => handle_check_project_health(&args),
             "build_project" => handle_build_project(&args),
             "start_dev" => handle_start_dev(&args),
+            "add_target" => handle_add_target(&args),
+            "generate_client" => handle_generate_client(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
     }
@@ -56,7 +58,7 @@ impl Drop for CwdGuard {
     }
 }
 
-use crate::commands::{AddEntityArgs, AddLinkArgs, BuildArgs, DevArgs, InitArgs};
+use crate::commands::{AddEntityArgs, AddLinkArgs, AddTargetArgs, BuildArgs, DevArgs, InitArgs};
 use crate::utils::file_writer::FileWriter;
 
 /// FileWriter that performs real operations AND tracks created/modified files
@@ -387,5 +389,88 @@ fn handle_start_dev(args: &Value) -> Result<Value> {
     Ok(serde_json::json!({
         "status": "stopped",
         "message": "Dev servers shut down",
+    }))
+}
+
+fn handle_add_target(args: &Value) -> Result<Value> {
+    let target_type_str = args
+        .get("target_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: target_type"))?;
+
+    let target_type: crate::config::TargetType = match target_type_str {
+        "webapp" => crate::config::TargetType::Webapp,
+        "website" => crate::config::TargetType::Website,
+        "desktop" => crate::config::TargetType::Desktop,
+        "ios" => crate::config::TargetType::Ios,
+        "android" => crate::config::TargetType::Android,
+        _ => anyhow::bail!(
+            "Invalid target_type: '{}'. Must be one of: webapp, website, desktop, ios, android",
+            target_type_str
+        ),
+    };
+
+    let framework = args
+        .get("framework")
+        .and_then(|v| v.as_str())
+        .unwrap_or("react")
+        .to_string();
+
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+
+    let target_args = AddTargetArgs {
+        target_type: target_type.clone(),
+        framework: framework.clone(),
+        name,
+    };
+
+    crate::commands::add_target::run(target_args, &writer)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "target_type": target_type_str,
+        "framework": framework,
+        "files_created": writer.files_created(),
+        "files_modified": writer.files_modified(),
+        "next_steps": ["cd front && npm install", "this dev"],
+    }))
+}
+
+fn handle_generate_client(args: &Value) -> Result<Value> {
+    let lang = args
+        .get("lang")
+        .and_then(|v| v.as_str())
+        .unwrap_or("typescript")
+        .to_string();
+
+    if lang != "typescript" {
+        anyhow::bail!(
+            "Unsupported language: '{}'. Currently only 'typescript' is supported.",
+            lang
+        );
+    }
+
+    let output = args
+        .get("output")
+        .and_then(|v| v.as_str())
+        .map(std::path::PathBuf::from);
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+
+    let generate_args = crate::commands::GenerateClientArgs { lang, output };
+
+    crate::commands::generate::run(generate_args, &writer)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "lang": "typescript",
+        "files_created": writer.files_created(),
     }))
 }

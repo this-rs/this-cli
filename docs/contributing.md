@@ -58,7 +58,7 @@ path = "src/main.rs"
 cargo test -p this-cli
 ```
 
-This runs 92 unit tests, 57 integration tests, and 17 MCP tests (~0.3s total).
+This runs 139 unit tests, 57 integration tests, and 17 MCP tests (~0.5s total).
 
 ### End-to-end compilation test (slow)
 
@@ -322,6 +322,9 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 | `embed` | Embedded frontend (rust-embed templates, feature flag) |
 | `info` | `this info` command |
 | `doctor` | `this doctor` command |
+| `target` | `this add target` command (webapp, desktop, mobile targets) |
+| `codegen` | Code generation modules (`codegen/introspect.rs`, `codegen/typescript.rs`) |
+| `generate` | `this generate client` command |
 | `mcp` | MCP server and tools |
 | `completions` | Shell completions |
 | `dry-run` | Dry-run mode |
@@ -336,6 +339,9 @@ feat(workspace): add --workspace flag to this init
 feat(build): add `this build` command with Docker, embed, and split modes
 feat(dev): add `this dev` command for parallel API + frontend development
 feat(embed): add rust-embed templates for workspace mode
+feat(target): add `this add target webapp` with React/Vue/Svelte scaffolding
+feat(codegen): add project introspection module
+feat(generate): add `this generate client` command
 fix(add-entity): filter reserved fields from impl_data_entity! macro
 test(mcp): add workspace integration tests for MCP tools
 refactor(templates): extract store initialization into helper

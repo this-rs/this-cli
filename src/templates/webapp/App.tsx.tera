@@ -1,0 +1,30 @@
+import { useEffect, useState } from "react";
+
+function App() {
+  const [status, setStatus] = useState<string>("loading...");
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((res) => (res.ok ? "connected" : "error"))
+      .then(setStatus)
+      .catch(() => setStatus("offline"));
+  }, []);
+
+  return (
+    <div className="app">
+      <header>
+        <h1>{{ project_name }}</h1>
+        <p>
+          API status: <span className={`status ${status}`}>{status}</span>
+        </p>
+      </header>
+      <main>
+        <p>
+          Edit <code>src/App.tsx</code> and save to reload.
+        </p>
+      </main>
+    </div>
+  );
+}
+
+export default App;

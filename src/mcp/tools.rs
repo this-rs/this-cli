@@ -13,6 +13,8 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         check_project_health_tool(),
         build_project_tool(),
         start_dev_tool(),
+        add_target_tool(),
+        generate_client_tool(),
     ]
 }
 
@@ -231,13 +233,69 @@ fn start_dev_tool() -> ToolDefinition {
     }
 }
 
+fn add_target_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "add_target".to_string(),
+        description: "Add a deployment target to the workspace: webapp (React/Vue/Svelte SPA), desktop (Tauri), or mobile (iOS/Android via Capacitor). Updates this.yaml and scaffolds the target directory with framework boilerplate.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "target_type": {
+                    "type": "string",
+                    "enum": ["webapp", "desktop", "ios", "android"],
+                    "description": "Type of target to add"
+                },
+                "framework": {
+                    "type": "string",
+                    "description": "Frontend framework for webapp target (react, vue, svelte). Default: react"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Custom name for the target directory (default: auto-generated from type, e.g. 'front' for webapp)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs workspace)"
+                }
+            })),
+            required: Some(vec!["target_type".to_string()]),
+        },
+    }
+}
+
+fn generate_client_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "generate_client".to_string(),
+        description: "Generate a typed API client from the project's entities and links. Introspects model.rs files, descriptors, and links.yaml to produce TypeScript interfaces and CRUD functions. Requires entities to exist in the project.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "lang": {
+                    "type": "string",
+                    "enum": ["typescript"],
+                    "description": "Target language for the generated client (default: typescript)"
+                },
+                "output": {
+                    "type": "string",
+                    "description": "Output file path. Default: auto-detected from this.yaml webapp target (e.g. front/src/api-client.ts)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs project)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_all_tools_count() {
-        assert_eq!(all_tools().len(), 7);
+        assert_eq!(all_tools().len(), 9);
     }
 
     #[test]
