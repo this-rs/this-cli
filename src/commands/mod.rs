@@ -43,6 +43,10 @@ pub enum Commands {
         /// Shell to generate completions for
         shell: Shell,
     },
+
+    /// Start MCP server on stdio for AI agent integration
+    #[command(hide = true)]
+    Mcp,
 }
 
 #[derive(Parser)]

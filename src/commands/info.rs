@@ -2,52 +2,75 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use serde::Serialize;
 
 use crate::utils::{markers, project};
 
 /// Parsed entity info from scanning the project
-#[derive(Debug)]
-struct EntityInfo {
-    name: String,
-    fields: Vec<(String, String)>, // (name, type)
-    is_validated: bool,
+#[derive(Debug, Serialize)]
+pub struct EntityInfo {
+    pub name: String,
+    pub fields: Vec<(String, String)>, // (name, type)
+    pub is_validated: bool,
 }
 
 /// Parsed link info from links.yaml
-#[derive(Debug)]
-struct LinkInfo {
-    link_type: String,
-    source: String,
-    target: String,
-    forward_route: String,
-    reverse_route: String,
+#[derive(Debug, Serialize)]
+pub struct LinkInfo {
+    pub link_type: String,
+    pub source: String,
+    pub target: String,
+    pub forward_route: String,
+    pub reverse_route: String,
 }
 
 /// Coherence check result
-#[derive(Debug)]
-struct CoherenceStatus {
-    module_registered: usize,
-    module_total: usize,
-    stores_configured: usize,
-    stores_total: usize,
-    links_valid: bool,
-    links_issues: Vec<String>,
+#[derive(Debug, Serialize)]
+pub struct CoherenceStatus {
+    pub module_registered: usize,
+    pub module_total: usize,
+    pub stores_configured: usize,
+    pub stores_total: usize,
+    pub links_valid: bool,
+    pub links_issues: Vec<String>,
+}
+
+/// Complete project information — returned by collect_info() for structured (MCP) use
+#[derive(Debug, Serialize)]
+pub struct ProjectInfo {
+    pub project_name: String,
+    pub this_version: String,
+    pub entities: Vec<EntityInfo>,
+    pub links: Vec<LinkInfo>,
+    pub coherence: CoherenceStatus,
+}
+
+/// Collect project information as a structured object.
+/// Used by the MCP handler for JSON serialization.
+pub fn collect_info() -> Result<ProjectInfo> {
+    let project_root = project::detect_project_root()?;
+    let (project_name, this_version) = parse_cargo_toml(&project_root)?;
+    let entities = scan_entities(&project_root)?;
+    let links = parse_links_yaml(&project_root)?;
+    let coherence = check_coherence(&project_root, &entities)?;
+
+    Ok(ProjectInfo {
+        project_name,
+        this_version,
+        entities,
+        links,
+        coherence,
+    })
 }
 
 pub fn run() -> Result<()> {
-    let project_root = project::detect_project_root()?;
+    let info = collect_info()?;
 
-    // 1. Parse Cargo.toml
-    let (project_name, this_version) = parse_cargo_toml(&project_root)?;
-
-    // 2. Scan entities
-    let entities = scan_entities(&project_root)?;
-
-    // 3. Parse links.yaml
-    let links = parse_links_yaml(&project_root)?;
-
-    // 4. Check coherence
-    let coherence = check_coherence(&project_root, &entities)?;
+    let project_name = &info.project_name;
+    let this_version = &info.this_version;
+    let entities = &info.entities;
+    let links = &info.links;
+    let coherence = &info.coherence;
 
     // Display
     println!();
@@ -60,14 +83,14 @@ pub fn run() -> Result<()> {
         println!("{} Entities: {}", "📋".bold(), "none".dimmed());
     } else {
         println!("{} Entities ({}):", "📋".bold(), entities.len());
-        for entity in &entities {
+        for entity in entities {
             let fields_str = if entity.fields.is_empty() {
                 "no fields".dimmed().to_string()
             } else {
                 entity
                     .fields
                     .iter()
-                    .map(|(name, _)| name.as_str())
+                    .map(|(name, _): &(String, String)| name.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
             };
@@ -92,7 +115,7 @@ pub fn run() -> Result<()> {
         println!("{} Links: {}", "🔗".bold(), "none".dimmed());
     } else {
         println!("{} Links ({}):", "🔗".bold(), links.len());
-        for link in &links {
+        for link in links {
             let source_plural = crate::utils::naming::pluralize(&link.source);
             let target_plural = crate::utils::naming::pluralize(&link.target);
             println!(
