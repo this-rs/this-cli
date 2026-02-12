@@ -8,6 +8,8 @@ Complete reference for all `this` CLI commands.
 - [this init](#this-init)
 - [this add entity](#this-add-entity)
 - [this add link](#this-add-link)
+- [this add target](#this-add-target)
+- [this generate client](#this-generate-client)
 - [this build](#this-build)
 - [this dev](#this-dev)
 - [this info](#this-info)
@@ -368,6 +370,199 @@ this add link product tag --no-validation-rule
 
 - Both source and target entities are automatically added to the `entities` section of `links.yaml` if not already present
 - Entity auth defaults to `authenticated` for all operations (list, get, create, update, delete)
+
+---
+
+## this add target
+
+Add a deployment target to the workspace. Currently supports `webapp` (React, Vue, or Svelte SPA with Vite and TypeScript).
+
+### Synopsis
+
+```
+this add target [OPTIONS] <TYPE>
+```
+
+### Arguments
+
+| Argument | Required | Values | Description |
+|----------|----------|--------|-------------|
+| `<TYPE>` | Yes | `webapp`, `desktop`, `ios`, `android` | Type of target to add |
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--framework <FW>` | `react` | Frontend framework for webapp target (`react`, `vue`, `svelte`) |
+| `--name <NAME>` | auto | Custom name for the target directory (default: `front` for webapp) |
+
+### Generated Files (webapp)
+
+For `this add target webapp` with default settings:
+
+```
+front/
+├── index.html               # Vite entry point
+├── package.json             # Dependencies (React, TypeScript, Vite)
+├── tsconfig.json            # TypeScript configuration
+├── vite.config.ts           # Vite config with API proxy to backend port
+├── src/
+│   ├── main.tsx             # React entry point
+│   ├── App.tsx              # Main component with API connectivity check
+│   └── App.css              # Default styles
+└── public/
+    └── (static assets)
+```
+
+### Automatically Updated Files
+
+| File | What changes |
+|------|-------------|
+| `this.yaml` | Adds a target entry with type, framework, and path |
+
+After adding the target, `this.yaml` looks like:
+
+```yaml
+name: my-app
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+```
+
+### Examples
+
+```sh
+# Add a React SPA (default)
+this add target webapp
+
+# Add a Vue SPA
+this add target webapp --framework vue
+
+# Add a Svelte SPA
+this add target webapp --framework svelte
+
+# Custom directory name
+this add target webapp --name dashboard
+
+# Preview without creating files
+this --dry-run add target webapp
+```
+
+### Errors
+
+| Error | Cause |
+|-------|-------|
+| `Not a this-rs workspace` | Command run outside a workspace (requires `this.yaml`) |
+| `Target 'front' already exists in this.yaml` | A target with the same path is already configured |
+| `Unsupported target type: 'xxx'` | Target type not in the supported list |
+
+### Notes
+
+- Must be run from inside a this-rs workspace (not a classic project)
+- After adding a webapp target, `this build`, `this build --embed`, `this build --front-only`, `this build --docker`, and `this dev` will automatically use it
+- The generated Vite config includes an API proxy to `http://127.0.0.1:<port>` (from `this.yaml`)
+- `desktop`, `ios`, and `android` target types are accepted but not yet implemented (reserved for future use)
+
+---
+
+## this generate client
+
+Generate a typed TypeScript API client by introspecting the project's entities and links.
+
+### Synopsis
+
+```
+this generate client [OPTIONS]
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--lang <LANG>` | `typescript` | Target language (currently only `typescript` is supported) |
+| `--output <PATH>` | auto-detected | Output file path |
+
+### Output Path Resolution
+
+1. If `--output` is specified, uses that path
+2. If a webapp target exists in `this.yaml`, outputs to `<webapp_path>/src/api-client.ts`
+3. Otherwise, outputs to `<workspace_root>/api-client.ts`
+
+### Generated Output
+
+The generated `api-client.ts` contains:
+
+1. **Configuration** -- `API_BASE` constant from `import.meta.env.VITE_API_URL`
+2. **Fetch helper** -- generic `fetchJson<T>()` function with error handling
+3. **Interfaces** -- for each entity:
+   - `{Entity}` -- full type with `id`, `name`, `status`, `created_at`, `updated_at`, custom fields
+   - `Create{Entity}` -- input type for creation (excludes auto-generated fields)
+   - `Update{Entity}` -- input type for updates (all fields optional)
+4. **CRUD functions** -- for each entity:
+   - `list{Entities}()` -- GET `/api/{entities}`
+   - `get{Entity}(id)` -- GET `/api/{entities}/{id}`
+   - `create{Entity}(data)` -- POST `/api/{entities}`
+   - `update{Entity}(id, data)` -- PATCH `/api/{entities}/{id}`
+   - `delete{Entity}(id)` -- DELETE `/api/{entities}/{id}`
+5. **Link functions** -- for each link:
+   - `get{Source}{Targets}(sourceId)` -- GET `/api/{sources}/{id}/{targets}`
+
+### Type Mapping (Rust -> TypeScript)
+
+| Rust Type | TypeScript Type |
+|-----------|----------------|
+| `String` | `string` |
+| `f64`, `f32` | `number` |
+| `i32`, `i64`, `u32`, `u64` | `number` |
+| `bool` | `boolean` |
+| `Uuid` | `string` |
+| `Option<T>` | `T \| null` |
+| `Vec<T>` | `T[]` |
+| `HashMap<K, V>` | `Record<K, V>` |
+| `DateTime<Utc>` | `string` |
+| `Value` (serde_json) | `unknown` |
+
+### Introspection Sources
+
+The generator reads from:
+
+| Source | What it extracts |
+|--------|-----------------|
+| `src/entities/*/model.rs` | Entity name, fields (from `impl_data_entity!` macro) |
+| `src/entities/*/descriptor.rs` | Plural name, REST routes |
+| `config/links.yaml` | Link definitions (source, target, forward route) |
+
+### Examples
+
+```sh
+# Generate client (auto-detect output path)
+this generate client
+
+# Custom output path
+this generate client --output ./shared/api-client.ts
+
+# Preview what would be generated
+this --dry-run generate client
+```
+
+### Errors
+
+| Error | Cause |
+|-------|-------|
+| `Not inside a this-rs workspace` | No `this.yaml` found in parent directories |
+| `No entities found` | No entity directories with `model.rs` files |
+| `Unsupported language: 'xxx'` | Language not in the supported list |
+
+### Notes
+
+- Requires a workspace project (not a classic project)
+- The generated client uses native `fetch()` -- no external dependencies
+- Regenerate the client after adding new entities or links
+- The client is framework-agnostic and works with React, Vue, Svelte, or any TypeScript project
 
 ---
 

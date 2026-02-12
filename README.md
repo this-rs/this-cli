@@ -8,6 +8,8 @@ Generate fully compilable this-rs projects and entities from the command line --
 
 - **Zero-touch scaffolding** -- `this init` + `this add entity` produces code that compiles and runs immediately
 - **Workspace mode** -- `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
+- **Frontend targets** -- `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy
+- **Typed API client generation** -- `this generate client` introspects entities and links to produce a TypeScript API client
 - **Embed frontend** -- `this build --embed` produces a single binary with the frontend bundled via rust-embed
 - **Dev server orchestration** -- `this dev` runs API + frontend in parallel with auto-reload and colored output
 - **Docker support** -- `this build --docker` generates a multi-stage Dockerfile
@@ -63,8 +65,12 @@ this init my-app --workspace
 # All commands work from the workspace root
 cd my-app
 this add entity product --fields "sku:String,price:f64"
-this info
-this doctor
+
+# Add a React frontend
+this add target webapp
+
+# Generate a typed TypeScript API client
+this generate client
 
 # Start development (API + frontend in parallel)
 this dev
@@ -90,6 +96,8 @@ The generated project includes:
 | `this init <name> --workspace` | Create a workspace with `this.yaml` and `api/` subdirectory |
 | `this add entity <name>` | Add an entity with model, store, handlers, descriptor |
 | `this add link <source> <target>` | Configure a relationship between two entities |
+| `this add target <type>` | Add a deployment target (webapp, desktop, ios, android) |
+| `this generate client` | Generate a typed TypeScript API client from project introspection |
 | `this build` | Build the project (API + frontend if configured) |
 | `this dev` | Start development servers (API + frontend in parallel) |
 | `this info` | Display project summary and coherence status |
@@ -132,6 +140,23 @@ Default values are generated automatically:
 - Link type: `has_<target>` (e.g., `has_category`)
 - Forward route: pluralized target (e.g., `/products/{id}/categories`)
 - Reverse route: source (e.g., `/categories/{id}/product`)
+
+### this add target
+
+```sh
+this add target webapp              # Add a React SPA (default framework)
+this add target webapp --framework vue    # Vue instead of React
+this add target webapp --name dashboard   # Custom directory name
+```
+
+### this generate client
+
+```sh
+this generate client                # Auto-detect output from this.yaml webapp target
+this generate client --output ./client.ts  # Custom output path
+```
+
+Generates a self-contained TypeScript file with interfaces and CRUD functions for all entities and links. Type mapping: `String` -> `string`, `f64`/`f32`/`i32`/`i64`/`u32`/`u64` -> `number`, `bool` -> `boolean`, `Option<T>` -> `T | null`, `Vec<T>` -> `T[]`.
 
 ### this build
 
@@ -225,15 +250,16 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Dev server orchestration (`dev`) -- parallel API + frontend with colored output and Ctrl+C handling
 - Dockerfile generation (`build --docker`) -- multi-stage Node + Rust + Alpine
 - Project introspection (`info`) and diagnostics (`doctor`) with workspace awareness
-- MCP server (`this mcp`) for AI agent integration (7 tools)
+- Frontend target scaffolding (`add target webapp`) -- React, Vue, or Svelte SPA with Vite + TypeScript
+- Typed API client generation (`generate client`) -- TypeScript interfaces and CRUD functions from introspection
+- MCP server (`this mcp`) for AI agent integration (9 tools)
 - Shell completions, dry-run mode
-- 171 tests (92 unit + 57 integration + 17 MCP + 5 doc), CI with fmt/clippy/cross-platform
+- 213 tests (139 unit + 57 integration + 17 MCP), CI with fmt/clippy/cross-platform
 
 ### Not yet implemented
 
 - PostgreSQL store generation (waiting on this-rs `postgres` feature)
-- Frontend targets (`this add target webapp`)
-- Native targets (`this add target mobile`)
+- Native targets (`this add target desktop`, `this add target ios/android`)
 - `this remove entity` / `this remove link`
 - OpenAPI generation
 - Custom user templates
