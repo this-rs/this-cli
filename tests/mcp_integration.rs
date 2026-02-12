@@ -617,3 +617,53 @@ fn test_mcp_start_dev_outside_workspace_error() {
     );
     assert_eq!(resp["result"]["isError"], true);
 }
+
+#[test]
+fn test_mcp_init_project_websocket() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {
+                "name": "ws_project",
+                "cwd": cwd,
+                "no_git": true,
+                "websocket": true
+            }
+        })),
+        2,
+    );
+    let responses = mcp_call(&[&init, &call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    assert!(resp["result"].is_object());
+
+    // Parse the tool result content
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let result: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["project_name"], "ws_project");
+    assert_eq!(result["websocket_enabled"], true);
+
+    // Verify Cargo.toml contains websocket feature
+    let project_dir = tmpdir.path().join("ws_project");
+    let cargo_toml = std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["websocket"]"#),
+        "Cargo.toml should contain websocket feature. Got:\n{}",
+        cargo_toml
+    );
+
+    // Verify main.rs contains WebSocketExposure
+    let main_rs = std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("WebSocketExposure"),
+        "main.rs should contain WebSocketExposure. Got:\n{}",
+        main_rs
+    );
+}

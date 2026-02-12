@@ -173,6 +173,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         "project_name": name,
         "project_path": project_path,
         "port": port,
+        "websocket_enabled": websocket,
         "files_created": writer.files_created(),
     }))
 }
