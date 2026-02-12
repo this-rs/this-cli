@@ -1735,3 +1735,206 @@ fn test_doctor_websocket_incoherent() {
         stdout
     );
 }
+
+// ──────────────────────────────────────────────────────────────
+// gRPC support tests
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn test_init_grpc_cargo_toml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) =
+        run_this(&["init", "grpc-proj", "--grpc", "--no-git"], tmp.path());
+
+    assert!(success, "init --grpc should succeed: {}", stderr);
+
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("grpc-proj/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["grpc"]"#),
+        "Cargo.toml should contain grpc feature, got:\n{}",
+        cargo_toml
+    );
+}
+
+#[test]
+fn test_init_grpc_main_rs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "grpc-main", "--grpc", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    let main_rs = std::fs::read_to_string(tmp.path().join("grpc-main/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("GrpcExposure"),
+        "main.rs should contain GrpcExposure"
+    );
+    assert!(
+        main_rs.contains("build_host"),
+        "main.rs should use build_host() for gRPC mode"
+    );
+    assert!(
+        !main_rs.contains("with_event_bus"),
+        "main.rs should NOT configure EventBus for gRPC-only mode"
+    );
+    assert!(
+        main_rs.contains("/grpc/proto"),
+        "main.rs should mention /grpc/proto endpoint"
+    );
+}
+
+#[test]
+fn test_init_grpc_websocket_combined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &["init", "both-proj", "--grpc", "--websocket", "--no-git"],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --grpc --websocket should succeed: {}",
+        stderr
+    );
+
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("both-proj/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["websocket", "grpc"]"#),
+        "Cargo.toml should contain both features, got:\n{}",
+        cargo_toml
+    );
+
+    let main_rs = std::fs::read_to_string(tmp.path().join("both-proj/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("GrpcExposure"),
+        "main.rs should contain GrpcExposure"
+    );
+    assert!(
+        main_rs.contains("WebSocketExposure"),
+        "main.rs should contain WebSocketExposure"
+    );
+    assert!(
+        main_rs.contains("with_event_bus"),
+        "main.rs should configure EventBus when WebSocket is active"
+    );
+}
+
+#[test]
+fn test_info_grpc_enabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "grpc-info-proj", "--grpc", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let project = tmp.path().join("grpc-info-proj");
+    let (success, stdout, _) = run_this(&["info"], &project);
+
+    assert!(success, "info should succeed in grpc project");
+    assert!(
+        stdout.contains("gRPC") && stdout.contains("enabled"),
+        "info should show gRPC: ✓ enabled, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn test_doctor_grpc_healthy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "grpc-doc-proj", "--grpc", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let project = tmp.path().join("grpc-doc-proj");
+    let (success, stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(success, "doctor should pass on healthy grpc project");
+    assert!(
+        stdout.contains("gRPC"),
+        "doctor should check gRPC, got:\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("GrpcExposure not found"),
+        "doctor should not warn on healthy grpc project"
+    );
+}
+
+#[test]
+fn test_doctor_grpc_incoherent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(
+        &["init", "grpc-bad-proj", "--grpc", "--no-git"],
+        tmp.path(),
+    );
+    assert!(success);
+
+    let project = tmp.path().join("grpc-bad-proj");
+
+    // Tamper with main.rs: remove GrpcExposure to create incoherence
+    let main_path = project.join("src/main.rs");
+    let main_content = std::fs::read_to_string(&main_path).unwrap();
+    let tampered = main_content.replace("GrpcExposure", "/* removed */");
+    std::fs::write(&main_path, tampered).unwrap();
+
+    let (_, stdout, _) = run_this(&["doctor"], &project);
+
+    assert!(
+        stdout.contains("GrpcExposure not found"),
+        "doctor should warn about missing GrpcExposure, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn test_init_grpc_websocket_workspace_combined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &[
+            "init",
+            "triple-proj",
+            "--grpc",
+            "--websocket",
+            "--workspace",
+            "--no-git",
+        ],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --grpc --websocket --workspace should succeed: {}",
+        stderr
+    );
+
+    let ws_dir = tmp.path().join("triple-proj");
+
+    // Cargo.toml should have both features AND embedded-frontend
+    let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["websocket", "grpc"]"#),
+        "Cargo.toml should contain both features, got:\n{}",
+        cargo_toml
+    );
+    assert!(
+        cargo_toml.contains("embedded-frontend"),
+        "Cargo.toml should still have embedded-frontend feature"
+    );
+
+    // main.rs should have all three: GrpcExposure + WebSocketExposure + attach_frontend
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("GrpcExposure"),
+        "main.rs should contain GrpcExposure"
+    );
+    assert!(
+        main_rs.contains("WebSocketExposure"),
+        "main.rs should contain WebSocketExposure"
+    );
+    assert!(
+        main_rs.contains("attach_frontend"),
+        "main.rs should contain attach_frontend"
+    );
+}
