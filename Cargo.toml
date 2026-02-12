@@ -2,6 +2,13 @@
 name = "this-cli"
 version = "0.0.1"
 edition = "2024"
+authors = ["Riviere Théotime <t@ffs.holdings>"]
+license = "MIT OR Apache-2.0"
+description = "CLI toolkit for the this-rs entity-relationship framework — scaffold, develop, build, and expose projects via MCP"
+repository = "https://github.com/this-rs/this"
+keywords = ["cli", "entity", "framework", "scaffolding", "mcp"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
+readme = "README.md"
 
 [[bin]]
 name = "this"
