@@ -105,7 +105,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 5);
+    assert_eq!(tools.len(), 7);
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"init_project"));
@@ -113,6 +113,8 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"add_link"));
     assert!(tool_names.contains(&"get_project_info"));
     assert!(tool_names.contains(&"check_project_health"));
+    assert!(tool_names.contains(&"build_project"));
+    assert!(tool_names.contains(&"start_dev"));
 
     // Verify each tool has inputSchema
     for tool in tools {
@@ -495,4 +497,121 @@ fn test_mcp_get_project_info_workspace() {
     assert_eq!(result["workspace"]["name"], "ws_info_test");
     assert_eq!(result["workspace"]["api_path"], "api");
     assert_eq!(result["workspace"]["api_port"], 3000);
+}
+
+// ============================================================================
+// Build & Dev MCP tests
+// ============================================================================
+
+#[test]
+fn test_mcp_build_project_outside_workspace_error() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "build_project",
+            "arguments": {"cwd": cwd}
+        })),
+        2,
+    );
+    let responses = mcp_call(&[&init, &call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        content.contains("Not a this-rs workspace"),
+        "Should say not a workspace. content: {}",
+        content
+    );
+    assert_eq!(resp["result"]["isError"], true);
+}
+
+#[test]
+fn test_mcp_build_project_docker_generates_dockerfile() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+    let init = initialize_msg();
+
+    // Create workspace
+    let init_call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {"name": "build_mcp", "cwd": cwd, "no_git": true, "workspace": true}
+        })),
+        2,
+    );
+
+    // Add webapp target to this.yaml manually
+    let ws_dir = tmpdir.path().join("build_mcp");
+    let responses_init = mcp_call(&[&init, &init_call]);
+    assert_eq!(responses_init.len(), 2);
+
+    let this_yaml = r#"name: build_mcp
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#;
+    std::fs::write(ws_dir.join("this.yaml"), this_yaml).unwrap();
+
+    // Build with --docker
+    let ws_cwd = ws_dir.to_string_lossy().to_string();
+    let build_call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "build_project",
+            "arguments": {"docker": true, "cwd": ws_cwd}
+        })),
+        3,
+    );
+    let init2 = initialize_msg();
+    let responses = mcp_call(&[&init2, &build_call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let result: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["mode"], "docker");
+
+    // Verify Dockerfile was created
+    assert!(
+        ws_dir.join("Dockerfile").exists(),
+        "Dockerfile should exist"
+    );
+}
+
+#[test]
+fn test_mcp_start_dev_outside_workspace_error() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "start_dev",
+            "arguments": {"cwd": cwd}
+        })),
+        2,
+    );
+    let responses = mcp_call(&[&init, &call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        content.contains("Not a this-rs workspace"),
+        "Should say not a workspace. content: {}",
+        content
+    );
+    assert_eq!(resp["result"]["isError"], true);
 }

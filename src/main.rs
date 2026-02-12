@@ -40,6 +40,8 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
         Commands::Info => commands::info::run(),
         Commands::Doctor => commands::doctor::run(),
         Commands::Completions { shell } => commands::completions::run(shell),
+        Commands::Build(args) => commands::build::run(args, writer),
+        Commands::Dev(args) => commands::dev::run(args),
         Commands::Mcp => {
             let mut server = mcp::server::McpServer::new();
             server.run()

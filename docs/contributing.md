@@ -58,7 +58,7 @@ path = "src/main.rs"
 cargo test -p this-cli
 ```
 
-This runs 79 unit tests, 48 integration tests, and 14 MCP tests (~0.3s total).
+This runs 92 unit tests, 57 integration tests, and 17 MCP tests (~0.3s total).
 
 ### End-to-end compilation test (slow)
 
@@ -317,6 +317,9 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 | `workspace` | Workspace mode (`--workspace`, `this.yaml`, config) |
 | `add-entity` | `this add entity` command |
 | `add-link` | `this add link` command |
+| `build` | `this build` command (all modes) |
+| `dev` | `this dev` command (dev server orchestration) |
+| `embed` | Embedded frontend (rust-embed templates, feature flag) |
 | `info` | `this info` command |
 | `doctor` | `this doctor` command |
 | `mcp` | MCP server and tools |
@@ -330,6 +333,9 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 ```
 feat(info): add `this info` command for project introspection
 feat(workspace): add --workspace flag to this init
+feat(build): add `this build` command with Docker, embed, and split modes
+feat(dev): add `this dev` command for parallel API + frontend development
+feat(embed): add rust-embed templates for workspace mode
 fix(add-entity): filter reserved fields from impl_data_entity! macro
 test(mcp): add workspace integration tests for MCP tools
 refactor(templates): extract store initialization into helper
