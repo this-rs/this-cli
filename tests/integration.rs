@@ -1545,12 +1545,12 @@ fn test_generated_code_compiles() {
 #[test]
 fn test_init_websocket_cargo_toml() {
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, stderr) = run_this(&["init", "ws-proj", "--websocket", "--no-git"], tmp.path());
+    let (success, _, stderr) =
+        run_this(&["init", "ws-proj", "--websocket", "--no-git"], tmp.path());
 
     assert!(success, "init --websocket should succeed: {}", stderr);
 
-    let cargo_toml =
-        std::fs::read_to_string(tmp.path().join("ws-proj/Cargo.toml")).unwrap();
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("ws-proj/Cargo.toml")).unwrap();
     assert!(
         cargo_toml.contains(r#"features = ["websocket"]"#),
         "Cargo.toml should contain websocket feature, got:\n{}",
@@ -1565,8 +1565,7 @@ fn test_init_websocket_main_rs() {
 
     assert!(success);
 
-    let main_rs =
-        std::fs::read_to_string(tmp.path().join("ws-main/src/main.rs")).unwrap();
+    let main_rs = std::fs::read_to_string(tmp.path().join("ws-main/src/main.rs")).unwrap();
     assert!(
         main_rs.contains("WebSocketExposure"),
         "main.rs should contain WebSocketExposure"
@@ -1593,15 +1592,13 @@ fn test_init_without_websocket_unchanged() {
 
     assert!(success);
 
-    let cargo_toml =
-        std::fs::read_to_string(tmp.path().join("no-ws/Cargo.toml")).unwrap();
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("no-ws/Cargo.toml")).unwrap();
     assert!(
         !cargo_toml.contains("websocket"),
         "Cargo.toml should NOT contain websocket without flag"
     );
 
-    let main_rs =
-        std::fs::read_to_string(tmp.path().join("no-ws/src/main.rs")).unwrap();
+    let main_rs = std::fs::read_to_string(tmp.path().join("no-ws/src/main.rs")).unwrap();
     assert!(
         !main_rs.contains("WebSocketExposure"),
         "main.rs should NOT contain WebSocketExposure without flag"
@@ -1629,8 +1626,7 @@ fn test_init_workspace_websocket_combined() {
     let ws_dir = tmp.path().join("combo-ws");
 
     // Cargo.toml should have both websocket feature AND embedded-frontend
-    let cargo_toml =
-        std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
     assert!(
         cargo_toml.contains(r#"features = ["websocket"]"#),
         "Cargo.toml should contain websocket feature"
@@ -1641,8 +1637,7 @@ fn test_init_workspace_websocket_combined() {
     );
 
     // main.rs should have both WebSocketExposure AND attach_frontend
-    let main_rs =
-        std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
     assert!(
         main_rs.contains("WebSocketExposure"),
         "main.rs should contain WebSocketExposure"
