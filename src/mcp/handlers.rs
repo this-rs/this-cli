@@ -21,6 +21,8 @@ impl ToolHandler {
             "add_link" => handle_add_link(&args),
             "get_project_info" => handle_get_project_info(&args),
             "check_project_health" => handle_check_project_health(&args),
+            "build_project" => handle_build_project(&args),
+            "start_dev" => handle_start_dev(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
     }
@@ -54,7 +56,7 @@ impl Drop for CwdGuard {
     }
 }
 
-use crate::commands::{AddEntityArgs, AddLinkArgs, InitArgs};
+use crate::commands::{AddEntityArgs, AddLinkArgs, BuildArgs, DevArgs, InitArgs};
 use crate::utils::file_writer::FileWriter;
 
 /// FileWriter that performs real operations AND tracks created/modified files
@@ -295,5 +297,95 @@ fn handle_check_project_health(args: &Value) -> Result<Value> {
             "error": error,
             "total": diagnostics.len(),
         }
+    }))
+}
+
+fn handle_build_project(args: &Value) -> Result<Value> {
+    let embed = args.get("embed").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let api_only = args
+        .get("api_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let front_only = args
+        .get("front_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let docker = args
+        .get("docker")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let release = args
+        .get("release")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+
+    let build_args = BuildArgs {
+        embed,
+        api_only,
+        front_only,
+        docker,
+        release,
+    };
+
+    let mode = if embed {
+        "embed"
+    } else if api_only {
+        "api_only"
+    } else if front_only {
+        "front_only"
+    } else if docker {
+        "docker"
+    } else {
+        "default"
+    };
+
+    crate::commands::build::run(build_args, &writer)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "mode": mode,
+        "files_created": writer.files_created(),
+        "files_modified": writer.files_modified(),
+    }))
+}
+
+fn handle_start_dev(args: &Value) -> Result<Value> {
+    let api_only = args
+        .get("api_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let no_watch = args
+        .get("no_watch")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let port = args.get("port").and_then(|v| v.as_u64()).map(|p| p as u16);
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+
+    let dev_args = DevArgs {
+        api_only,
+        no_watch,
+        port,
+    };
+
+    // Note: this dev is a long-running process. In MCP context, it will block
+    // the stdio server. For now, we start it — the MCP client (e.g. Claude Code)
+    // should run this in a background shell instead of via MCP for long-running use.
+    // This handler is useful for validation (workspace detection, config parsing)
+    // and for short-lived checks.
+    crate::commands::dev::run(dev_args)?;
+
+    Ok(serde_json::json!({
+        "status": "stopped",
+        "message": "Dev servers shut down",
     }))
 }

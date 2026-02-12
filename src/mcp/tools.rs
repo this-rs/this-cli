@@ -11,6 +11,8 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         add_link_tool(),
         get_project_info_tool(),
         check_project_health_tool(),
+        build_project_tool(),
+        start_dev_tool(),
     ]
 }
 
@@ -163,13 +165,79 @@ fn check_project_health_tool() -> ToolDefinition {
     }
 }
 
+fn build_project_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "build_project".to_string(),
+        description: "Build the project: compile API (cargo build), frontend (npm run build), or produce a single embedded binary. Can also generate an optimized Dockerfile. Requires a workspace (this.yaml).".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "embed": {
+                    "type": "boolean",
+                    "description": "Build a single binary with frontend embedded (npm build → copy dist → cargo build --features embedded-frontend)"
+                },
+                "api_only": {
+                    "type": "boolean",
+                    "description": "Only build the API (cargo build)"
+                },
+                "front_only": {
+                    "type": "boolean",
+                    "description": "Only build the frontend (npm run build)"
+                },
+                "docker": {
+                    "type": "boolean",
+                    "description": "Generate an optimized multi-stage Dockerfile"
+                },
+                "release": {
+                    "type": "boolean",
+                    "description": "Build in release mode (default: true)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs workspace)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
+fn start_dev_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "start_dev".to_string(),
+        description: "Start development servers: API (cargo run with auto-detected watcher) + frontend (npm run dev). Returns the command to run rather than spawning long-lived processes. Requires a workspace (this.yaml).".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "api_only": {
+                    "type": "boolean",
+                    "description": "Only start the API server (skip frontend)"
+                },
+                "no_watch": {
+                    "type": "boolean",
+                    "description": "Disable auto-detection of cargo-watch, force plain cargo run"
+                },
+                "port": {
+                    "type": "integer",
+                    "description": "Override the API port from this.yaml"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs workspace)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_all_tools_count() {
-        assert_eq!(all_tools().len(), 5);
+        assert_eq!(all_tools().len(), 7);
     }
 
     #[test]
