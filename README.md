@@ -1,5 +1,10 @@
 # this-cli
 
+[![CI](https://github.com/this-rs/this-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/this-rs/this-cli/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/this-rs/this-cli/graph/badge.svg)](https://codecov.io/gh/this-rs/this-cli)
+[![Crates.io](https://img.shields.io/crates/v/this-cli.svg)](https://crates.io/crates/this-cli)
+[![License](https://img.shields.io/crates/l/this-cli.svg)](LICENSE-MIT)
+
 A CLI scaffolding tool for [this-rs](https://github.com/triviere/this-rs) projects.
 
 Generate fully compilable this-rs projects and entities from the command line -- no manual wiring required.
