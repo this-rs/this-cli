@@ -335,7 +335,7 @@ fn extract_this_version(doc: &toml_edit::DocumentMut) -> Option<String> {
 }
 
 /// Detect which this-rs features are enabled in Cargo.toml
-fn detect_this_features(project_root: &Path) -> FeatureFlags {
+pub fn detect_this_features(project_root: &Path) -> FeatureFlags {
     let cargo_path = project_root.join("Cargo.toml");
     let content = match std::fs::read_to_string(&cargo_path) {
         Ok(c) => c,
