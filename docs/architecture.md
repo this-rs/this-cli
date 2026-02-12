@@ -92,8 +92,8 @@ src/
 │   ├── output.rs                    # Colored terminal output helpers
 │   └── project.rs                   # Project + workspace root detection
 └── tests/
-    ├── integration.rs               # 57 integration tests + 1 e2e
-    └── mcp_integration.rs           # 17 MCP server integration tests
+    ├── integration.rs               # 65 integration tests + 1 e2e
+    └── mcp_integration.rs           # 18 MCP server integration tests
 ```
 
 ## Command Dispatch
@@ -189,6 +189,8 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 | `project_name` | String | `my-api` |
 | `project_name_snake` | String | `my_api` |
 | `port` | u16 | `3000` |
+| `websocket` | bool | `false` |
+| `workspace` | bool | `false` |
 
 #### Entity templates (`this add entity`)
 
@@ -209,8 +211,8 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 
 | Template | Output | Purpose |
 |----------|--------|---------|
-| `Cargo.toml.tera` | `Cargo.toml` | Project manifest with this-rs dependency, tokio, serde |
-| `main.rs.tera` | `src/main.rs` | Server entry point with `ServerBuilder`, stores, module |
+| `Cargo.toml.tera` | `Cargo.toml` | Project manifest with this-rs dependency, tokio, serde. `{% if websocket %}` adds `features = ["websocket"]` to this-rs |
+| `main.rs.tera` | `src/main.rs` | Server entry point with `ServerBuilder`, stores, module. `{% if websocket %}` switches to `build_host()` + `WebSocketExposure` + `EventBus` |
 | `module.rs.tera` | `src/module.rs` | `Module` trait impl with marker comments for auto-registration |
 | `stores.rs.tera` | `src/stores.rs` | Centralized `{Project}Stores` struct with marker comments |
 | `entities_mod.rs.tera` | `src/entities/mod.rs` | Empty entity re-exports |
