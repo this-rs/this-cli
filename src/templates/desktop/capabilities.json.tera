@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/refs/heads/main/.schemas/capabilities.json",
+  "identifier": "default",
+  "description": "Default permissions for {{ project_name }}",
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}

@@ -1,0 +1,4 @@
+node_modules/
+{% if platform == "ios" %}ios/{% endif %}{% if platform == "android" %}android/{% endif %}
+.build/
+*.log

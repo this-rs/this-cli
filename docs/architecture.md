@@ -28,9 +28,9 @@ src/
 │   ├── init.rs                      # `this init` (classic + workspace modes)
 │   ├── add_entity.rs                # `this add entity` + auto-registration
 │   ├── add_link.rs                  # `this add link` + YAML manipulation
-│   ├── add_target.rs                # `this add target` — scaffold deployment targets (webapp, etc.)
+│   ├── add_target.rs                # `this add target` — scaffold deployment targets (webapp, desktop, ios, android)
 │   ├── generate.rs                  # `this generate client` — typed API client generation
-│   ├── build.rs                     # `this build` — 5 modes (default, embed, api-only, front-only, docker)
+│   ├── build.rs                     # `this build` — 6 modes (default, embed, api-only, front-only, docker, --target)
 │   ├── dev.rs                       # `this dev` — parallel API + frontend with watcher detection
 │   ├── info.rs                      # `this info` — project + workspace introspection
 │   ├── doctor.rs                    # `this doctor` — health + workspace diagnostics
@@ -66,14 +66,24 @@ src/
 │   │   ├── descriptor.rs.tera
 │   │   └── mod.rs.tera
 │   └── targets/
-│       └── webapp/                  # Templates for `this add target webapp`
-│           ├── package.json.tera
-│           ├── tsconfig.json.tera
-│           ├── vite.config.ts.tera
-│           ├── index.html.tera
-│           ├── main.tsx.tera
-│           ├── App.tsx.tera
-│           └── App.css.tera
+│       ├── webapp/                  # Templates for `this add target webapp`
+│       │   ├── package.json.tera
+│       │   ├── tsconfig.json.tera
+│       │   ├── vite.config.ts.tera
+│       │   ├── index.html.tera
+│       │   ├── main.tsx.tera
+│       │   ├── App.tsx.tera
+│       │   └── App.css.tera
+│       ├── desktop/                 # Templates for `this add target desktop` (Tauri 2)
+│       │   ├── tauri-cargo.toml.tera     # Cargo.toml with Tauri 2, tokio, reqwest
+│       │   ├── tauri.conf.json.tera      # Tauri window config, devUrl, frontendDist
+│       │   ├── tauri-main.rs.tera        # Entry point: tokio::spawn API + Tauri webview
+│       │   ├── tauri-build.rs.tera       # tauri_build::build()
+│       │   └── capabilities.json.tera    # Default Tauri permissions
+│       └── mobile/                  # Templates for `this add target ios|android` (Capacitor 6)
+│           ├── capacitor-package.json.tera  # @capacitor/core + platform deps
+│           ├── capacitor.config.ts.tera     # App ID, webDir, server URL
+│           └── capacitor-gitignore.tera     # Native platform dirs
 ├── utils/
 │   ├── mod.rs
 │   ├── file_writer.rs               # FileWriter trait (real + dry-run + MCP)
@@ -112,6 +122,11 @@ main()
               │           ├── typescript::generate(&project)   → String (api-client.ts)
               │           └── writer.write_file(output_path, ts_content)
               ├── Build(args)     → commands::build::run(args, writer)
+              │     ├── --target    → run_target_build(name, config, root)
+              │     │     ├── desktop → run_build_desktop (cargo tauri build)
+              │     │     ├── ios     → run_build_mobile (npx cap sync ios)
+              │     │     ├── android → run_build_mobile (npx cap sync android)
+              │     │     └── all     → iterate all native targets
               │     ├── --docker    → run_docker(config, webapp, root, writer)
               │     ├── --embed     → run_embed(config, webapp, api_path, root)
               │     ├── --api-only  → run_api_build(api_path, release)
@@ -135,7 +150,7 @@ main()
 - `AddCommands` — nested enum: `Entity`, `Link`, `Target`
 - `GenerateCommands` — nested enum: `Client`
 - `InitArgs` — includes `--workspace` flag for workspace mode dispatch
-- `BuildArgs` — flags: `--embed`, `--api-only`, `--front-only`, `--docker`, `--release`
+- `BuildArgs` — flags: `--embed`, `--api-only`, `--front-only`, `--docker`, `--release`, `--target`
 - `DevArgs` — flags: `--api-only`, `--no-watch`, `--port`
 - `AddEntityArgs`, `AddLinkArgs`, `AddTargetArgs` — argument structs
 - `GenerateClientArgs` — arguments for `this generate client`
@@ -220,6 +235,42 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 | `main.tsx.tera` | `src/main.tsx` | Framework entry point (React/Vue/Svelte) |
 | `App.tsx.tera` | `src/App.tsx` | Main component with API connectivity check |
 | `App.css.tera` | `src/App.css` | Default application styles |
+
+### Desktop Target Templates (5) — Tauri 2
+
+| Template | Output | Purpose |
+|----------|--------|---------|
+| `tauri-cargo.toml.tera` | `Cargo.toml` | Tauri 2 manifest with tokio, reqwest, API crate dependency |
+| `tauri.conf.json.tera` | `tauri.conf.json` | Window config, devUrl, frontendDist path, app identifier |
+| `tauri-main.rs.tera` | `src/main.rs` | Entry point: `tokio::spawn` API server + health check + Tauri webview |
+| `tauri-build.rs.tera` | `build.rs` | Simple `tauri_build::build()` call |
+| `capabilities.json.tera` | `capabilities/default.json` | Default permissions (core:default, shell:allow-open) |
+
+**Template context variables:**
+
+| Variable | Type | Example |
+|----------|------|---------|
+| `project_name` | String | `my-app` |
+| `project_name_snake` | String | `my_app` |
+| `api_port` | u16 | `3000` |
+| `front_path` | String | `../../front/dist` |
+
+### Mobile Target Templates (3) — Capacitor 6
+
+| Template | Output | Purpose |
+|----------|--------|---------|
+| `capacitor-package.json.tera` | `package.json` | @capacitor/core, @capacitor/cli, @capacitor/\<platform\> dependencies |
+| `capacitor.config.ts.tera` | `capacitor.config.ts` | App ID, webDir, server URL, CapacitorHttp plugin |
+| `capacitor-gitignore.tera` | `.gitignore` | Native platform directories (ios/, android/) |
+
+**Template context variables:**
+
+| Variable | Type | Example |
+|----------|------|---------|
+| `project_name` | String | `my-app` |
+| `api_port` | u16 | `3000` |
+| `front_path` | String | `../../front` |
+| `platform` | String | `ios` or `android` |
 
 ### Entity Templates (6)
 
@@ -574,16 +625,75 @@ this add link product category
 └── Write updated YAML back to config/links.yaml
 ```
 
+### `this add target desktop`
+
+```
+this add target desktop
+│
+├── find_workspace_root() → find this.yaml
+├── load_workspace_config() → WorkspaceConfig
+├── Validate: webapp target exists (prerequisite)
+├── Check for duplicate desktop target
+│
+├── CREATE directories:
+│     └── targets/desktop/src-tauri/{src/, icons/, capabilities/}
+│
+├── CREATE 5 files:
+│   ├── Render desktop/tauri-cargo.toml.tera     → targets/desktop/src-tauri/Cargo.toml
+│   ├── Render desktop/tauri.conf.json.tera      → targets/desktop/src-tauri/tauri.conf.json
+│   ├── Render desktop/tauri-main.rs.tera        → targets/desktop/src-tauri/src/main.rs
+│   ├── Render desktop/tauri-build.rs.tera       → targets/desktop/src-tauri/build.rs
+│   └── Render desktop/capabilities.json.tera    → targets/desktop/src-tauri/capabilities/default.json
+│
+└── UPDATE this.yaml:
+    └── Add TargetConfig { type: Desktop, runtime: "tauri", path: "targets/desktop" }
+```
+
+### `this add target ios` / `this add target android`
+
+```
+this add target ios|android
+│
+├── find_workspace_root() → find this.yaml
+├── load_workspace_config() → WorkspaceConfig
+├── Validate: webapp target exists (prerequisite)
+├── Check for duplicate target (ios/android checked separately)
+│
+├── CREATE directory:
+│     └── targets/<platform>/
+│
+├── CREATE 3 files:
+│   ├── Render mobile/capacitor-package.json.tera  → targets/<platform>/package.json
+│   ├── Render mobile/capacitor.config.ts.tera     → targets/<platform>/capacitor.config.ts
+│   └── Render mobile/capacitor-gitignore.tera     → targets/<platform>/.gitignore
+│
+└── UPDATE this.yaml:
+    └── Add TargetConfig { type: Ios|Android, runtime: "capacitor", path: "targets/<platform>" }
+```
+
 ### `this build`
 
 ```
-this build [--embed | --api-only | --front-only | --docker]
+this build [--embed | --api-only | --front-only | --docker | --target NAME]
 │
 ├── find_workspace_root() → find this.yaml
 ├── load_workspace_config() → WorkspaceConfig
 ├── find_webapp_target() → Option<TargetConfig>
 │
 └── Dispatch based on flags:
+      │
+      ├── --target <name>:
+      │     ├── if "all" → iterate all native targets
+      │     │     ├── run_front_build() (once, if webapp exists)
+      │     │     └── for each native target → run_single_target_build()
+      │     ├── Find target by name in config.targets
+      │     ├── Validate: must be Desktop/Ios/Android (not Webapp)
+      │     ├── run_front_build() (if webapp exists)
+      │     └── run_single_target_build(target)
+      │           ├── Desktop → run_build_desktop()
+      │           │     └── cargo tauri build (in src-tauri/)
+      │           └── Ios|Android → run_build_mobile()
+      │                 └── npx cap sync <platform> (in targets/<platform>/)
       │
       ├── --docker:
       │     ├── require_webapp() → bail if no webapp target
@@ -783,3 +893,67 @@ The generated `main.rs` supports three modes via `#[cfg(feature)]`:
 1. **Embedded** (`--features embedded-frontend`): Static files served from the binary
 2. **Filesystem** (default, with `dist/` present): Serves from `dist/` directory via tower-http
 3. **API-only** (default, no `dist/`): No frontend serving, API routes only
+
+---
+
+## Native Target Architecture
+
+### Overview
+
+Native targets extend a this-rs workspace to deploy the same application as a desktop app or mobile app. All native targets wrap the frontend SPA -- they are not standalone; they require a webapp target as a prerequisite.
+
+```
+                 ┌──────────────────────────┐
+                 │     Frontend SPA          │
+                 │  (React / Vue / Svelte)   │
+                 └──────────┬───────────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                  │
+    ┌─────▼──────┐   ┌─────▼──────┐   ┌──────▼──────┐
+    │   Desktop   │   │    iOS     │   │   Android   │
+    │  (Tauri 2)  │   │(Capacitor) │   │(Capacitor)  │
+    └─────┬──────┘   └─────┬──────┘   └──────┬──────┘
+          │                 │                  │
+          │ Rust native     │ Native WebView   │ Native WebView
+          │ webview +       │ + HTTP to API    │ + HTTP to API
+          │ embedded API    │                  │
+          │                 │                  │
+    ┌─────▼──────┐   ┌─────▼──────┐   ┌──────▼──────┐
+    │ API Server  │   │ API Server │   │ API Server  │
+    │ (in-process)│   │ (separate) │   │ (separate)  │
+    └────────────┘   └────────────┘   └─────────────┘
+```
+
+### Desktop (Tauri 2)
+
+**Architecture**: The API server runs in-process. The Tauri entry point uses `tokio::spawn` to start the Axum API server on a background task, then launches the Tauri webview pointing to `http://localhost:<port>`. A health check loop (300 retries x 100ms = 30s timeout) ensures the API is ready before the window appears.
+
+**Key files**:
+- `targets/desktop/src-tauri/Cargo.toml` — depends on the API crate directly (`{{ project_name }} = { path = "../../api" }`)
+- `targets/desktop/src-tauri/src/main.rs` — `#[tokio::main]` entry point
+- `targets/desktop/src-tauri/tauri.conf.json` — window config, `devUrl: http://localhost:5173`, `frontendDist: ../../front/dist`
+
+**Build**: `cargo tauri build` (via `this build --target desktop`) produces a platform-specific installer.
+
+**Development**: Run `this dev` for the API + frontend, then `cd targets/desktop/src-tauri && cargo tauri dev` for the desktop shell with hot reload.
+
+### Mobile (Capacitor 6)
+
+**Architecture**: Capacitor wraps the frontend SPA in a native WebView shell. Unlike Tauri, the API server runs separately -- the mobile app communicates with the API over HTTP (typically the local network during development, or a deployed URL in production).
+
+**Key files**:
+- `targets/ios/package.json` — Capacitor dependencies (`@capacitor/core`, `@capacitor/ios`)
+- `targets/ios/capacitor.config.ts` — points `webDir` to `../../front/dist`, `server.url` to `http://localhost:<port>`
+- `targets/android/` — same structure, with `@capacitor/android`
+
+**Build**: `this build --target ios|android` runs `npx cap sync <platform>` which copies web assets into the native project. Then open the native IDE (Xcode or Android Studio) to build and deploy.
+
+**Development**: Run `this dev` for the API + frontend. After the first `npx cap sync`, open the native IDE for device/simulator testing.
+
+### Shared Principles
+
+1. **Webapp prerequisite**: All native targets require a webapp target. The SPA is the shared UI layer.
+2. **No code rewrite**: Native targets wrap the same SPA -- zero frontend code changes needed.
+3. **Independent addition**: Desktop, iOS, and Android can be added independently and coexist.
+4. **Single build pipeline**: `this build --target all` builds everything sequentially, sharing the frontend build.

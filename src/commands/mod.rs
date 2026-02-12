@@ -196,6 +196,10 @@ pub struct BuildArgs {
     /// Build in release mode
     #[arg(long, default_value_t = true)]
     pub release: bool,
+
+    /// Build a specific native target (desktop, ios, android, or "all")
+    #[arg(long)]
+    pub target: Option<String>,
 }
 
 /// Arguments for `this dev`

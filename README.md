@@ -9,6 +9,7 @@ Generate fully compilable this-rs projects and entities from the command line --
 - **Zero-touch scaffolding** -- `this init` + `this add entity` produces code that compiles and runs immediately
 - **Workspace mode** -- `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
 - **Frontend targets** -- `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy
+- **Native targets** -- Desktop (Tauri 2), iOS & Android (Capacitor 6) with `this add target desktop|ios|android`
 - **Typed API client generation** -- `this generate client` introspects entities and links to produce a TypeScript API client
 - **Embed frontend** -- `this build --embed` produces a single binary with the frontend bundled via rust-embed
 - **Dev server orchestration** -- `this dev` runs API + frontend in parallel with auto-reload and colored output
@@ -147,6 +148,9 @@ Default values are generated automatically:
 this add target webapp              # Add a React SPA (default framework)
 this add target webapp --framework vue    # Vue instead of React
 this add target webapp --name dashboard   # Custom directory name
+this add target desktop             # Add a Tauri 2 desktop target
+this add target ios                 # Add a Capacitor iOS target
+this add target android             # Add a Capacitor Android target
 ```
 
 ### this generate client
@@ -166,6 +170,10 @@ this build --embed                  # Single binary with embedded frontend (rust
 this build --docker                 # Generate a multi-stage Dockerfile
 this build --api-only               # Build API only
 this build --front-only             # Build frontend only
+this build --target desktop         # Build desktop app (cargo tauri build)
+this build --target ios             # Build iOS target (npx cap sync ios)
+this build --target android         # Build Android target (npx cap sync android)
+this build --target all             # Build all configured native targets
 ```
 
 ### this dev
@@ -246,20 +254,21 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Link configuration (`add link`) with smart defaults
 - Automatic `module.rs` / `stores.rs` / `links.yaml` updates
 - Build system (`build`) with 5 modes: default, embed, api-only, front-only, docker
+- Native target builds (`build --target desktop|ios|android|all`)
 - Embedded frontend (`build --embed`) -- single binary with rust-embed + SPA fallback
 - Dev server orchestration (`dev`) -- parallel API + frontend with colored output and Ctrl+C handling
 - Dockerfile generation (`build --docker`) -- multi-stage Node + Rust + Alpine
 - Project introspection (`info`) and diagnostics (`doctor`) with workspace awareness
 - Frontend target scaffolding (`add target webapp`) -- React, Vue, or Svelte SPA with Vite + TypeScript
+- Native target scaffolding -- Desktop (Tauri 2), iOS & Android (Capacitor 6)
 - Typed API client generation (`generate client`) -- TypeScript interfaces and CRUD functions from introspection
 - MCP server (`this mcp`) for AI agent integration (9 tools)
 - Shell completions, dry-run mode
-- 213 tests (139 unit + 57 integration + 17 MCP), CI with fmt/clippy/cross-platform
+- 246 tests (172 unit + 57 integration + 17 MCP), CI with fmt/clippy/cross-platform
 
 ### Not yet implemented
 
 - PostgreSQL store generation (waiting on this-rs `postgres` feature)
-- Native targets (`this add target desktop`, `this add target ios/android`)
 - `this remove entity` / `this remove link`
 - OpenAPI generation
 - Custom user templates
