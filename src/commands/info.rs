@@ -319,8 +319,8 @@ fn parse_cargo_toml(project_root: &Path) -> Result<(String, String)> {
 fn extract_this_version(doc: &toml_edit::DocumentMut) -> Option<String> {
     let deps = doc.get("dependencies")?;
 
-    // Try `this` key (could be a table or inline table)
-    let this_dep = deps.get("this")?;
+    // Try `this-rs` key first (published crate), then `this` (path dependency)
+    let this_dep = deps.get("this-rs").or_else(|| deps.get("this"))?;
 
     // Simple string version: this = "0.0.6"
     if let Some(version) = this_dep.as_str() {
@@ -365,7 +365,7 @@ pub fn detect_this_features(project_root: &Path) -> FeatureFlags {
 
     let features_array = doc
         .get("dependencies")
-        .and_then(|deps| deps.get("this"))
+        .and_then(|deps| deps.get("this-rs").or_else(|| deps.get("this")))
         .and_then(|this_dep| this_dep.get("features"))
         .and_then(|features| features.as_array());
 
