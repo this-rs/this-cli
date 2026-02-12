@@ -1,5 +1,6 @@
 pub mod add_entity;
 pub mod add_link;
+pub mod add_target;
 pub mod build;
 pub mod completions;
 pub mod dev;
@@ -70,6 +71,9 @@ pub enum AddCommands {
 
     /// Add a link between two entity types
     Link(AddLinkArgs),
+
+    /// Add a deployment target to the workspace (webapp, desktop, mobile)
+    Target(AddTargetArgs),
 }
 
 /// Arguments for `this init <name>`
@@ -147,6 +151,22 @@ pub struct AddLinkArgs {
     /// Do not add a validation rule
     #[arg(long)]
     pub no_validation_rule: bool,
+}
+
+/// Arguments for `this add target <type>`
+#[derive(Parser)]
+pub struct AddTargetArgs {
+    /// Target type to add
+    #[arg(value_enum)]
+    pub target_type: crate::config::TargetType,
+
+    /// Frontend framework (for webapp targets)
+    #[arg(long, default_value = "react")]
+    pub framework: String,
+
+    /// Custom name for the target directory
+    #[arg(long)]
+    pub name: Option<String>,
 }
 
 /// Arguments for `this build`

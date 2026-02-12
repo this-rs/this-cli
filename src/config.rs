@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 /// Root configuration for a this-rs workspace, stored in `this.yaml`.
@@ -48,7 +49,7 @@ pub struct TargetConfig {
 }
 
 /// Supported target types for a workspace.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetType {
     Webapp,

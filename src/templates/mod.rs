@@ -25,6 +25,18 @@ const TPL_WORKSPACE_THIS_YAML: &str = include_str!("workspace/this.yaml.tera");
 const TPL_WORKSPACE_DOCKERFILE: &str = include_str!("workspace/Dockerfile.tera");
 
 // ============================================================================
+// Webapp Templates (React + Vite)
+// ============================================================================
+
+const TPL_WEBAPP_PACKAGE_JSON: &str = include_str!("webapp/package.json.tera");
+const TPL_WEBAPP_VITE_CONFIG_TS: &str = include_str!("webapp/vite.config.ts.tera");
+const TPL_WEBAPP_TSCONFIG_JSON: &str = include_str!("webapp/tsconfig.json.tera");
+const TPL_WEBAPP_INDEX_HTML: &str = include_str!("webapp/index.html.tera");
+const TPL_WEBAPP_MAIN_TSX: &str = include_str!("webapp/main.tsx.tera");
+const TPL_WEBAPP_APP_TSX: &str = include_str!("webapp/App.tsx.tera");
+const TPL_WEBAPP_APP_CSS: &str = include_str!("webapp/App.css.tera");
+
+// ============================================================================
 // Entity Templates
 // ============================================================================
 
@@ -57,6 +69,13 @@ impl TemplateEngine {
             ),
             ("workspace/this.yaml", TPL_WORKSPACE_THIS_YAML),
             ("workspace/Dockerfile", TPL_WORKSPACE_DOCKERFILE),
+            ("webapp/package.json", TPL_WEBAPP_PACKAGE_JSON),
+            ("webapp/vite.config.ts", TPL_WEBAPP_VITE_CONFIG_TS),
+            ("webapp/tsconfig.json", TPL_WEBAPP_TSCONFIG_JSON),
+            ("webapp/index.html", TPL_WEBAPP_INDEX_HTML),
+            ("webapp/main.tsx", TPL_WEBAPP_MAIN_TSX),
+            ("webapp/App.tsx", TPL_WEBAPP_APP_TSX),
+            ("webapp/App.css", TPL_WEBAPP_APP_CSS),
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
@@ -494,5 +513,98 @@ mod tests {
         assert!(content.contains("path: api"));
         assert!(content.contains("targets: []"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    fn make_webapp_context() -> tera::Context {
+        let mut ctx = tera::Context::new();
+        ctx.insert("framework", "react");
+        ctx.insert("api_port", &3000u16);
+        ctx.insert("project_name", "test-project");
+        ctx
+    }
+
+    #[test]
+    fn test_webapp_package_json() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("webapp/package.json", &make_webapp_context());
+        assert!(
+            result.is_ok(),
+            "webapp package.json should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("\"name\": \"test-project-frontend\""));
+        assert!(content.contains("\"react\""));
+        assert!(content.contains("\"vite\""));
+        assert!(content.contains("\"typescript\""));
+    }
+
+    #[test]
+    fn test_webapp_vite_config() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("webapp/vite.config.ts", &make_webapp_context());
+        assert!(
+            result.is_ok(),
+            "webapp vite.config.ts should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("proxy"));
+        assert!(content.contains("\"/api\""));
+        assert!(content.contains("http://127.0.0.1:3000"));
+    }
+
+    #[test]
+    fn test_webapp_index_html() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("webapp/index.html", &make_webapp_context());
+        assert!(
+            result.is_ok(),
+            "webapp index.html should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("<title>test-project</title>"));
+        assert!(content.contains("id=\"root\""));
+        assert!(content.contains("src/main.tsx"));
+    }
+
+    #[test]
+    fn test_webapp_app_tsx() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("webapp/App.tsx", &make_webapp_context());
+        assert!(
+            result.is_ok(),
+            "webapp App.tsx should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("test-project"));
+        assert!(content.contains("/api/health"));
+        assert!(content.contains("useEffect"));
+    }
+
+    #[test]
+    fn test_webapp_all_templates_render() {
+        let engine = TemplateEngine::new().unwrap();
+        let ctx = make_webapp_context();
+        let templates = [
+            "webapp/package.json",
+            "webapp/vite.config.ts",
+            "webapp/tsconfig.json",
+            "webapp/index.html",
+            "webapp/main.tsx",
+            "webapp/App.tsx",
+            "webapp/App.css",
+        ];
+        for name in &templates {
+            let result = engine.render(name, &ctx);
+            assert!(
+                result.is_ok(),
+                "Template {} should render: {:?}",
+                name,
+                result.err()
+            );
+        }
     }
 }

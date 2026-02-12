@@ -36,6 +36,7 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
         Commands::Add(add) => match add.command {
             AddCommands::Entity(args) => commands::add_entity::run(args, writer),
             AddCommands::Link(args) => commands::add_link::run(args, writer),
+            AddCommands::Target(args) => commands::add_target::run(args, writer),
         },
         Commands::Info => commands::info::run(),
         Commands::Doctor => commands::doctor::run(),
