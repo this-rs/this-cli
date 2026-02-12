@@ -158,6 +158,42 @@ fn test_init_workspace_creates_structure() {
         "api/dist/.gitkeep should exist"
     );
 
+    // Embedded frontend support files
+    assert!(
+        ws_dir.join("api/src/embedded_frontend.rs").exists(),
+        "api/src/embedded_frontend.rs should exist"
+    );
+
+    // Verify embedded_frontend.rs content
+    let ef_content =
+        std::fs::read_to_string(ws_dir.join("api/src/embedded_frontend.rs")).unwrap();
+    assert!(
+        ef_content.contains("RustEmbed"),
+        "embedded_frontend.rs should contain RustEmbed"
+    );
+    assert!(
+        ef_content.contains("serve_embedded"),
+        "embedded_frontend.rs should contain serve_embedded"
+    );
+
+    // Verify Cargo.toml has embed features
+    let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains("[features]"),
+        "Cargo.toml should have [features] section"
+    );
+    assert!(
+        cargo_toml.contains("embedded-frontend"),
+        "Cargo.toml should have embedded-frontend feature"
+    );
+
+    // Verify main.rs has attach_frontend
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("attach_frontend"),
+        "main.rs should contain attach_frontend"
+    );
+
     // Workspace .gitignore should include frontend artifacts
     let gitignore = std::fs::read_to_string(ws_dir.join(".gitignore")).unwrap();
     assert!(
@@ -180,6 +216,28 @@ fn test_init_classic_unchanged() {
     assert!(stdout.contains("Project 'classic-proj' created successfully"));
 
     let project_dir = tmp.path().join("classic-proj");
+
+    // Classic mode should NOT have embed features
+    let cargo_toml =
+        std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+    assert!(
+        !cargo_toml.contains("[features]"),
+        "Classic Cargo.toml should NOT have [features]"
+    );
+    assert!(
+        !cargo_toml.contains("rust-embed"),
+        "Classic Cargo.toml should NOT have rust-embed"
+    );
+    let main_rs =
+        std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
+    assert!(
+        !main_rs.contains("attach_frontend"),
+        "Classic main.rs should NOT have attach_frontend"
+    );
+    assert!(
+        !project_dir.join("src/embedded_frontend.rs").exists(),
+        "Classic mode should NOT have embedded_frontend.rs"
+    );
 
     // Classic structure: flat, no this.yaml, no api/ subdirectory
     assert!(

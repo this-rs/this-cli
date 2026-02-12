@@ -6,6 +6,10 @@ use this::storage::InMemoryLinkService;
 mod entities;
 mod module;
 mod stores;
+{% if workspace %}
+#[cfg(feature = "embedded-frontend")]
+mod embedded_frontend;
+{% endif %}
 
 use module::{{ project_name_snake | pascal_case }}Module;
 use stores::{{ project_name_snake | pascal_case }}Stores;
@@ -28,8 +32,28 @@ async fn main() -> anyhow::Result<()> {
 
     println!("🚀 Server running on http://127.0.0.1:{{ port }}");
 
+{% if workspace %}
+    let app = attach_frontend(app);
+{% endif %}
     let listener = tokio::net::TcpListener::bind("127.0.0.1:{{ port }}").await?;
     axum::serve(listener, app).await?;
 
     Ok(())
 }
+{% if workspace %}
+#[cfg(feature = "embedded-frontend")]
+fn attach_frontend(app: axum::Router) -> axum::Router {
+    app.fallback(embedded_frontend::serve_embedded)
+}
+
+#[cfg(not(feature = "embedded-frontend"))]
+fn attach_frontend(app: axum::Router) -> axum::Router {
+    use tower_http::services::ServeDir;
+    if std::env::var("SERVE_FRONTEND").unwrap_or_default() == "true" {
+        let path = std::env::var("FRONTEND_PATH").unwrap_or_else(|_| "dist".to_string());
+        app.fallback_service(ServeDir::new(path))
+    } else {
+        app
+    }
+}
+{% endif %}

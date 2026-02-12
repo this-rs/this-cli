@@ -136,6 +136,7 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter) -> Result<()> {
     api_context.insert("project_name", &args.name);
     api_context.insert("project_name_snake", &args.name.replace('-', "_"));
     api_context.insert("port", &args.port);
+    api_context.insert("workspace", &true);
     if let Some(ref this_path) = args.this_path {
         api_context.insert("this_path", this_path);
     }
@@ -143,6 +144,7 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter) -> Result<()> {
     let api_files: &[(&str, &str)] = &[
         ("project/Cargo.toml", "Cargo.toml"),
         ("project/main.rs", "src/main.rs"),
+        ("project/embedded_frontend.rs", "src/embedded_frontend.rs"),
         ("project/module.rs", "src/module.rs"),
         ("project/stores.rs", "src/stores.rs"),
         ("project/entities_mod.rs", "src/entities/mod.rs"),
