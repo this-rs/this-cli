@@ -375,7 +375,7 @@ this add link product tag --no-validation-rule
 
 ## this add target
 
-Add a deployment target to the workspace. Currently supports `webapp` (React, Vue, or Svelte SPA with Vite and TypeScript).
+Add a deployment target to the workspace. Supports `webapp` (React/Vue/Svelte SPA), `desktop` (Tauri 2), `ios` and `android` (Capacitor 6).
 
 ### Synopsis
 
@@ -414,13 +414,58 @@ front/
     └── (static assets)
 ```
 
+### Generated Files (desktop)
+
+For `this add target desktop`:
+
+**Prerequisites**: Tauri CLI (`cargo install tauri-cli`), plus platform-specific dependencies:
+- macOS: Xcode Command Line Tools
+- Windows: Visual Studio Build Tools (MSVC)
+- Linux: `webkit2gtk-4.0` and `libappindicator3`
+
+**Requires**: An existing webapp target (the desktop app wraps the frontend SPA).
+
+```
+targets/desktop/
+└── src-tauri/
+    ├── Cargo.toml           # Tauri 2 + tokio + reqwest + API crate dependency
+    ├── tauri.conf.json      # Tauri config (window, identifier, devUrl, frontendDist)
+    ├── build.rs             # tauri_build::build()
+    ├── src/
+    │   └── main.rs          # Entry point: tokio::spawn API server + Tauri webview
+    ├── icons/               # Placeholder for app icons
+    └── capabilities/
+        └── default.json     # Default permissions (core:default, shell:allow-open)
+```
+
+The desktop app embeds the API server directly via Rust crate dependency. At startup, it spawns the API server with `tokio::spawn`, waits for it to become healthy (health check loop), then launches the Tauri webview pointing to `http://localhost:<port>`.
+
+### Generated Files (ios / android)
+
+For `this add target ios` or `this add target android`:
+
+**Prerequisites**:
+- iOS: macOS + Xcode with iOS simulator
+- Android: Android Studio + `ANDROID_HOME` environment variable
+
+**Requires**: An existing webapp target (Capacitor wraps the frontend SPA in a native WebView).
+
+```
+targets/ios/                 # or targets/android/
+├── package.json             # @capacitor/core, @capacitor/cli, @capacitor/<platform>
+├── capacitor.config.ts      # App ID, webDir, server URL, plugins
+└── .gitignore               # Native platform directories (ios/, android/)
+```
+
+Capacitor wraps the frontend SPA in a native WebView. The `package.json` includes scripts for `sync` (push web assets) and `open` (open native IDE).
+
 ### Automatically Updated Files
 
 | File | What changes |
 |------|-------------|
-| `this.yaml` | Adds a target entry with type, framework, and path |
+| `this.yaml` | Adds a target entry with type, runtime, framework (if applicable), and path |
 
-After adding the target, `this.yaml` looks like:
+After adding multiple targets, `this.yaml` looks like:
 
 ```yaml
 name: my-app
@@ -431,6 +476,15 @@ targets:
   - target_type: webapp
     framework: react
     path: front
+  - target_type: desktop
+    runtime: tauri
+    path: targets/desktop
+  - target_type: ios
+    runtime: capacitor
+    path: targets/ios
+  - target_type: android
+    runtime: capacitor
+    path: targets/android
 ```
 
 ### Examples
@@ -448,6 +502,16 @@ this add target webapp --framework svelte
 # Custom directory name
 this add target webapp --name dashboard
 
+# Add a desktop target (Tauri 2)
+this add target desktop
+
+# Add iOS and Android targets (Capacitor 6)
+this add target ios
+this add target android
+
+# Custom desktop directory name
+this add target desktop --name tauri-app
+
 # Preview without creating files
 this --dry-run add target webapp
 ```
@@ -458,6 +522,7 @@ this --dry-run add target webapp
 |-------|-------|
 | `Not a this-rs workspace` | Command run outside a workspace (requires `this.yaml`) |
 | `Target 'front' already exists in this.yaml` | A target with the same path is already configured |
+| `Desktop target requires a webapp target` | Desktop/mobile targets need a webapp target first |
 | `Unsupported target type: 'xxx'` | Target type not in the supported list |
 
 ### Notes
@@ -465,7 +530,8 @@ this --dry-run add target webapp
 - Must be run from inside a this-rs workspace (not a classic project)
 - After adding a webapp target, `this build`, `this build --embed`, `this build --front-only`, `this build --docker`, and `this dev` will automatically use it
 - The generated Vite config includes an API proxy to `http://127.0.0.1:<port>` (from `this.yaml`)
-- `desktop`, `ios`, and `android` target types are accepted but not yet implemented (reserved for future use)
+- Desktop and mobile targets require a webapp target as a prerequisite -- the native shell wraps the SPA
+- Both iOS and Android can coexist in the same workspace
 
 ---
 
@@ -568,7 +634,7 @@ this --dry-run generate client
 
 ## this build
 
-Build the project. Supports multiple modes: default (API + frontend), embed (single binary), api-only, front-only, and docker (Dockerfile generation).
+Build the project. Supports multiple modes: default (API + frontend), embed (single binary), api-only, front-only, docker (Dockerfile generation), and native target builds.
 
 ### Synopsis
 
@@ -585,6 +651,7 @@ this build [OPTIONS]
 | `--front-only` | false | Build the frontend only (skip API) |
 | `--docker` | false | Generate a multi-stage Dockerfile |
 | `--release` | true | Build in release mode (applies to API builds) |
+| `--target <NAME>` | (none) | Build a specific native target: `desktop`, `ios`, `android`, or `all` |
 
 ### Build Modes
 
@@ -618,6 +685,46 @@ Generates a multi-stage `Dockerfile` at the workspace root:
 2. **Stage 2 (Rust)**: Builds the API with `--features embedded-frontend`
 3. **Stage 3 (Alpine)**: Minimal runtime image
 
+#### `--target desktop` (Desktop build)
+
+Builds a native desktop application using Tauri 2:
+
+1. Builds the frontend with `npm run build` (if webapp target exists)
+2. Runs `cargo tauri build` in the `targets/desktop/src-tauri/` directory
+
+**Prerequisites**: `cargo install tauri-cli`
+
+**Artifacts produced**:
+- macOS: `.dmg` installer + `.app` bundle
+- Windows: `.msi` installer + `.exe`
+- Linux: `.deb` + `.AppImage`
+
+#### `--target ios` (iOS build)
+
+Syncs the frontend build to the iOS Capacitor project:
+
+1. Builds the frontend with `npm run build` (if webapp target exists)
+2. Runs `npx cap sync ios` in `targets/ios/`
+
+After sync, open Xcode to build and deploy: `npx cap open ios` (from the `targets/ios/` directory).
+
+#### `--target android` (Android build)
+
+Syncs the frontend build to the Android Capacitor project:
+
+1. Builds the frontend with `npm run build` (if webapp target exists)
+2. Runs `npx cap sync android` in `targets/android/`
+
+After sync, open Android Studio to build and deploy: `npx cap open android` (from the `targets/android/` directory).
+
+**Artifacts produced** (via Android Studio):
+- Debug: `.apk`
+- Release: `.aab` (Android App Bundle)
+
+#### `--target all` (Build all native targets)
+
+Builds all configured native targets sequentially. The frontend is built once and shared across all targets.
+
 ### Webapp Target Requirement
 
 The flags `--embed`, `--front-only`, and `--docker` require a webapp target in `this.yaml`. Without one, the command fails with a clear error message:
@@ -645,6 +752,18 @@ this build --front-only
 # Generate Dockerfile
 this build --docker
 
+# Build desktop app (Tauri 2)
+this build --target desktop
+
+# Build for iOS (Capacitor sync)
+this build --target ios
+
+# Build for Android (Capacitor sync)
+this build --target android
+
+# Build all native targets
+this build --target all
+
 # Preview Dockerfile generation without writing
 this --dry-run build --docker
 ```
@@ -656,8 +775,13 @@ this --dry-run build --docker
 | `Not a this-rs workspace` | Command run outside a workspace |
 | `No webapp target configured. --embed requires a webapp target` | `--embed`/`--front-only`/`--docker` used without webapp target |
 | `No package.json found in <path>` | Webapp target directory not scaffolded |
+| `Target 'xxx' not found in this.yaml` | `--target` references an unconfigured target |
+| `No native targets configured` | `--target all` used without any native targets |
+| `No Cargo.toml found in src-tauri/` | Desktop target not scaffolded (`this add target desktop` needed) |
 | `cargo build failed` | Rust compilation error |
 | `npm run build failed` | Frontend build error |
+| `cargo tauri build failed` | Tauri build error (check prerequisites) |
+| `npx cap sync failed` | Capacitor sync error (check prerequisites) |
 
 ### Notes
 
@@ -665,6 +789,7 @@ this --dry-run build --docker
 - Binary size is displayed after `--release` and `--embed` builds
 - The `--docker` flag generates the Dockerfile but does not build the Docker image. Run `docker build -t <name> .` afterward.
 - The `embedded-frontend` Cargo feature is defined in the generated `Cargo.toml` and is only enabled during `--embed` and Docker builds
+- `--target` is mutually exclusive with `--embed`, `--api-only`, `--front-only`, and `--docker` -- if `--target` is specified, it takes priority
 
 ---
 

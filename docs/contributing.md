@@ -58,7 +58,7 @@ path = "src/main.rs"
 cargo test -p this-cli
 ```
 
-This runs 139 unit tests, 57 integration tests, and 17 MCP tests (~0.5s total).
+This runs 172 unit tests, 57 integration tests, and 17 MCP tests (~0.5s total).
 
 ### End-to-end compilation test (slow)
 
@@ -323,6 +323,10 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 | `info` | `this info` command |
 | `doctor` | `this doctor` command |
 | `target` | `this add target` command (webapp, desktop, mobile targets) |
+| `desktop` | Desktop target (Tauri 2 scaffolding and build) |
+| `mobile` | Mobile targets (Capacitor 6 scaffolding and build) |
+| `tauri` | Tauri-specific templates and configuration |
+| `capacitor` | Capacitor-specific templates and configuration |
 | `codegen` | Code generation modules (`codegen/introspect.rs`, `codegen/typescript.rs`) |
 | `generate` | `this generate client` command |
 | `mcp` | MCP server and tools |
@@ -340,6 +344,9 @@ feat(build): add `this build` command with Docker, embed, and split modes
 feat(dev): add `this dev` command for parallel API + frontend development
 feat(embed): add rust-embed templates for workspace mode
 feat(target): add `this add target webapp` with React/Vue/Svelte scaffolding
+feat(desktop): add `this add target desktop` with Tauri 2 scaffolding
+feat(mobile): add `this add target ios|android` with Capacitor 6 scaffolding
+feat(build): add --target flag for native target builds
 feat(codegen): add project introspection module
 feat(generate): add `this generate client` command
 fix(add-entity): filter reserved fields from impl_data_entity! macro
