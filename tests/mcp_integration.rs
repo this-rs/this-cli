@@ -105,7 +105,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 9);
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"init_project"));
@@ -115,6 +115,8 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"check_project_health"));
     assert!(tool_names.contains(&"build_project"));
     assert!(tool_names.contains(&"start_dev"));
+    assert!(tool_names.contains(&"add_target"));
+    assert!(tool_names.contains(&"generate_client"));
 
     // Verify each tool has inputSchema
     for tool in tools {

@@ -24,6 +24,7 @@ impl ToolHandler {
             "build_project" => handle_build_project(&args),
             "start_dev" => handle_start_dev(&args),
             "add_target" => handle_add_target(&args),
+            "generate_client" => handle_generate_client(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
     }
@@ -438,5 +439,38 @@ fn handle_add_target(args: &Value) -> Result<Value> {
         "files_created": writer.files_created(),
         "files_modified": writer.files_modified(),
         "next_steps": ["cd front && npm install", "this dev"],
+    }))
+}
+
+fn handle_generate_client(args: &Value) -> Result<Value> {
+    let lang = args
+        .get("lang")
+        .and_then(|v| v.as_str())
+        .unwrap_or("typescript")
+        .to_string();
+
+    if lang != "typescript" {
+        anyhow::bail!(
+            "Unsupported language: '{}'. Currently only 'typescript' is supported.",
+            lang
+        );
+    }
+
+    let output = args
+        .get("output")
+        .and_then(|v| v.as_str())
+        .map(std::path::PathBuf::from);
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+
+    let generate_args = crate::commands::GenerateClientArgs { lang, output };
+
+    crate::commands::generate::run(generate_args, &writer)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "lang": "typescript",
+        "files_created": writer.files_created(),
     }))
 }

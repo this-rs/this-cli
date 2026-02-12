@@ -14,6 +14,7 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         build_project_tool(),
         start_dev_tool(),
         add_target_tool(),
+        generate_client_tool(),
     ]
 }
 
@@ -262,13 +263,39 @@ fn add_target_tool() -> ToolDefinition {
     }
 }
 
+fn generate_client_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "generate_client".to_string(),
+        description: "Generate a typed API client from the project's entities and links. Introspects model.rs files, descriptors, and links.yaml to produce TypeScript interfaces and CRUD functions. Requires entities to exist in the project.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "lang": {
+                    "type": "string",
+                    "enum": ["typescript"],
+                    "description": "Target language for the generated client (default: typescript)"
+                },
+                "output": {
+                    "type": "string",
+                    "description": "Output file path. Default: auto-detected from this.yaml webapp target (e.g. front/src/api-client.ts)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs project)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_all_tools_count() {
-        assert_eq!(all_tools().len(), 8);
+        assert_eq!(all_tools().len(), 9);
     }
 
     #[test]
