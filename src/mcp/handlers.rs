@@ -328,12 +328,18 @@ fn handle_build_project(args: &Value) -> Result<Value> {
     let _cwd_guard = CwdGuard::from_args(args)?;
     let writer = McpFileWriter::new();
 
+    let target = args
+        .get("target")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
     let build_args = BuildArgs {
         embed,
         api_only,
         front_only,
         docker,
         release,
+        target,
     };
 
     let mode = if embed {

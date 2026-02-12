@@ -194,6 +194,10 @@ fn build_project_tool() -> ToolDefinition {
                     "type": "boolean",
                     "description": "Build in release mode (default: true)"
                 },
+                "target": {
+                    "type": "string",
+                    "description": "Build a specific native target: 'desktop', 'ios', 'android', or 'all'"
+                },
                 "cwd": {
                     "type": "string",
                     "description": "Working directory (must be inside a this-rs workspace)"
