@@ -1743,8 +1743,7 @@ fn test_doctor_websocket_incoherent() {
 #[test]
 fn test_init_grpc_cargo_toml() {
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, stderr) =
-        run_this(&["init", "grpc-proj", "--grpc", "--no-git"], tmp.path());
+    let (success, _, stderr) = run_this(&["init", "grpc-proj", "--grpc", "--no-git"], tmp.path());
 
     assert!(success, "init --grpc should succeed: {}", stderr);
 
@@ -1841,10 +1840,7 @@ fn test_info_grpc_enabled() {
 #[test]
 fn test_doctor_grpc_healthy() {
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, _) = run_this(
-        &["init", "grpc-doc-proj", "--grpc", "--no-git"],
-        tmp.path(),
-    );
+    let (success, _, _) = run_this(&["init", "grpc-doc-proj", "--grpc", "--no-git"], tmp.path());
     assert!(success);
 
     let project = tmp.path().join("grpc-doc-proj");
@@ -1865,10 +1861,7 @@ fn test_doctor_grpc_healthy() {
 #[test]
 fn test_doctor_grpc_incoherent() {
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, _) = run_this(
-        &["init", "grpc-bad-proj", "--grpc", "--no-git"],
-        tmp.path(),
-    );
+    let (success, _, _) = run_this(&["init", "grpc-bad-proj", "--grpc", "--no-git"], tmp.path());
     assert!(success);
 
     let project = tmp.path().join("grpc-bad-proj");

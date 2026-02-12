@@ -150,10 +150,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let grpc = args
-        .get("grpc")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let grpc = args.get("grpc").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let init_args = InitArgs {
         name: name.clone(),

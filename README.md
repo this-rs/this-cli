@@ -8,6 +8,7 @@ Generate fully compilable this-rs projects and entities from the command line --
 
 - **Zero-touch scaffolding** -- `this init` + `this add entity` produces code that compiles and runs immediately
 - **WebSocket support** -- `this init --websocket` enables real-time communication via this-rs WebSocket feature
+- **gRPC support** -- `this init --grpc` enables Protocol Buffers via this-rs gRPC feature (EntityService + LinkService + proto export at `/grpc/proto`)
 - **Workspace mode** -- `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
 - **Frontend targets** -- `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy
 - **Native targets** -- Desktop (Tauri 2), iOS & Android (Capacitor 6) with `this add target desktop|ios|android`
@@ -115,6 +116,8 @@ this init my-api                    # Create project in ./my-api
 this init my-api --port 8080        # Custom server port
 this init my-api --no-git           # Skip git init
 this init my-api --websocket        # Enable WebSocket support
+this init my-api --grpc             # Enable gRPC support
+this init my-api --grpc --websocket # Enable both protocols
 this init my-app --workspace        # Create workspace layout (this.yaml + api/)
 this --dry-run init my-api          # Preview without creating files
 ```
@@ -266,7 +269,7 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Typed API client generation (`generate client`) -- TypeScript interfaces and CRUD functions from introspection
 - MCP server (`this mcp`) for AI agent integration (9 tools)
 - Shell completions, dry-run mode
-- 258 tests (175 unit + 65 integration + 18 MCP), CI with fmt/clippy/cross-platform
+- 267 tests (175 unit + 72 integration + 20 MCP), CI with fmt/clippy/cross-platform
 
 ### Not yet implemented
 
