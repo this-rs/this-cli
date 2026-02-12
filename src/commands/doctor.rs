@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use colored::Colorize;
+use serde::Serialize;
 
 use crate::utils::{markers, naming, project};
 
@@ -11,6 +12,14 @@ enum DiagnosticLevel {
     Pass,
     Warn,
     Error,
+}
+
+/// Serializable diagnostic result for MCP output
+#[derive(Debug, Serialize)]
+pub struct SerializableDiagnostic {
+    pub level: String,
+    pub category: String,
+    pub message: String,
 }
 
 #[derive(Debug)]
@@ -61,6 +70,40 @@ impl DiagnosticResult {
         };
         println!("  {} {} — {}", self.icon(), self.category.bold(), msg);
     }
+
+    fn level_str(&self) -> &str {
+        match self.level {
+            DiagnosticLevel::Pass => "pass",
+            DiagnosticLevel::Warn => "warn",
+            DiagnosticLevel::Error => "error",
+        }
+    }
+
+    fn to_serializable(&self) -> SerializableDiagnostic {
+        SerializableDiagnostic {
+            level: self.level_str().to_string(),
+            category: self.category.clone(),
+            message: self.message.clone(),
+        }
+    }
+}
+
+/// Collect diagnostics as structured data for MCP JSON serialization.
+pub fn collect_diagnostics() -> Result<Vec<SerializableDiagnostic>> {
+    let project_root = project::detect_project_root()?;
+    let results = run_checks(&project_root);
+    Ok(results.iter().map(|r| r.to_serializable()).collect())
+}
+
+/// Run all diagnostic checks and return results
+fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+    results.push(check_cargo_toml(project_root));
+    results.extend(check_entities(project_root));
+    results.extend(check_module_registration(project_root));
+    results.extend(check_stores_configuration(project_root));
+    results.extend(check_links(project_root));
+    results
 }
 
 pub fn run() -> Result<()> {
@@ -75,22 +118,7 @@ pub fn run() -> Result<()> {
     );
     println!();
 
-    let mut results = Vec::new();
-
-    // 1. Check Cargo.toml
-    results.push(check_cargo_toml(&project_root));
-
-    // 2. Check entities
-    results.extend(check_entities(&project_root));
-
-    // 3. Check module registration
-    results.extend(check_module_registration(&project_root));
-
-    // 4. Check stores configuration
-    results.extend(check_stores_configuration(&project_root));
-
-    // 5. Check links
-    results.extend(check_links(&project_root));
+    let results = run_checks(&project_root);
 
     // Display results
     for result in &results {

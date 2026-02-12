@@ -1,4 +1,5 @@
 mod commands;
+mod mcp;
 mod templates;
 mod utils;
 
@@ -38,5 +39,9 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
         Commands::Info => commands::info::run(),
         Commands::Doctor => commands::doctor::run(),
         Commands::Completions { shell } => commands::completions::run(shell),
+        Commands::Mcp => {
+            let mut server = mcp::server::McpServer::new();
+            server.run()
+        }
     }
 }
