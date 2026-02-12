@@ -5,6 +5,9 @@ use this::storage::InMemoryLinkService;
 {% if websocket %}
 use this::server::exposure::websocket::WebSocketExposure;
 {% endif %}
+{% if grpc %}
+use this::server::exposure::grpc::GrpcExposure;
+{% endif %}
 
 mod entities;
 mod module;
@@ -27,20 +30,30 @@ async fn main() -> anyhow::Result<()> {
 
     let stores = {{ project_name_snake | pascal_case }}Stores::new_in_memory();
     let module = {{ project_name_snake | pascal_case }}Module::new(stores);
-{% if websocket %}
+{% if websocket or grpc %}
 
     let host = ServerBuilder::new()
         .with_link_service((*link_service).clone())
+{% if websocket %}
         .with_event_bus(1024)
+{% endif %}
         .register_module(module)?
         .build_host()?;
 
     let host = Arc::new(host);
     let app = this::server::exposure::rest::RestExposure::build_router(host.clone(), vec![])?;
+{% if websocket %}
 
     // WebSocket exposure — merge WS routes with REST
     let ws_router = WebSocketExposure::build_router(host.clone())?;
     let app = app.merge(ws_router);
+{% endif %}
+{% if grpc %}
+
+    // gRPC exposure — merge gRPC routes with REST
+    let grpc_router = GrpcExposure::build_router(host.clone())?;
+    let app = app.merge(grpc_router);
+{% endif %}
 {% else %}
 
     let app = ServerBuilder::new()
@@ -52,6 +65,10 @@ async fn main() -> anyhow::Result<()> {
     println!("🚀 Server running on http://127.0.0.1:{{ port }}");
 {% if websocket %}
     println!("🔌 WebSocket available at ws://127.0.0.1:{{ port }}/ws");
+{% endif %}
+{% if grpc %}
+    println!("📡 gRPC available on http://127.0.0.1:{{ port }}");
+    println!("📋 Proto export at http://127.0.0.1:{{ port }}/grpc/proto");
 {% endif %}
 
 {% if workspace %}

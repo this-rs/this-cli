@@ -109,6 +109,10 @@ pub struct InitArgs {
     /// Enable WebSocket support (adds websocket feature and WebSocketExposure in main.rs)
     #[arg(long)]
     pub websocket: bool,
+
+    /// Enable gRPC support (adds grpc feature and GrpcExposure in main.rs)
+    #[arg(long)]
+    pub grpc: bool,
 }
 
 /// Arguments for `this add entity <name>`
