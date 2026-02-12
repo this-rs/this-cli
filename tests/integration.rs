@@ -1300,6 +1300,39 @@ targets:
 }
 
 // ============================================================================
+// this dev tests
+// ============================================================================
+
+#[test]
+fn test_dev_outside_workspace_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let (success, _, stderr) = run_this(&["dev"], tmp.path());
+
+    assert!(!success, "dev outside workspace should fail");
+    assert!(
+        stderr.contains("Not a this-rs workspace"),
+        "Should say not a workspace. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_dev_in_classic_project_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = setup_project(&tmp);
+
+    let (success, _, stderr) = run_this(&["dev"], &project);
+
+    assert!(!success, "dev in classic project should fail");
+    assert!(
+        stderr.contains("Not a this-rs workspace"),
+        "Should say not a workspace. stderr: {}",
+        stderr
+    );
+}
+
+// ============================================================================
 // --dry-run tests
 // ============================================================================
 

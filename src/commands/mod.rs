@@ -2,6 +2,7 @@ pub mod add_entity;
 pub mod add_link;
 pub mod build;
 pub mod completions;
+pub mod dev;
 pub mod doctor;
 pub mod info;
 pub mod init;
@@ -35,6 +36,9 @@ pub enum Commands {
 
     /// Build the project (API, frontend, or embedded single binary)
     Build(BuildArgs),
+
+    /// Start development servers (API + frontend in parallel)
+    Dev(DevArgs),
 
     /// Check project health and consistency
     Doctor,
@@ -168,4 +172,20 @@ pub struct BuildArgs {
     /// Build in release mode
     #[arg(long, default_value_t = true)]
     pub release: bool,
+}
+
+/// Arguments for `this dev`
+#[derive(Parser)]
+pub struct DevArgs {
+    /// Only start the API server (skip frontend dev server)
+    #[arg(long)]
+    pub api_only: bool,
+
+    /// Disable auto-detection of cargo-watch, force plain cargo run
+    #[arg(long)]
+    pub no_watch: bool,
+
+    /// Override the API port from this.yaml
+    #[arg(long)]
+    pub port: Option<u16>,
 }
