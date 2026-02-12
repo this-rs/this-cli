@@ -13,6 +13,7 @@ Internal design documentation for this-cli contributors and maintainers.
 - [Project Detection](#project-detection)
 - [Workspace Configuration](#workspace-configuration)
 - [Code Generation Flows](#code-generation-flows)
+- [Embedded Frontend (rust-embed)](#embedded-frontend-rust-embed)
 
 ---
 
@@ -27,6 +28,8 @@ src/
 │   ├── init.rs                      # `this init` (classic + workspace modes)
 │   ├── add_entity.rs                # `this add entity` + auto-registration
 │   ├── add_link.rs                  # `this add link` + YAML manipulation
+│   ├── build.rs                     # `this build` — 5 modes (default, embed, api-only, front-only, docker)
+│   ├── dev.rs                       # `this dev` — parallel API + frontend with watcher detection
 │   ├── info.rs                      # `this info` — project + workspace introspection
 │   ├── doctor.rs                    # `this doctor` — health + workspace diagnostics
 │   └── completions.rs               # `this completions` — shell autocompletion
@@ -34,19 +37,21 @@ src/
 │   ├── mod.rs                       # Module exports
 │   ├── protocol.rs                  # MCP protocol types
 │   ├── server.rs                    # stdio JSON-RPC server loop
-│   ├── tools.rs                     # Tool definitions (5 tools)
+│   ├── tools.rs                     # Tool definitions (7 tools)
 │   └── handlers.rs                  # Tool execution handlers
 ├── templates/
 │   ├── mod.rs                       # TemplateEngine + custom Tera filters
-│   ├── project/                     # Templates for `this init` (classic)
+│   ├── project/                     # Templates for `this init` (classic) + embed
 │   │   ├── Cargo.toml.tera
 │   │   ├── main.rs.tera
 │   │   ├── module.rs.tera           # Contains [this:xxx] markers
 │   │   ├── stores.rs.tera           # Contains [this:xxx] markers
 │   │   ├── entities_mod.rs.tera
-│   │   └── links.yaml.tera
-│   ├── workspace/                   # Templates for `this init --workspace`
-│   │   └── this.yaml.tera           # Workspace configuration template
+│   │   ├── links.yaml.tera
+│   │   └── embedded_frontend.rs.tera # rust-embed + SPA fallback module
+│   ├── workspace/                   # Templates for `this init --workspace` + build
+│   │   ├── this.yaml.tera           # Workspace configuration template
+│   │   └── Dockerfile.tera          # Multi-stage Dockerfile (Node + Rust + Alpine)
 │   └── entity/                      # Templates for `this add entity`
 │       ├── model.rs.tera
 │       ├── model_validated.rs.tera
@@ -62,8 +67,8 @@ src/
 │   ├── output.rs                    # Colored terminal output helpers
 │   └── project.rs                   # Project + workspace root detection
 └── tests/
-    ├── integration.rs               # 48 integration tests + 1 e2e
-    └── mcp_integration.rs           # 14 MCP server integration tests
+    ├── integration.rs               # 57 integration tests + 1 e2e
+    └── mcp_integration.rs           # 17 MCP server integration tests
 ```
 
 ## Command Dispatch
@@ -85,6 +90,17 @@ main()
               ├── Add(add)
               │     ├── Entity(args) → commands::add_entity::run(args, writer)
               │     └── Link(args)   → commands::add_link::run(args, writer)
+              ├── Build(args)     → commands::build::run(args, writer)
+              │     ├── --docker    → run_docker(config, webapp, root, writer)
+              │     ├── --embed     → run_embed(config, webapp, api_path, root)
+              │     ├── --api-only  → run_api_build(api_path, release)
+              │     ├── --front-only→ run_front_build(webapp, root)
+              │     └── (default)   → run_api_build + run_front_build (if webapp)
+              ├── Dev(args)       → commands::dev::run(args)
+              │     ├── detect_rust_watcher() → CargoWatch | Watchexec | Bacon | None
+              │     ├── spawn API process (with watcher)
+              │     ├── spawn frontend process (npm run dev, if applicable)
+              │     └── wait loop + Ctrl+C graceful shutdown
               ├── Info            → commands::info::run()
               ├── Doctor          → commands::doctor::run()
               ├── Mcp             → mcp::server::run_stdio()
@@ -94,14 +110,16 @@ main()
 ### Key types (in `commands/mod.rs`)
 
 - `Cli` — top-level struct with `--dry-run` flag and `Commands` subcommand
-- `Commands` — enum: `Init`, `Add`, `Info`, `Doctor`, `Completions`, `Mcp`
+- `Commands` — enum: `Init`, `Add`, `Build`, `Dev`, `Info`, `Doctor`, `Completions`, `Mcp`
 - `AddCommands` — nested enum: `Entity`, `Link`
 - `InitArgs` — includes `--workspace` flag for workspace mode dispatch
+- `BuildArgs` — flags: `--embed`, `--api-only`, `--front-only`, `--docker`, `--release`
+- `DevArgs` — flags: `--api-only`, `--no-watch`, `--port`
 - `AddEntityArgs`, `AddLinkArgs` — argument structs
 
 ### Writer injection
 
-Commands that write files (`init`, `add entity`, `add link`) accept `&dyn FileWriter` as a parameter. Commands that only read (`info`, `doctor`, `completions`) don't need it.
+Commands that write files (`init`, `add entity`, `add link`, `build`) accept `&dyn FileWriter` as a parameter. Commands that only read or spawn processes (`info`, `doctor`, `dev`, `completions`) don't need it.
 
 ---
 
@@ -149,7 +167,7 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 
 ## Templates Reference
 
-### Project Templates (6)
+### Project Templates (7)
 
 | Template | Output | Purpose |
 |----------|--------|---------|
@@ -159,6 +177,14 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 | `stores.rs.tera` | `src/stores.rs` | Centralized `{Project}Stores` struct with marker comments |
 | `entities_mod.rs.tera` | `src/entities/mod.rs` | Empty entity re-exports |
 | `links.yaml.tera` | `config/links.yaml` | Empty link configuration structure |
+| `embedded_frontend.rs.tera` | `src/embedded_frontend.rs` | rust-embed asset serving + SPA fallback (behind `embedded-frontend` feature) |
+
+### Workspace Templates (2)
+
+| Template | Output | Purpose |
+|----------|--------|---------|
+| `this.yaml.tera` | `this.yaml` | Workspace configuration (name, api path, port, targets) |
+| `Dockerfile.tera` | `Dockerfile` | Multi-stage Docker build (Node frontend → Rust builder → Alpine runtime) |
 
 ### Entity Templates (6)
 
@@ -461,3 +487,137 @@ this add link product category
 │
 └── Write updated YAML back to config/links.yaml
 ```
+
+### `this build`
+
+```
+this build [--embed | --api-only | --front-only | --docker]
+│
+├── find_workspace_root() → find this.yaml
+├── load_workspace_config() → WorkspaceConfig
+├── find_webapp_target() → Option<TargetConfig>
+│
+└── Dispatch based on flags:
+      │
+      ├── --docker:
+      │     ├── require_webapp() → bail if no webapp target
+      │     ├── TemplateEngine::new()
+      │     ├── Render workspace/Dockerfile.tera → Dockerfile
+      │     └── writer.write_file(Dockerfile)
+      │
+      ├── --embed:
+      │     ├── require_webapp() → bail if no webapp target
+      │     ├── run_front_build() → npm run build
+      │     ├── copy_dir_recursive(front/dist → api/dist)
+      │     └── cargo build --release --features embedded-frontend
+      │
+      ├── --api-only:
+      │     └── cargo build [--release]
+      │
+      ├── --front-only:
+      │     ├── require_webapp() → bail if no webapp target
+      │     └── npm run build
+      │
+      └── (default):
+            ├── cargo build --release
+            └── if webapp → npm run build
+                else → print info "No webapp target"
+```
+
+### `this dev`
+
+```
+this dev [--api-only] [--no-watch] [--port PORT]
+│
+├── find_workspace_root() → find this.yaml
+├── load_workspace_config() → WorkspaceConfig
+├── Determine port (args.port || config.api.port)
+│
+├── detect_rust_watcher()
+│     ├── Try: cargo-watch --version → CargoWatch
+│     ├── Try: watchexec --version   → Watchexec
+│     ├── Try: bacon --version       → Bacon
+│     └── Fallback                   → None (plain cargo run)
+│
+├── print_banner() → URLs, watcher info, Ctrl+C hint
+├── Setup Ctrl+C handler (ctrlc crate + AtomicBool)
+│
+├── Spawn API process:
+│     ├── CargoWatch → cargo watch -x run -w src/
+│     ├── Watchexec  → watchexec -r -e rs -- cargo run
+│     ├── Bacon      → bacon run
+│     └── None       → cargo run
+│     └── ENV: PORT=<port>
+│
+├── Spawn frontend process (if !api_only && webapp exists):
+│     └── npm run dev (current_dir = webapp.path)
+│
+├── Stream output threads:
+│     ├── API stdout/stderr  → "[API]"   (blue)
+│     └── FRONT stdout/stderr→ "[FRONT]" (green)
+│
+├── Wait loop:
+│     ├── Check Ctrl+C flag (AtomicBool)
+│     ├── Check API process (try_wait) → break if exited
+│     ├── Check front process (try_wait) → clear if exited
+│     └── Sleep 100ms
+│
+└── Cleanup:
+      ├── Kill API process
+      ├── Kill frontend process
+      └── Join output threads
+```
+
+---
+
+## Embedded Frontend (rust-embed)
+
+When `this init --workspace` is used, the generated API project includes support for embedding the frontend as static assets into the binary.
+
+### How It Works
+
+The `embedded_frontend.rs.tera` template generates a module that:
+
+1. Uses [rust-embed](https://crates.io/crates/rust-embed) to embed the contents of `dist/` at compile time
+2. Uses [mime_guess](https://crates.io/crates/mime_guess) to determine content types
+3. Provides an `attach_frontend()` function that adds routes to the Axum router
+4. Implements SPA fallback: any request that doesn't match a static file returns `index.html`
+
+### Generated Code Structure
+
+```rust
+#[cfg(feature = "embedded-frontend")]
+mod embedded_frontend {
+    use rust_embed::Embed;
+
+    #[derive(Embed)]
+    #[folder = "dist/"]
+    struct Assets;
+
+    pub fn attach_frontend(router: Router) -> Router {
+        router
+            .fallback(static_handler)  // Serve static files or SPA fallback
+    }
+}
+```
+
+### Feature Flag
+
+The `embedded-frontend` feature is defined in the generated `Cargo.toml`:
+
+```toml
+[features]
+embedded-frontend = ["rust-embed", "mime_guess"]
+
+[dependencies]
+rust-embed = { version = "8", optional = true }
+mime_guess = { version = "2", optional = true }
+```
+
+### Three Serving Modes
+
+The generated `main.rs` supports three modes via `#[cfg(feature)]`:
+
+1. **Embedded** (`--features embedded-frontend`): Static files served from the binary
+2. **Filesystem** (default, with `dist/` present): Serves from `dist/` directory via tower-http
+3. **API-only** (default, no `dist/`): No frontend serving, API routes only

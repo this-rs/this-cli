@@ -8,6 +8,8 @@ Complete reference for all `this` CLI commands.
 - [this init](#this-init)
 - [this add entity](#this-add-entity)
 - [this add link](#this-add-link)
+- [this build](#this-build)
+- [this dev](#this-dev)
 - [this info](#this-info)
 - [this doctor](#this-doctor)
 - [this completions](#this-completions)
@@ -366,6 +368,187 @@ this add link product tag --no-validation-rule
 
 - Both source and target entities are automatically added to the `entities` section of `links.yaml` if not already present
 - Entity auth defaults to `authenticated` for all operations (list, get, create, update, delete)
+
+---
+
+## this build
+
+Build the project. Supports multiple modes: default (API + frontend), embed (single binary), api-only, front-only, and docker (Dockerfile generation).
+
+### Synopsis
+
+```
+this build [OPTIONS]
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--embed` | false | Build a single binary with the frontend embedded via rust-embed |
+| `--api-only` | false | Build the API only (skip frontend) |
+| `--front-only` | false | Build the frontend only (skip API) |
+| `--docker` | false | Generate a multi-stage Dockerfile |
+| `--release` | true | Build in release mode (applies to API builds) |
+
+### Build Modes
+
+#### Default mode (no flags)
+
+Builds the API with `cargo build --release`, then builds the frontend with `npm run build` if a webapp target is configured. Without a webapp target, builds the API only (no error).
+
+#### `--embed` (Embedded frontend)
+
+Produces a single binary with the frontend bundled inside:
+
+1. Builds the frontend with `npm run build`
+2. Copies `front/dist/` to `api/dist/`
+3. Builds the API with `cargo build --release --features embedded-frontend`
+
+The generated API includes an `embedded_frontend.rs` module that uses [rust-embed](https://crates.io/crates/rust-embed) to serve static files and provides SPA fallback (unknown routes serve `index.html`).
+
+#### `--api-only`
+
+Builds only the API with `cargo build`. Does not require a webapp target.
+
+#### `--front-only`
+
+Builds only the frontend with `npm run build`. Requires a webapp target.
+
+#### `--docker`
+
+Generates a multi-stage `Dockerfile` at the workspace root:
+
+1. **Stage 1 (Node)**: Builds the frontend
+2. **Stage 2 (Rust)**: Builds the API with `--features embedded-frontend`
+3. **Stage 3 (Alpine)**: Minimal runtime image
+
+### Webapp Target Requirement
+
+The flags `--embed`, `--front-only`, and `--docker` require a webapp target in `this.yaml`. Without one, the command fails with a clear error message:
+
+```
+Error: No webapp target configured. --embed requires a webapp target.
+Add one with: this add target webapp
+```
+
+### Examples
+
+```sh
+# Default: build API + frontend
+this build
+
+# Single binary with embedded frontend
+this build --embed
+
+# API only
+this build --api-only
+
+# Frontend only
+this build --front-only
+
+# Generate Dockerfile
+this build --docker
+
+# Preview Dockerfile generation without writing
+this --dry-run build --docker
+```
+
+### Errors
+
+| Error | Cause |
+|-------|-------|
+| `Not a this-rs workspace` | Command run outside a workspace |
+| `No webapp target configured. --embed requires a webapp target` | `--embed`/`--front-only`/`--docker` used without webapp target |
+| `No package.json found in <path>` | Webapp target directory not scaffolded |
+| `cargo build failed` | Rust compilation error |
+| `npm run build failed` | Frontend build error |
+
+### Notes
+
+- Must be run from inside a this-rs workspace (not a classic project)
+- Binary size is displayed after `--release` and `--embed` builds
+- The `--docker` flag generates the Dockerfile but does not build the Docker image. Run `docker build -t <name> .` afterward.
+- The `embedded-frontend` Cargo feature is defined in the generated `Cargo.toml` and is only enabled during `--embed` and Docker builds
+
+---
+
+## this dev
+
+Start development servers for the API and frontend in parallel with auto-reload support.
+
+### Synopsis
+
+```
+this dev [OPTIONS]
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--api-only` | false | Start the API server only (skip frontend) |
+| `--no-watch` | false | Run without file watcher (plain `cargo run`) |
+| `--port <PORT>` | from `this.yaml` | Override the API server port |
+
+### How It Works
+
+1. **Workspace detection**: Finds `this.yaml` and loads the workspace configuration
+2. **Watcher detection**: Checks for available Rust watchers (in order of preference):
+   - `cargo-watch` -- `cargo watch -x run -w src/`
+   - `watchexec` -- `watchexec -r -e rs -- cargo run`
+   - `bacon` -- `bacon run`
+   - None -- falls back to plain `cargo run`
+3. **API process**: Spawns the API server with the detected watcher and `PORT` env variable
+4. **Frontend process**: If not `--api-only` and a webapp target exists, spawns `npm run dev`
+5. **Output streaming**: Both processes' stdout/stderr are streamed with colored prefixes:
+   - `[API]` in blue for the API server
+   - `[FRONT]` in green for the frontend
+6. **Graceful shutdown**: `Ctrl+C` stops all processes cleanly
+
+### Startup Banner
+
+```
+  🚀 Starting development servers...
+
+   API:  http://127.0.0.1:3000  ✓ cargo-watch
+   Front: http://localhost:5173  (front)
+
+   Press Ctrl+C to stop
+```
+
+### Examples
+
+```sh
+# Start both API and frontend
+this dev
+
+# API only (skip frontend)
+this dev --api-only
+
+# Custom port
+this dev --port 8080
+
+# Without file watcher (plain cargo run)
+this dev --no-watch
+```
+
+### Errors
+
+| Error | Cause |
+|-------|-------|
+| `Not a this-rs workspace` | Command run outside a workspace |
+| `Failed to start API server. Is Rust installed?` | Rust toolchain not available |
+| `No package.json found in <path>` | Webapp target directory not scaffolded |
+
+### Notes
+
+- Must be run from inside a this-rs workspace (not a classic project)
+- Without a webapp target, runs the API only (no error, just an info message)
+- Install a watcher for the best experience: `cargo install cargo-watch`
+- The frontend dev server port (typically 5173 for Vite) is configured in the frontend's own config, not by `this dev`
+- If the frontend process exits unexpectedly, the API keeps running
+- If the API process exits, the entire dev session stops
 
 ---
 

@@ -8,6 +8,9 @@ Generate fully compilable this-rs projects and entities from the command line --
 
 - **Zero-touch scaffolding** -- `this init` + `this add entity` produces code that compiles and runs immediately
 - **Workspace mode** -- `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
+- **Embed frontend** -- `this build --embed` produces a single binary with the frontend bundled via rust-embed
+- **Dev server orchestration** -- `this dev` runs API + frontend in parallel with auto-reload and colored output
+- **Docker support** -- `this build --docker` generates a multi-stage Dockerfile
 - **Automatic code registration** -- entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
 - **Project introspection** -- `this info` shows entities, links, workspace context, and coherence status at a glance
 - **Health diagnostics** -- `this doctor` checks project and workspace consistency and reports issues
@@ -63,8 +66,14 @@ this add entity product --fields "sku:String,price:f64"
 this info
 this doctor
 
-# Run the API server
-cargo run --manifest-path api/Cargo.toml
+# Start development (API + frontend in parallel)
+this dev
+
+# Build a single binary with embedded frontend
+this build --embed
+
+# Generate a production Dockerfile
+this build --docker
 ```
 
 The generated project includes:
@@ -81,6 +90,8 @@ The generated project includes:
 | `this init <name> --workspace` | Create a workspace with `this.yaml` and `api/` subdirectory |
 | `this add entity <name>` | Add an entity with model, store, handlers, descriptor |
 | `this add link <source> <target>` | Configure a relationship between two entities |
+| `this build` | Build the project (API + frontend if configured) |
+| `this dev` | Start development servers (API + frontend in parallel) |
 | `this info` | Display project summary and coherence status |
 | `this doctor` | Run diagnostic checks on project health |
 | `this completions <shell>` | Generate shell completion scripts |
@@ -121,6 +132,27 @@ Default values are generated automatically:
 - Link type: `has_<target>` (e.g., `has_category`)
 - Forward route: pluralized target (e.g., `/products/{id}/categories`)
 - Reverse route: source (e.g., `/categories/{id}/product`)
+
+### this build
+
+```sh
+this build                          # Build API + frontend (if configured)
+this build --embed                  # Single binary with embedded frontend (rust-embed)
+this build --docker                 # Generate a multi-stage Dockerfile
+this build --api-only               # Build API only
+this build --front-only             # Build frontend only
+```
+
+### this dev
+
+```sh
+this dev                            # Start API + frontend in parallel
+this dev --api-only                 # API only (skip frontend)
+this dev --no-watch                 # Run without file watcher (plain cargo run)
+this dev --port 8080                # Custom API port
+```
+
+Auto-detects `cargo-watch`, `watchexec`, or `bacon` for live reload. Output is prefixed with colored `[API]`/`[FRONT]` labels. Press `Ctrl+C` to stop all servers.
 
 ### this info
 
@@ -188,10 +220,14 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Entity generation (`add entity`) with zero-touch pipeline
 - Link configuration (`add link`) with smart defaults
 - Automatic `module.rs` / `stores.rs` / `links.yaml` updates
+- Build system (`build`) with 5 modes: default, embed, api-only, front-only, docker
+- Embedded frontend (`build --embed`) -- single binary with rust-embed + SPA fallback
+- Dev server orchestration (`dev`) -- parallel API + frontend with colored output and Ctrl+C handling
+- Dockerfile generation (`build --docker`) -- multi-stage Node + Rust + Alpine
 - Project introspection (`info`) and diagnostics (`doctor`) with workspace awareness
-- MCP server (`this mcp`) for AI agent integration (5 tools)
+- MCP server (`this mcp`) for AI agent integration (7 tools)
 - Shell completions, dry-run mode
-- 141 tests (79 unit + 48 integration + 14 MCP), CI with fmt/clippy/cross-platform
+- 171 tests (92 unit + 57 integration + 17 MCP + 5 doc), CI with fmt/clippy/cross-platform
 
 ### Not yet implemented
 
@@ -201,7 +237,6 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - `this remove entity` / `this remove link`
 - OpenAPI generation
 - Custom user templates
-- Hot-reload / watch mode
 
 ## Documentation
 
