@@ -47,6 +47,14 @@ const TPL_DESKTOP_TAURI_BUILD_RS: &str = include_str!("desktop/tauri-build.rs.te
 const TPL_DESKTOP_CAPABILITIES_JSON: &str = include_str!("desktop/capabilities.json.tera");
 
 // ============================================================================
+// Mobile Templates (Capacitor — iOS & Android)
+// ============================================================================
+
+const TPL_MOBILE_CAPACITOR_PACKAGE_JSON: &str = include_str!("mobile/capacitor-package.json.tera");
+const TPL_MOBILE_CAPACITOR_CONFIG_TS: &str = include_str!("mobile/capacitor.config.ts.tera");
+const TPL_MOBILE_CAPACITOR_GITIGNORE: &str = include_str!("mobile/capacitor-gitignore.tera");
+
+// ============================================================================
 // Entity Templates
 // ============================================================================
 
@@ -91,6 +99,12 @@ impl TemplateEngine {
             ("desktop/tauri-main.rs", TPL_DESKTOP_TAURI_MAIN_RS),
             ("desktop/tauri-build.rs", TPL_DESKTOP_TAURI_BUILD_RS),
             ("desktop/capabilities.json", TPL_DESKTOP_CAPABILITIES_JSON),
+            (
+                "mobile/capacitor-package.json",
+                TPL_MOBILE_CAPACITOR_PACKAGE_JSON,
+            ),
+            ("mobile/capacitor.config.ts", TPL_MOBILE_CAPACITOR_CONFIG_TS),
+            ("mobile/capacitor-gitignore", TPL_MOBILE_CAPACITOR_GITIGNORE),
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
@@ -743,6 +757,141 @@ mod tests {
             assert!(
                 result.is_ok(),
                 "Template {} should render: {:?}",
+                name,
+                result.err()
+            );
+            let content = result.unwrap();
+            assert!(
+                !content.contains("{{"),
+                "Template {} has unresolved placeholders",
+                name
+            );
+        }
+    }
+
+    // ========================================================================
+    // Mobile (Capacitor) Templates
+    // ========================================================================
+
+    fn make_mobile_context(platform: &str) -> tera::Context {
+        let mut ctx = tera::Context::new();
+        ctx.insert("project_name", "my-app");
+        ctx.insert("project_name_snake", "my_app");
+        ctx.insert("api_port", &3000u16);
+        ctx.insert("front_path", "front");
+        ctx.insert("platform", platform);
+        ctx
+    }
+
+    #[test]
+    fn test_mobile_capacitor_package_json_ios() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("mobile/capacitor-package.json", &make_mobile_context("ios"));
+        assert!(
+            result.is_ok(),
+            "capacitor package.json (ios) should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("\"my-app-ios\""));
+        assert!(content.contains("@capacitor/ios"));
+        assert!(content.contains("@capacitor/core"));
+        assert!(content.contains("@capacitor/http"));
+        assert!(content.contains("cap sync ios"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_mobile_capacitor_package_json_android() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render(
+            "mobile/capacitor-package.json",
+            &make_mobile_context("android"),
+        );
+        assert!(
+            result.is_ok(),
+            "capacitor package.json (android) should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("\"my-app-android\""));
+        assert!(content.contains("@capacitor/android"));
+        assert!(content.contains("cap sync android"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_mobile_capacitor_config_ts() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("mobile/capacitor.config.ts", &make_mobile_context("ios"));
+        assert!(
+            result.is_ok(),
+            "capacitor.config.ts should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("com.my_app.app"));
+        assert!(content.contains("appName: 'my-app'"));
+        assert!(content.contains("../../front/dist"));
+        assert!(content.contains("http://localhost:3000"));
+        assert!(content.contains("CapacitorHttp"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_mobile_capacitor_gitignore() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("mobile/capacitor-gitignore", &make_mobile_context("ios"));
+        assert!(
+            result.is_ok(),
+            "capacitor .gitignore should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("node_modules/"));
+        assert!(content.contains("ios/"));
+    }
+
+    #[test]
+    fn test_mobile_all_templates_render_ios() {
+        let engine = TemplateEngine::new().unwrap();
+        let ctx = make_mobile_context("ios");
+        let templates = [
+            "mobile/capacitor-package.json",
+            "mobile/capacitor.config.ts",
+            "mobile/capacitor-gitignore",
+        ];
+        for name in &templates {
+            let result = engine.render(name, &ctx);
+            assert!(
+                result.is_ok(),
+                "Template {} should render for ios: {:?}",
+                name,
+                result.err()
+            );
+            let content = result.unwrap();
+            assert!(
+                !content.contains("{{"),
+                "Template {} has unresolved placeholders",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_mobile_all_templates_render_android() {
+        let engine = TemplateEngine::new().unwrap();
+        let ctx = make_mobile_context("android");
+        let templates = [
+            "mobile/capacitor-package.json",
+            "mobile/capacitor.config.ts",
+            "mobile/capacitor-gitignore",
+        ];
+        for name in &templates {
+            let result = engine.render(name, &ctx);
+            assert!(
+                result.is_ok(),
+                "Template {} should render for android: {:?}",
                 name,
                 result.err()
             );

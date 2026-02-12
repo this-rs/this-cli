@@ -24,8 +24,10 @@ pub(crate) fn run_in(
     match args.target_type {
         TargetType::Webapp => run_webapp(args, writer, cwd),
         TargetType::Desktop => run_desktop(args, writer, cwd),
+        TargetType::Ios => run_mobile(args, writer, cwd, "ios"),
+        TargetType::Android => run_mobile(args, writer, cwd, "android"),
         other => bail!(
-            "Target type '{}' is not yet supported. Currently supported: webapp, desktop.",
+            "Target type '{}' is not yet supported. Currently supported: webapp, desktop, ios, android.",
             other
         ),
     }
@@ -234,6 +236,134 @@ fn run_desktop(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Pa
     Ok(())
 }
 
+fn run_mobile(
+    args: AddTargetArgs,
+    writer: &dyn FileWriter,
+    cwd: &std::path::Path,
+    platform: &str,
+) -> Result<()> {
+    let target_type = match platform {
+        "ios" => TargetType::Ios,
+        "android" => TargetType::Android,
+        _ => bail!("Invalid mobile platform: {}", platform),
+    };
+
+    // 1. Must be inside a workspace
+    let workspace_root = project::find_workspace_root_from(cwd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Not a this-rs workspace. Run `this init <name> --workspace` first, or cd into a workspace directory."
+        )
+    })?;
+
+    let this_yaml_path = workspace_root.join("this.yaml");
+    let config_snapshot = config::load_workspace_config(&this_yaml_path)?;
+
+    // 2. Check that a webapp target exists (mobile wraps the SPA)
+    let webapp_target = config_snapshot
+        .targets
+        .iter()
+        .find(|t| t.target_type == TargetType::Webapp);
+    if webapp_target.is_none() {
+        bail!(
+            "A webapp target is required before adding a {} target.\n\
+             The {} app wraps the webapp SPA in a native container.\n\
+             Run `this add target webapp` first.",
+            platform,
+            platform
+        );
+    }
+    let front_path = webapp_target.unwrap().path.clone();
+
+    // 3. Check if this mobile target already exists
+    let already_exists = config_snapshot
+        .targets
+        .iter()
+        .any(|t| t.target_type == target_type);
+    if already_exists {
+        bail!(
+            "A {} target already exists in this workspace. Remove it from this.yaml first if you want to recreate it.",
+            platform
+        );
+    }
+
+    // 4. Determine target directory
+    let default_path = format!("targets/{}", platform);
+    let target_dir_name = args.name.as_deref().unwrap_or(&default_path);
+    let target_path = workspace_root.join(target_dir_name);
+
+    if target_path.exists() {
+        bail!(
+            "Directory '{}' already exists. Remove it or use --name to choose a different name.",
+            target_dir_name
+        );
+    }
+
+    let project_name = &config_snapshot.name;
+    let api_port = config_snapshot.api.port;
+
+    output::print_step(&format!(
+        "Adding {} target (Capacitor, {})",
+        platform, target_dir_name
+    ));
+
+    // 5. Create directory structure
+    writer.create_dir_all(&target_path)?;
+
+    // 6. Render and write templates
+    let engine = TemplateEngine::new()?;
+    let mut ctx = tera::Context::new();
+    ctx.insert("project_name", project_name);
+    ctx.insert(
+        "project_name_snake",
+        &crate::utils::naming::to_snake_case(project_name),
+    );
+    ctx.insert("api_port", &api_port);
+    ctx.insert("front_path", &front_path);
+    ctx.insert("platform", platform);
+
+    let templates = [
+        ("mobile/capacitor-package.json", "package.json"),
+        ("mobile/capacitor.config.ts", "capacitor.config.ts"),
+        ("mobile/capacitor-gitignore", ".gitignore"),
+    ];
+
+    for (template_name, output_file) in &templates {
+        let content = engine.render(template_name, &ctx)?;
+        let file_path = target_path.join(output_file);
+        writer.write_file(&file_path, &content)?;
+        output::print_file_created(&format!("{}/{}", target_dir_name, output_file));
+    }
+
+    // 7. Update this.yaml
+    let mut config = config::load_workspace_config(&this_yaml_path)?;
+    config.targets.push(TargetConfig {
+        target_type,
+        framework: None,
+        runtime: Some("capacitor".to_string()),
+        path: target_dir_name.to_string(),
+    });
+    config::save_workspace_config(&this_yaml_path, &config)?;
+    output::print_info(&format!("Updated this.yaml with {} target", platform));
+
+    // 8. Print next steps
+    println!();
+    println!("  {}", "Next steps:".bold());
+    println!("    cd {} && npm install", target_dir_name);
+    println!(
+        "    npx cap add {}  (initializes the native {} project)",
+        platform, platform
+    );
+    if platform == "ios" {
+        println!("    npx cap open ios  (opens Xcode)");
+    } else {
+        println!("    npx cap open android  (opens Android Studio)");
+    }
+    println!("    this build --target {}", platform);
+    println!();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,7 +538,7 @@ mod tests {
         let ws = setup_workspace(&tmp, "unsupported");
         let writer = DryRunWriter::new();
         let args = AddTargetArgs {
-            target_type: TargetType::Ios,
+            target_type: TargetType::Website,
             framework: "react".to_string(),
             name: None,
         };
@@ -612,5 +742,213 @@ mod tests {
             main_rs.contains("desktop_main"),
             "Should reference project crate"
         );
+    }
+
+    // ========================================================================
+    // Mobile target tests (iOS & Android)
+    // ========================================================================
+
+    #[test]
+    fn test_add_target_ios_requires_webapp() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace(&tmp, "ios_no_webapp");
+        let writer = DryRunWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: None,
+        };
+        let result = run_in(args, &writer, &ws);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("webapp target is required"),
+            "Should mention webapp prerequisite: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_target_ios_creates_files() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "ios_files");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: None,
+        };
+        let result = run_in(args, &writer, &ws);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+
+        assert!(ws.join("targets/ios/package.json").exists());
+        assert!(ws.join("targets/ios/capacitor.config.ts").exists());
+        assert!(ws.join("targets/ios/.gitignore").exists());
+    }
+
+    #[test]
+    fn test_add_target_android_creates_files() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "android_files");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Android,
+            framework: "react".to_string(),
+            name: None,
+        };
+        let result = run_in(args, &writer, &ws);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+
+        assert!(ws.join("targets/android/package.json").exists());
+        assert!(ws.join("targets/android/capacitor.config.ts").exists());
+        assert!(ws.join("targets/android/.gitignore").exists());
+    }
+
+    #[test]
+    fn test_add_target_ios_updates_this_yaml() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "ios_yaml");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let config = config::load_workspace_config(&ws.join("this.yaml")).unwrap();
+        assert_eq!(config.targets.len(), 2); // webapp + ios
+        let ios = config
+            .targets
+            .iter()
+            .find(|t| t.target_type == TargetType::Ios)
+            .expect("Should have ios target");
+        assert_eq!(ios.runtime, Some("capacitor".to_string()));
+        assert_eq!(ios.path, "targets/ios");
+    }
+
+    #[test]
+    fn test_add_target_ios_duplicate_error() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "ios_dup");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        let args = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let args2 = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: Some("targets/ios2".to_string()),
+        };
+        let result = run_in(args2, &writer, &ws);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("already exists"),
+            "Error should mention duplicate: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_target_both_mobile_coexist() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "both_mobile");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        // Add iOS
+        let args_ios = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args_ios, &writer, &ws).unwrap();
+
+        // Add Android
+        let args_android = AddTargetArgs {
+            target_type: TargetType::Android,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args_android, &writer, &ws).unwrap();
+
+        // Both should coexist
+        let config = config::load_workspace_config(&ws.join("this.yaml")).unwrap();
+        assert_eq!(config.targets.len(), 3); // webapp + ios + android
+        assert!(
+            config
+                .targets
+                .iter()
+                .any(|t| t.target_type == TargetType::Ios)
+        );
+        assert!(
+            config
+                .targets
+                .iter()
+                .any(|t| t.target_type == TargetType::Android)
+        );
+        assert!(ws.join("targets/ios/package.json").exists());
+        assert!(ws.join("targets/android/package.json").exists());
+    }
+
+    #[test]
+    fn test_add_target_ios_capacitor_config_content() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "ios_config");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Ios,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let config_ts =
+            std::fs::read_to_string(ws.join("targets/ios/capacitor.config.ts")).unwrap();
+        assert!(
+            config_ts.contains("com.ios_config.app"),
+            "Should have correct appId"
+        );
+        assert!(
+            config_ts.contains("../../front/dist"),
+            "Should point to front dist"
+        );
+        assert!(
+            config_ts.contains("http://localhost:3000"),
+            "Should have API URL"
+        );
+        assert!(
+            config_ts.contains("CapacitorHttp"),
+            "Should enable CapacitorHttp"
+        );
+    }
+
+    #[test]
+    fn test_add_target_android_package_json_content() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_workspace_with_webapp(&tmp, "android_pkg");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = AddTargetArgs {
+            target_type: TargetType::Android,
+            framework: "react".to_string(),
+            name: None,
+        };
+        run_in(args, &writer, &ws).unwrap();
+
+        let pkg = std::fs::read_to_string(ws.join("targets/android/package.json")).unwrap();
+        assert!(
+            pkg.contains("android_pkg-android"),
+            "Should have correct name"
+        );
+        assert!(
+            pkg.contains("@capacitor/android"),
+            "Should have android platform"
+        );
+        assert!(pkg.contains("cap sync android"), "Should have sync script");
     }
 }

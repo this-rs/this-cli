@@ -1,0 +1,16 @@
+{
+  "name": "{{ project_name }}-{{ platform }}",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "sync": "npx cap sync {{ platform }}",
+    "open": "npx cap open {{ platform }}",
+    "build": "npm run --prefix ../../{{ front_path }} build && npx cap sync {{ platform }}"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6",
+    "@capacitor/cli": "^6",
+    "@capacitor/{{ platform }}": "^6",
+    "@capacitor/http": "^6"
+  }
+}
