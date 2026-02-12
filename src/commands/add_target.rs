@@ -9,8 +9,20 @@ use crate::utils::output;
 use crate::utils::project;
 
 pub fn run(args: AddTargetArgs, writer: &dyn FileWriter) -> Result<()> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+    run_in(args, writer, &cwd)
+}
+
+/// Run the add target command with an explicit starting directory.
+/// This avoids relying on the process-global CWD, making it safe for parallel tests.
+pub(crate) fn run_in(
+    args: AddTargetArgs,
+    writer: &dyn FileWriter,
+    cwd: &std::path::Path,
+) -> Result<()> {
     match args.target_type {
-        TargetType::Webapp => run_webapp(args, writer),
+        TargetType::Webapp => run_webapp(args, writer, cwd),
         other => bail!(
             "Target type '{}' is not yet supported. Currently only 'webapp' is implemented.",
             other
@@ -18,9 +30,9 @@ pub fn run(args: AddTargetArgs, writer: &dyn FileWriter) -> Result<()> {
     }
 }
 
-fn run_webapp(args: AddTargetArgs, writer: &dyn FileWriter) -> Result<()> {
+fn run_webapp(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Path) -> Result<()> {
     // 1. Must be inside a workspace
-    let workspace_root = project::find_workspace_root().ok_or_else(|| {
+    let workspace_root = project::find_workspace_root_from(cwd).ok_or_else(|| {
         anyhow::anyhow!(
             "Not a this-rs workspace. Run `this init <name> --workspace` first, or cd into a workspace directory."
         )
@@ -167,14 +179,14 @@ mod tests {
     #[test]
     fn test_add_target_webapp_outside_workspace_error() {
         let tmp = TempDir::new().unwrap();
-        let _guard = CwdGuard::new(tmp.path());
         let writer = DryRunWriter::new();
         let args = AddTargetArgs {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
         };
-        let result = run(args, &writer);
+        // Pass a path that has no this.yaml anywhere up the tree
+        let result = run_in(args, &writer, tmp.path());
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -188,14 +200,13 @@ mod tests {
     fn test_add_target_webapp_creates_files() {
         let tmp = TempDir::new().unwrap();
         let ws = setup_workspace(&tmp, "test_ws");
-        let _guard = CwdGuard::new(&ws);
         let writer = crate::mcp::handlers::McpFileWriter::new();
         let args = AddTargetArgs {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
         };
-        let result = run(args, &writer);
+        let result = run_in(args, &writer, &ws);
         assert!(result.is_ok(), "Should succeed: {:?}", result.err());
 
         // Check files were created
@@ -212,14 +223,13 @@ mod tests {
     fn test_add_target_webapp_updates_this_yaml() {
         let tmp = TempDir::new().unwrap();
         let ws = setup_workspace(&tmp, "yaml_test");
-        let _guard = CwdGuard::new(&ws);
         let writer = crate::mcp::handlers::McpFileWriter::new();
         let args = AddTargetArgs {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
         };
-        run(args, &writer).unwrap();
+        run_in(args, &writer, &ws).unwrap();
 
         // Reload and check
         let config = config::load_workspace_config(&ws.join("this.yaml")).unwrap();
@@ -233,7 +243,6 @@ mod tests {
     fn test_add_target_webapp_duplicate_error() {
         let tmp = TempDir::new().unwrap();
         let ws = setup_workspace(&tmp, "dup_test");
-        let _guard = CwdGuard::new(&ws);
         let writer = crate::mcp::handlers::McpFileWriter::new();
 
         // First time: success
@@ -242,7 +251,7 @@ mod tests {
             framework: "react".to_string(),
             name: None,
         };
-        run(args, &writer).unwrap();
+        run_in(args, &writer, &ws).unwrap();
 
         // Second time: should fail (target already in this.yaml)
         let args2 = AddTargetArgs {
@@ -250,7 +259,7 @@ mod tests {
             framework: "vue".to_string(),
             name: Some("front2".to_string()),
         };
-        let result = run(args2, &writer);
+        let result = run_in(args2, &writer, &ws);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -264,14 +273,13 @@ mod tests {
     fn test_add_target_webapp_custom_name() {
         let tmp = TempDir::new().unwrap();
         let ws = setup_workspace(&tmp, "custom_name");
-        let _guard = CwdGuard::new(&ws);
         let writer = crate::mcp::handlers::McpFileWriter::new();
         let args = AddTargetArgs {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: Some("frontend".to_string()),
         };
-        run(args, &writer).unwrap();
+        run_in(args, &writer, &ws).unwrap();
 
         assert!(ws.join("frontend/package.json").exists());
         assert!(!ws.join("front/package.json").exists());
@@ -284,14 +292,13 @@ mod tests {
     fn test_add_target_unsupported_type_error() {
         let tmp = TempDir::new().unwrap();
         let ws = setup_workspace(&tmp, "unsupported");
-        let _guard = CwdGuard::new(&ws);
         let writer = DryRunWriter::new();
         let args = AddTargetArgs {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
         };
-        let result = run(args, &writer);
+        let result = run_in(args, &writer, &ws);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -299,24 +306,5 @@ mod tests {
             "Should mention not supported: {}",
             err
         );
-    }
-
-    /// RAII guard for changing CWD in tests
-    struct CwdGuard {
-        original: std::path::PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(path: &std::path::Path) -> Self {
-            let original = std::env::current_dir().unwrap();
-            std::env::set_current_dir(path).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original);
-        }
     }
 }
