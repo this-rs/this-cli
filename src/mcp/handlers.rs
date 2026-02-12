@@ -180,6 +180,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         "project_path": project_path,
         "port": port,
         "websocket_enabled": websocket,
+        "grpc_enabled": grpc,
         "files_created": writer.files_created(),
     }))
 }

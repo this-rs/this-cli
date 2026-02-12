@@ -49,6 +49,10 @@ fn init_project_tool() -> ToolDefinition {
                     "type": "boolean",
                     "description": "If true, enable WebSocket support in the generated project (adds websocket feature to this-rs dependency and WebSocketExposure in main.rs) (default: false)"
                 },
+                "grpc": {
+                    "type": "boolean",
+                    "description": "If true, enable gRPC support in the generated project (adds grpc feature to this-rs dependency and GrpcExposure in main.rs) (default: false)"
+                },
                 "cwd": {
                     "type": "string",
                     "description": "Working directory for the command. If provided, the command runs as if invoked from this directory."

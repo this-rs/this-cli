@@ -667,3 +667,107 @@ fn test_mcp_init_project_websocket() {
         main_rs
     );
 }
+
+#[test]
+fn test_mcp_init_project_grpc() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {
+                "name": "grpc_project",
+                "cwd": cwd,
+                "no_git": true,
+                "grpc": true
+            }
+        })),
+        2,
+    );
+    let responses = mcp_call(&[&init, &call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    assert!(resp["result"].is_object());
+
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let result: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["project_name"], "grpc_project");
+    assert_eq!(result["grpc_enabled"], true);
+
+    // Verify Cargo.toml contains grpc feature
+    let project_dir = tmpdir.path().join("grpc_project");
+    let cargo_toml = std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["grpc"]"#),
+        "Cargo.toml should contain grpc feature. Got:\n{}",
+        cargo_toml
+    );
+
+    // Verify main.rs contains GrpcExposure
+    let main_rs = std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("GrpcExposure"),
+        "main.rs should contain GrpcExposure. Got:\n{}",
+        main_rs
+    );
+}
+
+#[test]
+fn test_mcp_init_project_grpc_websocket() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let call = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {
+                "name": "both_project",
+                "cwd": cwd,
+                "no_git": true,
+                "grpc": true,
+                "websocket": true
+            }
+        })),
+        2,
+    );
+    let responses = mcp_call(&[&init, &call]);
+
+    assert_eq!(responses.len(), 2);
+    let resp = &responses[1];
+    assert!(resp["result"].is_object());
+
+    let content = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let result: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["grpc_enabled"], true);
+    assert_eq!(result["websocket_enabled"], true);
+
+    // Verify Cargo.toml contains both features
+    let project_dir = tmpdir.path().join("both_project");
+    let cargo_toml = std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["websocket", "grpc"]"#),
+        "Cargo.toml should contain both features. Got:\n{}",
+        cargo_toml
+    );
+
+    // Verify main.rs contains both exposures
+    let main_rs = std::fs::read_to_string(project_dir.join("src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("GrpcExposure"),
+        "main.rs should contain GrpcExposure. Got:\n{}",
+        main_rs
+    );
+    assert!(
+        main_rs.contains("WebSocketExposure"),
+        "main.rs should contain WebSocketExposure. Got:\n{}",
+        main_rs
+    );
+}
