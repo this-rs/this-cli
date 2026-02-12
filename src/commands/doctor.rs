@@ -110,6 +110,7 @@ fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
     results.extend(check_module_registration(project_root));
     results.extend(check_stores_configuration(project_root));
     results.extend(check_links(project_root));
+    results.extend(check_websocket(project_root));
     results
 }
 
@@ -673,6 +674,41 @@ fn check_links(project_root: &Path) -> Vec<DiagnosticResult> {
     results
 }
 
+/// Check WebSocket configuration coherence:
+/// If the websocket feature is enabled in Cargo.toml, main.rs should use WebSocketExposure.
+fn check_websocket(project_root: &Path) -> Vec<DiagnosticResult> {
+    let features = super::info::detect_this_features(project_root);
+
+    if !features.websocket {
+        // WebSocket not enabled — nothing to check
+        return vec![];
+    }
+
+    // WebSocket feature is enabled — verify main.rs uses WebSocketExposure
+    let main_path = project_root.join("src/main.rs");
+    let main_content = match std::fs::read_to_string(&main_path) {
+        Ok(c) => c,
+        Err(_) => {
+            return vec![DiagnosticResult::warn(
+                "WebSocket",
+                "websocket feature enabled but src/main.rs not found",
+            )];
+        }
+    };
+
+    if main_content.contains("WebSocketExposure") {
+        vec![DiagnosticResult::pass(
+            "WebSocket",
+            "Feature enabled and WebSocketExposure configured in main.rs",
+        )]
+    } else {
+        vec![DiagnosticResult::warn(
+            "WebSocket",
+            "websocket feature enabled in Cargo.toml but WebSocketExposure not found in main.rs",
+        )]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -777,5 +813,80 @@ validation_rules: {}
                 .iter()
                 .any(|r| matches!(r.level, DiagnosticLevel::Warn) && r.message.contains("ghost"))
         );
+    }
+
+    #[test]
+    fn test_check_websocket_not_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6" }
+"#,
+        )
+        .unwrap();
+
+        let results = check_websocket(dir.path());
+        // No check emitted when websocket is not enabled
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_check_websocket_enabled_and_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/main.rs"),
+            "use this::server::exposure::websocket::WebSocketExposure;\nfn main() {}",
+        )
+        .unwrap();
+
+        let results = check_websocket(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("WebSocketExposure"));
+    }
+
+    #[test]
+    fn test_check_websocket_enabled_but_not_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/main.rs"),
+            "fn main() { println!(\"no websocket\"); }",
+        )
+        .unwrap();
+
+        let results = check_websocket(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("WebSocketExposure not found"));
     }
 }

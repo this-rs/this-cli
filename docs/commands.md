@@ -77,6 +77,7 @@ this init [OPTIONS] <NAME>
 | `--path <PATH>` | `.` | Parent directory for the project |
 | `--no-git` | false | Do not initialize a git repository |
 | `--port <PORT>` | `3000` | Default server port in `main.rs` |
+| `--websocket` | false | Enable WebSocket support (adds `websocket` feature to this-rs dependency and `WebSocketExposure` in main.rs) |
 | `--workspace` | false | Create a workspace layout with `this.yaml` and `api/` subdirectory |
 
 ### Generated Files (Classic mode)
@@ -143,6 +144,12 @@ this init my-api --no-git
 # Create in a specific directory
 this init my-api --path /tmp/projects
 
+# Enable WebSocket support (adds WebSocketExposure + EventBus)
+this init my-api --websocket
+
+# Combine WebSocket with workspace mode
+this init my-app --workspace --websocket
+
 # Create a workspace layout for multi-target projects
 this init my-app --workspace
 
@@ -166,6 +173,8 @@ this --dry-run init my-app --workspace
 - The project compiles immediately with `cargo build` (no entities required)
 - In workspace mode, `api/dist/.gitkeep` is created as a placeholder for future frontend embedding
 - The workspace `.gitignore` includes frontend-related patterns (`node_modules/`, `dist/`, `.next/`, `.nuxt/`)
+- `--websocket` adds `features = ["websocket"]` to the this-rs dependency in `Cargo.toml` and generates `main.rs` with `WebSocketExposure` + `EventBus`. The WebSocket endpoint is available at `ws://127.0.0.1:<port>/ws`
+- Optional features (`--websocket`) can be combined freely with `--workspace`
 
 ---
 
@@ -886,9 +895,10 @@ this info
 
 1. **Workspace** (if inside a workspace) -- workspace name, API path, port, configured targets
 2. **Project** -- name (from `Cargo.toml`) and this-rs version
-3. **Entities** -- list of entities with their custom fields, parsed from `model.rs` files
-4. **Links** -- relationships with forward/reverse routes, parsed from `links.yaml`
-5. **Status** -- coherence checks:
+3. **Feature flags** -- WebSocket status (enabled/disabled), detected from Cargo.toml features
+4. **Entities** -- list of entities with their custom fields, parsed from `model.rs` files
+5. **Links** -- relationships with forward/reverse routes, parsed from `links.yaml`
+6. **Status** -- coherence checks:
    - Module registration (entities in `module.rs` vs. entities on disk)
    - Store configuration (stores in `stores.rs` vs. entities on disk)
    - Link validity (link targets reference existing entities)
@@ -969,6 +979,7 @@ this doctor
 | **Module** | All entities are registered in `module.rs` (via markers) |
 | **Stores** | All entities have stores configured in `stores.rs` (via markers) |
 | **Links** | All entities referenced in `links.yaml` exist as actual entities |
+| **WebSocket** | If `websocket` feature is enabled in Cargo.toml, verifies that `main.rs` contains `WebSocketExposure` |
 
 ### Diagnostic Levels
 

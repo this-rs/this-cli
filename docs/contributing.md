@@ -58,7 +58,7 @@ path = "src/main.rs"
 cargo test -p this-cli
 ```
 
-This runs 172 unit tests, 57 integration tests, and 17 MCP tests (~0.5s total).
+This runs 175 unit tests, 65 integration tests, and 18 MCP tests (~0.5s total).
 
 ### End-to-end compilation test (slow)
 
@@ -329,6 +329,7 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 | `capacitor` | Capacitor-specific templates and configuration |
 | `codegen` | Code generation modules (`codegen/introspect.rs`, `codegen/typescript.rs`) |
 | `generate` | `this generate client` command |
+| `websocket` | WebSocket support (`--websocket` flag, feature detection, doctor check) |
 | `mcp` | MCP server and tools |
 | `completions` | Shell completions |
 | `dry-run` | Dry-run mode |

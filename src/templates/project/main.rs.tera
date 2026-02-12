@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use this::server::builder::ServerBuilder;
 use this::storage::InMemoryLinkService;
+{% if websocket %}
+use this::server::exposure::websocket::WebSocketExposure;
+{% endif %}
 
 mod entities;
 mod module;
@@ -24,13 +27,32 @@ async fn main() -> anyhow::Result<()> {
 
     let stores = {{ project_name_snake | pascal_case }}Stores::new_in_memory();
     let module = {{ project_name_snake | pascal_case }}Module::new(stores);
+{% if websocket %}
+
+    let host = ServerBuilder::new()
+        .with_link_service((*link_service).clone())
+        .with_event_bus(1024)
+        .register_module(module)?
+        .build_host()?;
+
+    let host = Arc::new(host);
+    let app = this::server::exposure::rest::RestExposure::build_router(host.clone(), vec![])?;
+
+    // WebSocket exposure — merge WS routes with REST
+    let ws_router = WebSocketExposure::build_router(host.clone())?;
+    let app = app.merge(ws_router);
+{% else %}
 
     let app = ServerBuilder::new()
         .with_link_service((*link_service).clone())
         .register_module(module)?
         .build()?;
+{% endif %}
 
     println!("🚀 Server running on http://127.0.0.1:{{ port }}");
+{% if websocket %}
+    println!("🔌 WebSocket available at ws://127.0.0.1:{{ port }}/ws");
+{% endif %}
 
 {% if workspace %}
     let app = attach_frontend(app);
