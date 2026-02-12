@@ -54,11 +54,18 @@ pub struct TargetInfo {
     pub runtime: Option<String>,
 }
 
+/// Feature flags detected from this-rs dependency
+#[derive(Debug, Serialize)]
+pub struct FeatureFlags {
+    pub websocket: bool,
+}
+
 /// Complete project information — returned by collect_info() for structured (MCP) use
 #[derive(Debug, Serialize)]
 pub struct ProjectInfo {
     pub project_name: String,
     pub this_version: String,
+    pub features: FeatureFlags,
     pub entities: Vec<EntityInfo>,
     pub links: Vec<LinkInfo>,
     pub coherence: CoherenceStatus,
@@ -71,6 +78,7 @@ pub struct ProjectInfo {
 pub fn collect_info() -> Result<ProjectInfo> {
     let project_root = project::detect_project_root()?;
     let (project_name, this_version) = parse_cargo_toml(&project_root)?;
+    let features = detect_this_features(&project_root);
     let entities = scan_entities(&project_root)?;
     let links = parse_links_yaml(&project_root)?;
     let coherence = check_coherence(&project_root, &entities)?;
@@ -81,6 +89,7 @@ pub fn collect_info() -> Result<ProjectInfo> {
     Ok(ProjectInfo {
         project_name,
         this_version,
+        features,
         entities,
         links,
         coherence,
@@ -126,6 +135,11 @@ pub fn run() -> Result<()> {
     println!();
     println!("{} Project: {}", "📦".bold(), project_name.cyan().bold());
     println!("   Framework: this-rs {}", this_version.dimmed());
+    if info.features.websocket {
+        println!("   WebSocket: {}", "✓ enabled".green());
+    } else {
+        println!("   WebSocket: {}", "✗ disabled".dimmed());
+    }
     println!();
 
     // Workspace section (only if inside a workspace)
@@ -318,6 +332,29 @@ fn extract_this_version(doc: &toml_edit::DocumentMut) -> Option<String> {
     }
 
     None
+}
+
+/// Detect which this-rs features are enabled in Cargo.toml
+fn detect_this_features(project_root: &Path) -> FeatureFlags {
+    let cargo_path = project_root.join("Cargo.toml");
+    let content = match std::fs::read_to_string(&cargo_path) {
+        Ok(c) => c,
+        Err(_) => return FeatureFlags { websocket: false },
+    };
+
+    let doc = match content.parse::<toml_edit::DocumentMut>() {
+        Ok(d) => d,
+        Err(_) => return FeatureFlags { websocket: false },
+    };
+
+    let websocket = doc
+        .get("dependencies")
+        .and_then(|deps| deps.get("this"))
+        .and_then(|this_dep| this_dep.get("features"))
+        .and_then(|features| features.as_array())
+        .is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("websocket")));
+
+    FeatureFlags { websocket }
 }
 
 /// Scan src/entities/ to discover entities and their fields
