@@ -498,11 +498,26 @@ mod tests {
         assert!(result.is_ok());
         let content = result.unwrap();
         // All backend constructors should be present
-        assert!(content.contains("new_mongodb"), "stores.rs should have new_mongodb");
-        assert!(content.contains("new_neo4j"), "stores.rs should have new_neo4j");
-        assert!(content.contains("new_scylladb"), "stores.rs should have new_scylladb");
-        assert!(content.contains("new_mysql"), "stores.rs should have new_mysql");
-        assert!(content.contains("new_lmdb"), "stores.rs should have new_lmdb");
+        assert!(
+            content.contains("new_mongodb"),
+            "stores.rs should have new_mongodb"
+        );
+        assert!(
+            content.contains("new_neo4j"),
+            "stores.rs should have new_neo4j"
+        );
+        assert!(
+            content.contains("new_scylladb"),
+            "stores.rs should have new_scylladb"
+        );
+        assert!(
+            content.contains("new_mysql"),
+            "stores.rs should have new_mysql"
+        );
+        assert!(
+            content.contains("new_lmdb"),
+            "stores.rs should have new_lmdb"
+        );
         // Each should have init markers
         assert!(content.contains("[this:store_mongo_init_vars]"));
         assert!(content.contains("[this:store_neo4j_init_vars]"));
@@ -524,8 +539,15 @@ mod tests {
     #[test]
     fn test_entity_mongodb_store() {
         let engine = TemplateEngine::new().unwrap();
-        let result = engine.render("entity/mongodb_store.rs", &make_backend_entity_context("mongodb"));
-        assert!(result.is_ok(), "mongodb store template should render: {:?}", result.err());
+        let result = engine.render(
+            "entity/mongodb_store.rs",
+            &make_backend_entity_context("mongodb"),
+        );
+        assert!(
+            result.is_ok(),
+            "mongodb store template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("MongoProductStore"));
         assert!(content.contains("MongoDataService"));
@@ -538,8 +560,15 @@ mod tests {
     #[test]
     fn test_entity_neo4j_store() {
         let engine = TemplateEngine::new().unwrap();
-        let result = engine.render("entity/neo4j_store.rs", &make_backend_entity_context("neo4j"));
-        assert!(result.is_ok(), "neo4j store template should render: {:?}", result.err());
+        let result = engine.render(
+            "entity/neo4j_store.rs",
+            &make_backend_entity_context("neo4j"),
+        );
+        assert!(
+            result.is_ok(),
+            "neo4j store template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("Neo4jProductStore"));
         assert!(content.contains("Neo4jDataService"));
@@ -552,8 +581,15 @@ mod tests {
     #[test]
     fn test_entity_scylladb_store() {
         let engine = TemplateEngine::new().unwrap();
-        let result = engine.render("entity/scylladb_store.rs", &make_backend_entity_context("scylladb"));
-        assert!(result.is_ok(), "scylladb store template should render: {:?}", result.err());
+        let result = engine.render(
+            "entity/scylladb_store.rs",
+            &make_backend_entity_context("scylladb"),
+        );
+        assert!(
+            result.is_ok(),
+            "scylladb store template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("ScyllaProductStore"));
         assert!(content.contains("ScyllaDataService"));
@@ -566,8 +602,15 @@ mod tests {
     #[test]
     fn test_entity_mysql_store() {
         let engine = TemplateEngine::new().unwrap();
-        let result = engine.render("entity/mysql_store.rs", &make_backend_entity_context("mysql"));
-        assert!(result.is_ok(), "mysql store template should render: {:?}", result.err());
+        let result = engine.render(
+            "entity/mysql_store.rs",
+            &make_backend_entity_context("mysql"),
+        );
+        assert!(
+            result.is_ok(),
+            "mysql store template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("MysqlProductStore"));
         assert!(content.contains("MysqlDataService"));
@@ -581,7 +624,11 @@ mod tests {
     fn test_entity_lmdb_store() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("entity/lmdb_store.rs", &make_backend_entity_context("lmdb"));
-        assert!(result.is_ok(), "lmdb store template should render: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "lmdb store template should render: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(content.contains("LmdbProductStore"));
         assert!(content.contains("LmdbDataService"));

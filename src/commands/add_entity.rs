@@ -244,53 +244,98 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
                 println!("  Backend: {}", "PostgreSQL (sqlx)".bold());
                 println!();
                 println!("  Next steps:");
-                println!("    1. Add {} to your Cargo.toml", "this = { features = [\"postgres\"] }".bold());
+                println!(
+                    "    1. Add {} to your Cargo.toml",
+                    "this = { features = [\"postgres\"] }".bold()
+                );
                 println!("    2. Run migrations: {}", "sqlx migrate run".bold());
-                println!("    3. Update main.rs to use {}", "Stores::new_postgres(pool)".bold());
+                println!(
+                    "    3. Update main.rs to use {}",
+                    "Stores::new_postgres(pool)".bold()
+                );
                 println!("    4. Run: {}", "cargo run --features postgres".bold());
             }
             "mongodb" => {
                 println!("  Backend: {}", "MongoDB".bold());
                 println!();
                 println!("  Next steps:");
-                println!("    1. Add {} to your Cargo.toml", "this = { features = [\"mongodb\"] }".bold());
-                println!("    2. Start MongoDB: {}", "docker run -d -p 27017:27017 mongo".bold());
-                println!("    3. Update main.rs to use {}", "Stores::new_mongodb(db)".bold());
+                println!(
+                    "    1. Add {} to your Cargo.toml",
+                    "this = { features = [\"mongodb\"] }".bold()
+                );
+                println!(
+                    "    2. Start MongoDB: {}",
+                    "docker run -d -p 27017:27017 mongo".bold()
+                );
+                println!(
+                    "    3. Update main.rs to use {}",
+                    "Stores::new_mongodb(db)".bold()
+                );
                 println!("    4. Run: {}", "cargo run --features mongodb".bold());
             }
             "neo4j" => {
                 println!("  Backend: {}", "Neo4j".bold());
                 println!();
                 println!("  Next steps:");
-                println!("    1. Add {} to your Cargo.toml", "this = { features = [\"neo4j\"] }".bold());
-                println!("    2. Start Neo4j: {}", "docker run -d -p 7687:7687 -e NEO4J_AUTH=none neo4j".bold());
-                println!("    3. Update main.rs to use {}", "Stores::new_neo4j(graph)".bold());
+                println!(
+                    "    1. Add {} to your Cargo.toml",
+                    "this = { features = [\"neo4j\"] }".bold()
+                );
+                println!(
+                    "    2. Start Neo4j: {}",
+                    "docker run -d -p 7687:7687 -e NEO4J_AUTH=none neo4j".bold()
+                );
+                println!(
+                    "    3. Update main.rs to use {}",
+                    "Stores::new_neo4j(graph)".bold()
+                );
                 println!("    4. Run: {}", "cargo run --features neo4j".bold());
             }
             "scylladb" => {
                 println!("  Backend: {}", "ScyllaDB".bold());
                 println!();
                 println!("  Next steps:");
-                println!("    1. Add {} to your Cargo.toml", "this = { features = [\"scylladb\"] }".bold());
-                println!("    2. Start ScyllaDB: {}", "docker run -d -p 9042:9042 scylladb/scylla".bold());
-                println!("    3. Update main.rs to use {}", "Stores::new_scylladb(session, keyspace)".bold());
+                println!(
+                    "    1. Add {} to your Cargo.toml",
+                    "this = { features = [\"scylladb\"] }".bold()
+                );
+                println!(
+                    "    2. Start ScyllaDB: {}",
+                    "docker run -d -p 9042:9042 scylladb/scylla".bold()
+                );
+                println!(
+                    "    3. Update main.rs to use {}",
+                    "Stores::new_scylladb(session, keyspace)".bold()
+                );
                 println!("    4. Run: {}", "cargo run --features scylladb".bold());
             }
             "mysql" => {
                 println!("  Backend: {}", "MySQL (sqlx)".bold());
                 println!();
                 println!("  Next steps:");
-                println!("    1. Add {} to your Cargo.toml", "this = { features = [\"mysql\"] }".bold());
+                println!(
+                    "    1. Add {} to your Cargo.toml",
+                    "this = { features = [\"mysql\"] }".bold()
+                );
                 println!("    2. Run migrations: {}", "sqlx migrate run".bold());
-                println!("    3. Update main.rs to use {}", "Stores::new_mysql(pool)".bold());
+                println!(
+                    "    3. Update main.rs to use {}",
+                    "Stores::new_mysql(pool)".bold()
+                );
                 println!("    4. Run: {}", "cargo run --features mysql".bold());
             }
             "lmdb" => {
                 println!("  Backend: {}", "LMDB (embedded)".bold());
                 println!();
                 println!("  Next steps:");
-                println!("    1. Add {} to your Cargo.toml", "this = { features = [\"lmdb\"] }".bold());
-                println!("    2. Update main.rs to use {}", "Stores::new_lmdb(env)".bold());
+                println!(
+                    "    1. Add {} to your Cargo.toml",
+                    "this = { features = [\"lmdb\"] }".bold()
+                );
+                println!(
+                    "    2. Update main.rs to use {}",
+                    "Stores::new_lmdb(env)".bold()
+                );
                 println!("    3. Run: {}", "cargo run --features lmdb".bold());
             }
             _ => {
@@ -362,12 +407,18 @@ fn update_stores_rs(
         "postgres" => {
             let import = format!(
                 "use crate::entities::{name}::{{{pascal}Store, Postgres{pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &import);
             updated = ensure_backend_constructor(
-                &updated, entity_name, entity_pascal, entity_plural,
-                "pg", "postgres", "Postgres",
+                &updated,
+                entity_name,
+                entity_pascal,
+                entity_plural,
+                "pg",
+                "postgres",
+                "Postgres",
                 "#[cfg(feature = \"postgres\")]",
                 "pool: sqlx::PgPool",
                 "Postgres{pascal}Store::new(pool.clone())",
@@ -376,12 +427,18 @@ fn update_stores_rs(
         "mongodb" => {
             let import = format!(
                 "use crate::entities::{name}::{{{pascal}Store, Mongo{pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &import);
             updated = ensure_backend_constructor(
-                &updated, entity_name, entity_pascal, entity_plural,
-                "mongo", "mongodb", "Mongo",
+                &updated,
+                entity_name,
+                entity_pascal,
+                entity_plural,
+                "mongo",
+                "mongodb",
+                "Mongo",
                 "#[cfg(feature = \"mongodb\")]",
                 "db: mongodb::Database",
                 "Mongo{pascal}Store::new(db.clone())",
@@ -390,12 +447,18 @@ fn update_stores_rs(
         "neo4j" => {
             let import = format!(
                 "use crate::entities::{name}::{{{pascal}Store, Neo4j{pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &import);
             updated = ensure_backend_constructor(
-                &updated, entity_name, entity_pascal, entity_plural,
-                "neo4j", "neo4j", "Neo4j",
+                &updated,
+                entity_name,
+                entity_pascal,
+                entity_plural,
+                "neo4j",
+                "neo4j",
+                "Neo4j",
                 "#[cfg(feature = \"neo4j\")]",
                 "graph: std::sync::Arc<neo4rs::Graph>",
                 "Neo4j{pascal}Store::new(graph.clone())",
@@ -404,12 +467,18 @@ fn update_stores_rs(
         "scylladb" => {
             let import = format!(
                 "use crate::entities::{name}::{{{pascal}Store, Scylla{pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &import);
             updated = ensure_backend_constructor(
-                &updated, entity_name, entity_pascal, entity_plural,
-                "scylla", "scylladb", "Scylla",
+                &updated,
+                entity_name,
+                entity_pascal,
+                entity_plural,
+                "scylla",
+                "scylladb",
+                "Scylla",
                 "#[cfg(feature = \"scylladb\")]",
                 "session: std::sync::Arc<scylla::client::session::Session>, keyspace: &str",
                 "Scylla{pascal}Store::new(session.clone(), keyspace)",
@@ -418,12 +487,18 @@ fn update_stores_rs(
         "mysql" => {
             let import = format!(
                 "use crate::entities::{name}::{{{pascal}Store, Mysql{pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &import);
             updated = ensure_backend_constructor(
-                &updated, entity_name, entity_pascal, entity_plural,
-                "mysql", "mysql", "Mysql",
+                &updated,
+                entity_name,
+                entity_pascal,
+                entity_plural,
+                "mysql",
+                "mysql",
+                "Mysql",
                 "#[cfg(feature = \"mysql\")]",
                 "pool: sqlx::MySqlPool",
                 "Mysql{pascal}Store::new(pool.clone())",
@@ -432,12 +507,18 @@ fn update_stores_rs(
         "lmdb" => {
             let import = format!(
                 "use crate::entities::{name}::{{{pascal}Store, Lmdb{pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &import);
             updated = ensure_backend_constructor(
-                &updated, entity_name, entity_pascal, entity_plural,
-                "lmdb", "lmdb", "Lmdb",
+                &updated,
+                entity_name,
+                entity_pascal,
+                entity_plural,
+                "lmdb",
+                "lmdb",
+                "Lmdb",
                 "#[cfg(feature = \"lmdb\")]",
                 "env: std::sync::Arc<heed::Env>",
                 "Lmdb{pascal}Store::new(env.clone())",
@@ -447,26 +528,30 @@ fn update_stores_rs(
             // In-memory backend: add init in new_in_memory() constructor
             let inmemory_init_var = format!(
                 "let {plural} = Arc::new(InMemory{pascal}Store::default());",
-                plural = entity_plural, pascal = entity_pascal
+                plural = entity_plural,
+                pascal = entity_pascal
             );
             updated = markers::insert_after_marker(
-                &updated, "[this:store_init_vars]", &inmemory_init_var,
+                &updated,
+                "[this:store_init_vars]",
+                &inmemory_init_var,
             )?;
 
             let init_store_field =
                 format!("{plural}_store: {plural}.clone(),", plural = entity_plural);
-            let init_entity_field =
-                format!("{plural}_entity: {plural},", plural = entity_plural);
+            let init_entity_field = format!("{plural}_entity: {plural},", plural = entity_plural);
             updated = markers::insert_after_marker(
-                &updated, "[this:store_init_fields]", &init_store_field,
+                &updated,
+                "[this:store_init_fields]",
+                &init_store_field,
             )?;
-            updated = markers::insert_after_marker(
-                &updated, &init_store_field, &init_entity_field,
-            )?;
+            updated =
+                markers::insert_after_marker(&updated, &init_store_field, &init_entity_field)?;
 
             let inmemory_import = format!(
                 "use crate::entities::{name}::{{InMemory{pascal}Store, {pascal}Store}};",
-                name = entity_name, pascal = entity_pascal
+                name = entity_name,
+                pascal = entity_pascal
             );
             updated = markers::add_import(&updated, &inmemory_import);
         }
@@ -579,10 +664,10 @@ fn generate_sql_migration(
         if let Ok(entries) = std::fs::read_dir(&migrations_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if let Some(num_str) = name.split('_').next() {
-                    if let Ok(num) = num_str.parse::<u32>() {
-                        max_num = max_num.max(num);
-                    }
+                if let Some(num_str) = name.split('_').next()
+                    && let Ok(num) = num_str.parse::<u32>()
+                {
+                    max_num = max_num.max(num);
                 }
             }
         }
