@@ -1,0 +1,168 @@
+use async_trait::async_trait;
+use std::sync::Arc;
+use this::prelude::*;
+use this::storage::Neo4jDataService;
+
+use super::{{ entity_pascal }};
+
+#[derive(Debug, thiserror::Error)]
+pub enum {{ entity_pascal }}StoreError {
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
+    #[error("validation: {0}")]
+    Validation(String),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+#[async_trait]
+pub trait {{ entity_pascal }}Store: Send + Sync {
+    async fn create(&self, entity: {{ entity_pascal }}) -> Result<{{ entity_pascal }}, {{ entity_pascal }}StoreError>;
+    async fn get(&self, id: &Uuid) -> Result<{{ entity_pascal }}, {{ entity_pascal }}StoreError>;
+    async fn update(&self, entity: {{ entity_pascal }}) -> Result<{{ entity_pascal }}, {{ entity_pascal }}StoreError>;
+    async fn delete(&self, id: &Uuid) -> Result<(), {{ entity_pascal }}StoreError>;
+    async fn list(&self) -> Result<Vec<{{ entity_pascal }}>, {{ entity_pascal }}StoreError>;
+}
+
+// ============================================================================
+// Neo4j Store Implementation (via Neo4jDataService)
+// ============================================================================
+
+/// Neo4j-backed store for `{{ entity_pascal }}` entities.
+///
+/// Delegates to `Neo4jDataService<{{ entity_pascal }}>` which stores entities
+/// as labeled nodes in the graph database.
+///
+/// # Setup
+///
+/// Requires a running Neo4j instance. Call `ensure_indexes()` at startup
+/// for optimal query performance.
+#[derive(Clone)]
+pub struct Neo4j{{ entity_pascal }}Store {
+    service: Neo4jDataService<{{ entity_pascal }}>,
+}
+
+impl Neo4j{{ entity_pascal }}Store {
+    /// Create a new Neo4j-backed store.
+    ///
+    /// The `Graph` should be connected and ready.
+    pub fn new(graph: Arc<neo4rs::Graph>) -> Self {
+        Self {
+            service: Neo4jDataService::new(graph),
+        }
+    }
+}
+
+#[async_trait]
+impl EntityFetcher for Neo4j{{ entity_pascal }}Store {
+    async fn fetch_as_json(&self, entity_id: &Uuid) -> Result<serde_json::Value, anyhow::Error> {
+        use this::core::service::DataService;
+        let entity = self
+            .service
+            .get(entity_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("{{ entity_pascal }} not found: {}", entity_id))?;
+        Ok(serde_json::to_value(entity)?)
+    }
+
+    async fn list_as_json(
+        &self,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> Result<Vec<serde_json::Value>, anyhow::Error> {
+        use this::core::service::DataService;
+        let all = self.service.list().await?;
+        let offset = offset.unwrap_or(0) as usize;
+        let limit = limit.unwrap_or(20) as usize;
+
+        let items: Vec<{{ entity_pascal }}> = all.into_iter().skip(offset).take(limit).collect();
+        items
+            .into_iter()
+            .map(|item| serde_json::to_value(item).map_err(Into::into))
+            .collect()
+    }
+}
+
+#[async_trait]
+impl EntityCreator for Neo4j{{ entity_pascal }}Store {
+    async fn create_from_json(
+        &self,
+        entity_data: serde_json::Value,
+    ) -> Result<serde_json::Value, anyhow::Error> {
+        use this::core::service::DataService;
+        let entity = {{ entity_pascal }}::new(
+            entity_data["name"]
+                .as_str()
+                .unwrap_or("{{ entity_pascal }}")
+                .to_string(),
+            entity_data["status"]
+                .as_str()
+                .unwrap_or("active")
+                .to_string(),
+{% for field in fields %}{% if field.rust_type == "String" %}            entity_data["{{ field.name }}"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+{% elif field.rust_type == "f64" %}            entity_data["{{ field.name }}"].as_f64().unwrap_or(0.0),
+{% elif field.rust_type == "f32" %}            entity_data["{{ field.name }}"].as_f64().unwrap_or(0.0) as f32,
+{% elif field.rust_type == "i32" %}            entity_data["{{ field.name }}"].as_i64().unwrap_or(0) as i32,
+{% elif field.rust_type == "i64" %}            entity_data["{{ field.name }}"].as_i64().unwrap_or(0),
+{% elif field.rust_type == "u32" %}            entity_data["{{ field.name }}"].as_u64().unwrap_or(0) as u32,
+{% elif field.rust_type == "u64" %}            entity_data["{{ field.name }}"].as_u64().unwrap_or(0),
+{% elif field.rust_type == "bool" %}            entity_data["{{ field.name }}"].as_bool().unwrap_or(false),
+{% elif field.is_optional and "String" in field.rust_type %}            entity_data["{{ field.name }}"].as_str().map(String::from),
+{% elif field.is_optional %}            None,
+{% else %}            Default::default(),
+{% endif %}{% endfor %}        );
+
+        let created = self.service.create(entity).await?;
+        Ok(serde_json::to_value(created)?)
+    }
+}
+
+#[async_trait]
+impl {{ entity_pascal }}Store for Neo4j{{ entity_pascal }}Store {
+    async fn create(&self, entity: {{ entity_pascal }}) -> Result<{{ entity_pascal }}, {{ entity_pascal }}StoreError> {
+        use this::core::service::DataService;
+        self.service
+            .create(entity)
+            .await
+            .map_err({{ entity_pascal }}StoreError::Other)
+    }
+
+    async fn get(&self, id: &Uuid) -> Result<{{ entity_pascal }}, {{ entity_pascal }}StoreError> {
+        use this::core::service::DataService;
+        self.service
+            .get(id)
+            .await
+            .map_err({{ entity_pascal }}StoreError::Other)?
+            .ok_or_else(|| {{ entity_pascal }}StoreError::NotFound(id.to_string()))
+    }
+
+    async fn update(&self, entity: {{ entity_pascal }}) -> Result<{{ entity_pascal }}, {{ entity_pascal }}StoreError> {
+        use this::core::service::DataService;
+        let id = entity.id;
+        self.service
+            .update(&id, entity)
+            .await
+            .map_err({{ entity_pascal }}StoreError::Other)
+    }
+
+    async fn delete(&self, id: &Uuid) -> Result<(), {{ entity_pascal }}StoreError> {
+        use this::core::service::DataService;
+        self.service
+            .delete(id)
+            .await
+            .map_err({{ entity_pascal }}StoreError::Other)
+    }
+
+    async fn list(&self) -> Result<Vec<{{ entity_pascal }}>, {{ entity_pascal }}StoreError> {
+        use this::core::service::DataService;
+        self.service
+            .list()
+            .await
+            .map_err({{ entity_pascal }}StoreError::Other)
+    }
+}
