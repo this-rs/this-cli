@@ -133,6 +133,12 @@ pub struct AddEntityArgs {
     /// Fields to index, comma-separated (default: "name")
     #[arg(long, default_value = "name")]
     pub indexed: String,
+
+    /// Storage backend for the entity store
+    /// - in-memory: uses InMemoryDataService (default, no external deps)
+    /// - postgres: uses PostgresDataService (requires --features postgres + PgPool)
+    #[arg(long, default_value = "in-memory")]
+    pub backend: String,
 }
 
 /// Arguments for `this add link <source> <target>`

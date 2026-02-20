@@ -19,4 +19,78 @@ impl {{ project_name_snake | pascal_case }}Stores {
             // [this:store_init_fields]
         }
     }
+
+    /// Create stores backed by PostgreSQL.
+    ///
+    /// Requires the `postgres` feature and a connected `PgPool`
+    /// with migrations already applied.
+    #[cfg(feature = "postgres")]
+    pub fn new_postgres(pool: sqlx::PgPool) -> Self {
+        // [this:store_pg_init_vars]
+
+        Self {
+            // [this:store_pg_init_fields]
+        }
+    }
+
+    /// Create stores backed by MongoDB.
+    ///
+    /// Requires the `mongodb` feature and a connected `Database`.
+    #[cfg(feature = "mongodb")]
+    pub fn new_mongodb(db: mongodb::Database) -> Self {
+        // [this:store_mongo_init_vars]
+
+        Self {
+            // [this:store_mongo_init_fields]
+        }
+    }
+
+    /// Create stores backed by Neo4j.
+    ///
+    /// Requires the `neo4j` feature and a connected `Graph`.
+    #[cfg(feature = "neo4j")]
+    pub fn new_neo4j(graph: std::sync::Arc<neo4rs::Graph>) -> Self {
+        // [this:store_neo4j_init_vars]
+
+        Self {
+            // [this:store_neo4j_init_fields]
+        }
+    }
+
+    /// Create stores backed by ScyllaDB.
+    ///
+    /// Requires the `scylladb` feature and a connected `Session`.
+    #[cfg(feature = "scylladb")]
+    pub fn new_scylladb(session: std::sync::Arc<scylla::client::session::Session>, keyspace: &str) -> Self {
+        // [this:store_scylla_init_vars]
+
+        Self {
+            // [this:store_scylla_init_fields]
+        }
+    }
+
+    /// Create stores backed by MySQL.
+    ///
+    /// Requires the `mysql` feature and a connected `MySqlPool`
+    /// with migrations already applied.
+    #[cfg(feature = "mysql")]
+    pub fn new_mysql(pool: sqlx::MySqlPool) -> Self {
+        // [this:store_mysql_init_vars]
+
+        Self {
+            // [this:store_mysql_init_fields]
+        }
+    }
+
+    /// Create stores backed by LMDB (embedded).
+    ///
+    /// Requires the `lmdb` feature and an opened `Env`.
+    #[cfg(feature = "lmdb")]
+    pub fn new_lmdb(env: std::sync::Arc<heed::Env>) -> Self {
+        // [this:store_lmdb_init_vars]
+
+        Self {
+            // [this:store_lmdb_init_fields]
+        }
+    }
 }

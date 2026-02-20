@@ -208,11 +208,18 @@ fn handle_add_entity(args: &Value) -> Result<Value> {
     let _cwd_guard = CwdGuard::from_args(args)?;
     let writer = McpFileWriter::new();
 
+    let backend = args
+        .get("backend")
+        .and_then(|v| v.as_str())
+        .unwrap_or("in-memory")
+        .to_string();
+
     let entity_args = AddEntityArgs {
         name: name.clone(),
         fields,
         validated,
         indexed,
+        backend,
     };
 
     crate::commands::add_entity::run(entity_args, &writer)?;

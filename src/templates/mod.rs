@@ -61,6 +61,13 @@ const TPL_MOBILE_CAPACITOR_GITIGNORE: &str = include_str!("mobile/capacitor-giti
 const TPL_ENTITY_MODEL_RS: &str = include_str!("entity/model.rs.tera");
 const TPL_ENTITY_MODEL_VALIDATED_RS: &str = include_str!("entity/model_validated.rs.tera");
 const TPL_ENTITY_STORE_RS: &str = include_str!("entity/store.rs.tera");
+const TPL_ENTITY_POSTGRES_STORE_RS: &str = include_str!("entity/postgres_store.rs.tera");
+const TPL_ENTITY_MONGODB_STORE_RS: &str = include_str!("entity/mongodb_store.rs.tera");
+const TPL_ENTITY_NEO4J_STORE_RS: &str = include_str!("entity/neo4j_store.rs.tera");
+const TPL_ENTITY_SCYLLADB_STORE_RS: &str = include_str!("entity/scylladb_store.rs.tera");
+const TPL_ENTITY_MYSQL_STORE_RS: &str = include_str!("entity/mysql_store.rs.tera");
+const TPL_ENTITY_LMDB_STORE_RS: &str = include_str!("entity/lmdb_store.rs.tera");
+const TPL_ENTITY_MIGRATION_SQL: &str = include_str!("entity/migration.sql.tera");
 const TPL_ENTITY_HANDLERS_RS: &str = include_str!("entity/handlers.rs.tera");
 const TPL_ENTITY_DESCRIPTOR_RS: &str = include_str!("entity/descriptor.rs.tera");
 const TPL_ENTITY_MOD_RS: &str = include_str!("entity/mod.rs.tera");
@@ -108,6 +115,13 @@ impl TemplateEngine {
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
+            ("entity/postgres_store.rs", TPL_ENTITY_POSTGRES_STORE_RS),
+            ("entity/mongodb_store.rs", TPL_ENTITY_MONGODB_STORE_RS),
+            ("entity/neo4j_store.rs", TPL_ENTITY_NEO4J_STORE_RS),
+            ("entity/scylladb_store.rs", TPL_ENTITY_SCYLLADB_STORE_RS),
+            ("entity/mysql_store.rs", TPL_ENTITY_MYSQL_STORE_RS),
+            ("entity/lmdb_store.rs", TPL_ENTITY_LMDB_STORE_RS),
+            ("entity/migration.sql", TPL_ENTITY_MIGRATION_SQL),
             ("entity/handlers.rs", TPL_ENTITY_HANDLERS_RS),
             ("entity/descriptor.rs", TPL_ENTITY_DESCRIPTOR_RS),
             ("entity/mod.rs", TPL_ENTITY_MOD_RS),
@@ -185,6 +199,7 @@ mod tests {
         ctx.insert("entity_pascal", "Product");
         ctx.insert("entity_plural", "products");
         ctx.insert("validated", &false);
+        ctx.insert("backend", "in-memory");
         ctx.insert("indexed_fields", &vec!["name".to_string()]);
 
         #[derive(serde::Serialize)]
@@ -396,6 +411,282 @@ mod tests {
         assert!(content.contains("pub use model::Product"));
         assert!(content.contains("InMemoryProductStore"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    fn make_postgres_entity_context() -> tera::Context {
+        let mut ctx = make_entity_context();
+        ctx.insert("backend", "postgres");
+        ctx
+    }
+
+    #[test]
+    fn test_entity_postgres_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/postgres_store.rs", &make_postgres_entity_context());
+        assert!(
+            result.is_ok(),
+            "postgres store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("PostgresProductStore"));
+        assert!(content.contains("PostgresDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("sqlx::PgPool"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_migration_sql() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/migration.sql", &make_postgres_entity_context());
+        assert!(
+            result.is_ok(),
+            "migration SQL template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("idx_entities_product_type"));
+        assert!(content.contains("entity_type = 'product'"));
+        assert!(content.contains("CREATE INDEX"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_mod_postgres() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_postgres_entity_context());
+        assert!(
+            result.is_ok(),
+            "entity mod (postgres) should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("PostgresProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_mod_inmemory() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_entity_context());
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("InMemoryProductStore"));
+        assert!(!content.contains("PostgresProductStore"));
+    }
+
+    #[test]
+    fn test_stores_rs_has_postgres_constructor() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("project/stores.rs", &make_project_context());
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("new_in_memory"));
+        assert!(content.contains("new_postgres"));
+        assert!(content.contains("sqlx::PgPool"));
+        assert!(content.contains("[this:store_pg_init_vars]"));
+        assert!(content.contains("[this:store_pg_init_fields]"));
+    }
+
+    #[test]
+    fn test_stores_rs_has_all_backend_constructors() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("project/stores.rs", &make_project_context());
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        // All backend constructors should be present
+        assert!(
+            content.contains("new_mongodb"),
+            "stores.rs should have new_mongodb"
+        );
+        assert!(
+            content.contains("new_neo4j"),
+            "stores.rs should have new_neo4j"
+        );
+        assert!(
+            content.contains("new_scylladb"),
+            "stores.rs should have new_scylladb"
+        );
+        assert!(
+            content.contains("new_mysql"),
+            "stores.rs should have new_mysql"
+        );
+        assert!(
+            content.contains("new_lmdb"),
+            "stores.rs should have new_lmdb"
+        );
+        // Each should have init markers
+        assert!(content.contains("[this:store_mongo_init_vars]"));
+        assert!(content.contains("[this:store_neo4j_init_vars]"));
+        assert!(content.contains("[this:store_scylla_init_vars]"));
+        assert!(content.contains("[this:store_mysql_init_vars]"));
+        assert!(content.contains("[this:store_lmdb_init_vars]"));
+    }
+
+    // ========================================================================
+    // Backend-specific store template tests
+    // ========================================================================
+
+    fn make_backend_entity_context(backend: &str) -> tera::Context {
+        let mut ctx = make_entity_context();
+        ctx.insert("backend", backend);
+        ctx
+    }
+
+    #[test]
+    fn test_entity_mongodb_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render(
+            "entity/mongodb_store.rs",
+            &make_backend_entity_context("mongodb"),
+        );
+        assert!(
+            result.is_ok(),
+            "mongodb store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("MongoProductStore"));
+        assert!(content.contains("MongoDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("mongodb::Database"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_neo4j_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render(
+            "entity/neo4j_store.rs",
+            &make_backend_entity_context("neo4j"),
+        );
+        assert!(
+            result.is_ok(),
+            "neo4j store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("Neo4jProductStore"));
+        assert!(content.contains("Neo4jDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("neo4rs::Graph"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_scylladb_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render(
+            "entity/scylladb_store.rs",
+            &make_backend_entity_context("scylladb"),
+        );
+        assert!(
+            result.is_ok(),
+            "scylladb store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("ScyllaProductStore"));
+        assert!(content.contains("ScyllaDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("scylla::client::session::Session"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_mysql_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render(
+            "entity/mysql_store.rs",
+            &make_backend_entity_context("mysql"),
+        );
+        assert!(
+            result.is_ok(),
+            "mysql store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("MysqlProductStore"));
+        assert!(content.contains("MysqlDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("sqlx::MySqlPool"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_lmdb_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/lmdb_store.rs", &make_backend_entity_context("lmdb"));
+        assert!(
+            result.is_ok(),
+            "lmdb store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("LmdbProductStore"));
+        assert!(content.contains("LmdbDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("heed::Env"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_mod_mongodb() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_backend_entity_context("mongodb"));
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("MongoProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
+        assert!(!content.contains("PostgresProductStore"));
+    }
+
+    #[test]
+    fn test_entity_mod_neo4j() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_backend_entity_context("neo4j"));
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("Neo4jProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
+    }
+
+    #[test]
+    fn test_entity_mod_scylladb() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_backend_entity_context("scylladb"));
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("ScyllaProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
+    }
+
+    #[test]
+    fn test_entity_mod_mysql() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_backend_entity_context("mysql"));
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("MysqlProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
+    }
+
+    #[test]
+    fn test_entity_mod_lmdb() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_backend_entity_context("lmdb"));
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("LmdbProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
     }
 
     fn make_workspace_context() -> tera::Context {

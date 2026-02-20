@@ -6,4 +6,11 @@ pub mod store;
 #[allow(unused_imports)]
 pub use model::{{ entity_pascal }};
 #[allow(unused_imports)]
-pub use store::{InMemory{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% if backend == "postgres" %}pub use store::{Postgres{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% elif backend == "mongodb" %}pub use store::{Mongo{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% elif backend == "neo4j" %}pub use store::{Neo4j{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% elif backend == "scylladb" %}pub use store::{Scylla{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% elif backend == "mysql" %}pub use store::{Mysql{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% elif backend == "lmdb" %}pub use store::{Lmdb{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% else %}pub use store::{InMemory{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% endif %}
