@@ -137,6 +137,7 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
     context.insert("fields", &fields);
     context.insert("indexed_fields", &indexed_fields);
     context.insert("validated", &args.validated);
+    context.insert("backend", &args.backend);
 
     // Generate entity files
     let template_name = if args.validated {
@@ -145,9 +146,15 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
         "entity/model.rs"
     };
 
+    let store_template = if args.backend == "postgres" {
+        "entity/postgres_store.rs"
+    } else {
+        "entity/store.rs"
+    };
+
     let entity_files: &[(&str, &str)] = &[
         (template_name, "model.rs"),
-        ("entity/store.rs", "store.rs"),
+        (store_template, "store.rs"),
         ("entity/handlers.rs", "handlers.rs"),
         ("entity/descriptor.rs", "descriptor.rs"),
         ("entity/mod.rs", "mod.rs"),
@@ -162,6 +169,17 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
         if !writer.is_dry_run() {
             output::print_file_created(&format!("src/entities/{}/{}", &entity_name, filename));
         }
+    }
+
+    // Generate SQL migration for postgres backend
+    if args.backend == "postgres" {
+        generate_postgres_migration(
+            &project_root,
+            &entity_name,
+            &engine,
+            &context,
+            writer,
+        )?;
     }
 
     // Update src/entities/mod.rs
@@ -197,6 +215,7 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
         &entity_name,
         &entity_pascal,
         &entity_plural,
+        &args.backend,
         writer,
     )?;
 
@@ -215,7 +234,17 @@ pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
     if !writer.is_dry_run() {
         output::print_success(&format!("Entity '{}' created!", &entity_name));
         println!();
-        println!("  Your project is ready to run: {}", "cargo run".bold());
+        if args.backend == "postgres" {
+            println!("  Backend: {}", "PostgreSQL (sqlx)".bold());
+            println!();
+            println!("  Next steps:");
+            println!("    1. Add {} to your Cargo.toml", "this = { features = [\"postgres\"] }".bold());
+            println!("    2. Run migrations: {}", "sqlx migrate run".bold());
+            println!("    3. Update main.rs to use {}", "Stores::new_postgres(pool)".bold());
+            println!("    4. Run: {}", "cargo run --features postgres".bold());
+        } else {
+            println!("  Your project is ready to run: {}", "cargo run".bold());
+        }
         println!();
     }
 
@@ -233,6 +262,7 @@ fn update_stores_rs(
     entity_name: &str,
     entity_pascal: &str,
     entity_plural: &str,
+    backend: &str,
     writer: &dyn FileWriter,
 ) -> Result<()> {
     let stores_path = project_root.join("src/stores.rs");
@@ -263,7 +293,7 @@ fn update_stores_rs(
         return Ok(());
     }
 
-    // 1. Add store fields after [this:store_fields]
+    // 1. Add store fields after [this:store_fields] (same for any backend — trait objects)
     let store_field = format!(
         "pub {plural}_store: Arc<dyn {pascal}Store>,",
         plural = entity_plural,
@@ -276,36 +306,159 @@ fn update_stores_rs(
     let mut updated = markers::insert_after_marker(&content, "[this:store_fields]", &store_field)?;
     updated = markers::insert_after_marker(&updated, &store_field, &entity_field)?;
 
-    // 2. Add init var after [this:store_init_vars]
-    let init_var = format!(
-        "let {plural} = Arc::new(InMemory{pascal}Store::default());",
-        plural = entity_plural,
-        pascal = entity_pascal
-    );
-    updated = markers::insert_after_marker(&updated, "[this:store_init_vars]", &init_var)?;
+    if backend == "postgres" {
+        // For postgres backend: add init only in new_postgres() constructor
+        let pg_store_import = format!(
+            "use crate::entities::{name}::{{{pascal}Store, Postgres{pascal}Store}};",
+            name = entity_name,
+            pascal = entity_pascal
+        );
+        updated = markers::add_import(&updated, &pg_store_import);
+        updated =
+            ensure_postgres_constructor(&updated, entity_name, entity_pascal, entity_plural)?;
+    } else {
+        // For in-memory backend: add init in new_in_memory() constructor
+        let inmemory_init_var = format!(
+            "let {plural} = Arc::new(InMemory{pascal}Store::default());",
+            plural = entity_plural,
+            pascal = entity_pascal
+        );
+        updated =
+            markers::insert_after_marker(&updated, "[this:store_init_vars]", &inmemory_init_var)?;
 
-    // 3. Add init fields after [this:store_init_fields]
-    let init_store_field = format!("{plural}_store: {plural}.clone(),", plural = entity_plural);
-    let init_entity_field = format!("{plural}_entity: {plural},", plural = entity_plural);
-    updated =
-        markers::insert_after_marker(&updated, "[this:store_init_fields]", &init_store_field)?;
-    updated = markers::insert_after_marker(&updated, &init_store_field, &init_entity_field)?;
+        let init_store_field =
+            format!("{plural}_store: {plural}.clone(),", plural = entity_plural);
+        let init_entity_field = format!("{plural}_entity: {plural},", plural = entity_plural);
+        updated =
+            markers::insert_after_marker(&updated, "[this:store_init_fields]", &init_store_field)?;
+        updated =
+            markers::insert_after_marker(&updated, &init_store_field, &init_entity_field)?;
 
-    // 4. Add imports
-    let import_line = format!(
-        "use crate::entities::{name}::{{InMemory{pascal}Store, {pascal}Store}};",
-        name = entity_name,
-        pascal = entity_pascal
-    );
-    updated = markers::add_import(&updated, &import_line);
+        let inmemory_import = format!(
+            "use crate::entities::{name}::{{InMemory{pascal}Store, {pascal}Store}};",
+            name = entity_name,
+            pascal = entity_pascal
+        );
+        updated = markers::add_import(&updated, &inmemory_import);
+    }
 
     writer.update_file(&stores_path, &content, &updated)?;
 
     if !writer.is_dry_run() {
         output::print_info(&format!(
-            "Updated src/stores.rs (added {} store)",
-            entity_name
+            "Updated src/stores.rs (added {} store, backend: {})",
+            entity_name, backend
         ));
+    }
+
+    Ok(())
+}
+
+/// Ensure stores.rs has a `new_postgres(pool)` constructor with markers,
+/// and add the entity's postgres init inside it.
+fn ensure_postgres_constructor(
+    content: &str,
+    entity_name: &str,
+    entity_pascal: &str,
+    entity_plural: &str,
+) -> Result<String> {
+    let mut updated = content.to_string();
+
+    // If the postgres markers don't exist yet, add the new_postgres constructor
+    if !updated.contains("[this:store_pg_init_vars]") {
+        // Find the closing `}` of the impl block (last `}` in the file)
+        // We insert the new_postgres method before the last `}`
+        let last_closing = updated.rfind("\n}").ok_or_else(|| {
+            anyhow::anyhow!("Cannot find closing brace of impl block in stores.rs")
+        })?;
+
+        let pg_constructor = r#"
+    /// Create stores backed by PostgreSQL.
+    ///
+    /// Requires the `postgres` feature and a connected `PgPool`
+    /// with migrations already applied.
+    #[cfg(feature = "postgres")]
+    pub fn new_postgres(pool: sqlx::PgPool) -> Self {
+        // [this:store_pg_init_vars]
+
+        Self {
+            // [this:store_pg_init_fields]
+        }
+    }
+"#;
+        updated.insert_str(last_closing, pg_constructor);
+    }
+
+    // Add postgres init var
+    let pg_init_var = format!(
+        "let {plural} = Arc::new(Postgres{pascal}Store::new(pool.clone()));",
+        plural = entity_plural,
+        pascal = entity_pascal
+    );
+    updated =
+        markers::insert_after_marker(&updated, "[this:store_pg_init_vars]", &pg_init_var)?;
+
+    // Add postgres init fields (same field names, reuse from in-memory pattern)
+    let pg_init_store_field = format!("{plural}_store: {plural}.clone(),", plural = entity_plural);
+    let pg_init_entity_field = format!("{plural}_entity: {plural},", plural = entity_plural);
+    updated =
+        markers::insert_after_marker(&updated, "[this:store_pg_init_fields]", &pg_init_store_field)?;
+    updated =
+        markers::insert_after_marker(&updated, &pg_init_store_field, &pg_init_entity_field)?;
+
+    // Add postgres store import
+    let pg_import = format!(
+        "use crate::entities::{name}::Postgres{pascal}Store;",
+        name = entity_name,
+        pascal = entity_pascal
+    );
+    updated = markers::add_import(&updated, &pg_import);
+
+    Ok(updated)
+}
+
+/// Generate a SQL migration file for a postgres entity.
+fn generate_postgres_migration(
+    project_root: &Path,
+    entity_name: &str,
+    engine: &TemplateEngine,
+    context: &tera::Context,
+    writer: &dyn FileWriter,
+) -> Result<()> {
+    let migrations_dir = project_root.join("migrations");
+    if !migrations_dir.exists() {
+        writer.create_dir_all(&migrations_dir)?;
+    }
+
+    // Find the next migration number
+    let next_num = if migrations_dir.exists() {
+        let mut max_num = 0u32;
+        if let Ok(entries) = std::fs::read_dir(&migrations_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if let Some(num_str) = name.split('_').next() {
+                    if let Ok(num) = num_str.parse::<u32>() {
+                        max_num = max_num.max(num);
+                    }
+                }
+            }
+        }
+        max_num + 1
+    } else {
+        1
+    };
+
+    let migration_filename = format!("{:03}_{}_index.up.sql", next_num, entity_name);
+    let migration_path = migrations_dir.join(&migration_filename);
+
+    let rendered = engine
+        .render("entity/migration.sql", context)
+        .with_context(|| "Failed to render migration template")?;
+
+    writer.write_file(&migration_path, &rendered)?;
+
+    if !writer.is_dry_run() {
+        output::print_file_created(&format!("migrations/{}", migration_filename));
     }
 
     Ok(())

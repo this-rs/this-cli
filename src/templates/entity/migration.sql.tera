@@ -1,0 +1,20 @@
+-- Migration for {{ entity_pascal }} entity
+--
+-- The PostgreSQL backend uses a shared `entities` table (see migrations/001_create_entities.up.sql).
+-- All entity types are stored in the same table, scoped by the `entity_type` column.
+--
+-- This migration adds an optional entity-type-specific index for faster
+-- queries on this entity type's custom JSONB fields.
+--
+-- Apply with: sqlx migrate run (or cargo sqlx migrate run)
+
+-- Partial index for {{ entity_plural }} — speeds up queries scoped to this entity type
+CREATE INDEX IF NOT EXISTS idx_entities_{{ entity_name }}_type
+    ON entities (entity_type)
+    WHERE entity_type = '{{ entity_name }}';
+
+-- Optional: GIN index on data column for {{ entity_plural }} JSONB queries
+-- Uncomment if you frequently query by custom fields on this entity type:
+-- CREATE INDEX IF NOT EXISTS idx_entities_{{ entity_name }}_data
+--     ON entities USING GIN (data)
+--     WHERE entity_type = '{{ entity_name }}';

@@ -61,6 +61,8 @@ const TPL_MOBILE_CAPACITOR_GITIGNORE: &str = include_str!("mobile/capacitor-giti
 const TPL_ENTITY_MODEL_RS: &str = include_str!("entity/model.rs.tera");
 const TPL_ENTITY_MODEL_VALIDATED_RS: &str = include_str!("entity/model_validated.rs.tera");
 const TPL_ENTITY_STORE_RS: &str = include_str!("entity/store.rs.tera");
+const TPL_ENTITY_POSTGRES_STORE_RS: &str = include_str!("entity/postgres_store.rs.tera");
+const TPL_ENTITY_MIGRATION_SQL: &str = include_str!("entity/migration.sql.tera");
 const TPL_ENTITY_HANDLERS_RS: &str = include_str!("entity/handlers.rs.tera");
 const TPL_ENTITY_DESCRIPTOR_RS: &str = include_str!("entity/descriptor.rs.tera");
 const TPL_ENTITY_MOD_RS: &str = include_str!("entity/mod.rs.tera");
@@ -108,6 +110,8 @@ impl TemplateEngine {
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
+            ("entity/postgres_store.rs", TPL_ENTITY_POSTGRES_STORE_RS),
+            ("entity/migration.sql", TPL_ENTITY_MIGRATION_SQL),
             ("entity/handlers.rs", TPL_ENTITY_HANDLERS_RS),
             ("entity/descriptor.rs", TPL_ENTITY_DESCRIPTOR_RS),
             ("entity/mod.rs", TPL_ENTITY_MOD_RS),
@@ -185,6 +189,7 @@ mod tests {
         ctx.insert("entity_pascal", "Product");
         ctx.insert("entity_plural", "products");
         ctx.insert("validated", &false);
+        ctx.insert("backend", "in-memory");
         ctx.insert("indexed_fields", &vec!["name".to_string()]);
 
         #[derive(serde::Serialize)]
@@ -396,6 +401,84 @@ mod tests {
         assert!(content.contains("pub use model::Product"));
         assert!(content.contains("InMemoryProductStore"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    fn make_postgres_entity_context() -> tera::Context {
+        let mut ctx = make_entity_context();
+        ctx.insert("backend", "postgres");
+        ctx
+    }
+
+    #[test]
+    fn test_entity_postgres_store() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/postgres_store.rs", &make_postgres_entity_context());
+        assert!(
+            result.is_ok(),
+            "postgres store template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("PostgresProductStore"));
+        assert!(content.contains("PostgresDataService"));
+        assert!(content.contains("ProductStore"));
+        assert!(content.contains("ProductStoreError"));
+        assert!(content.contains("sqlx::PgPool"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_migration_sql() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/migration.sql", &make_postgres_entity_context());
+        assert!(
+            result.is_ok(),
+            "migration SQL template should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("idx_entities_product_type"));
+        assert!(content.contains("entity_type = 'product'"));
+        assert!(content.contains("CREATE INDEX"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_mod_postgres() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_postgres_entity_context());
+        assert!(
+            result.is_ok(),
+            "entity mod (postgres) should render: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(content.contains("PostgresProductStore"));
+        assert!(!content.contains("InMemoryProductStore"));
+        assert!(!content.contains("{{"), "No unresolved Tera placeholders");
+    }
+
+    #[test]
+    fn test_entity_mod_inmemory() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("entity/mod.rs", &make_entity_context());
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("InMemoryProductStore"));
+        assert!(!content.contains("PostgresProductStore"));
+    }
+
+    #[test]
+    fn test_stores_rs_has_postgres_constructor() {
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render("project/stores.rs", &make_project_context());
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("new_in_memory"));
+        assert!(content.contains("new_postgres"));
+        assert!(content.contains("sqlx::PgPool"));
+        assert!(content.contains("[this:store_pg_init_vars]"));
+        assert!(content.contains("[this:store_pg_init_fields]"));
     }
 
     fn make_workspace_context() -> tera::Context {

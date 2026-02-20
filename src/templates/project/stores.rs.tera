@@ -19,4 +19,17 @@ impl {{ project_name_snake | pascal_case }}Stores {
             // [this:store_init_fields]
         }
     }
+
+    /// Create stores backed by PostgreSQL.
+    ///
+    /// Requires the `postgres` feature and a connected `PgPool`
+    /// with migrations already applied.
+    #[cfg(feature = "postgres")]
+    pub fn new_postgres(pool: sqlx::PgPool) -> Self {
+        // [this:store_pg_init_vars]
+
+        Self {
+            // [this:store_pg_init_fields]
+        }
+    }
 }

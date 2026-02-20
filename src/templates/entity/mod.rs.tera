@@ -6,4 +6,6 @@ pub mod store;
 #[allow(unused_imports)]
 pub use model::{{ entity_pascal }};
 #[allow(unused_imports)]
-pub use store::{InMemory{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% if backend == "postgres" %}pub use store::{Postgres{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% else %}pub use store::{InMemory{{ entity_pascal }}Store, {{ entity_pascal }}Store, {{ entity_pascal }}StoreError};
+{% endif %}
