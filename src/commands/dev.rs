@@ -630,4 +630,340 @@ mod tests {
             assert!(cmd.contains("9999"), "Port 9999 missing in: {}", cmd);
         }
     }
+
+    // ========================================================================
+    // Additional build_api_command tests
+    // ========================================================================
+
+    #[test]
+    fn test_build_api_command_no_watcher_sets_port_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = build_api_command(&RustWatcher::None, tmp.path(), 7777);
+        let envs: Vec<_> = cmd.get_envs().collect();
+        let port_env = envs
+            .iter()
+            .find(|(k, _)| *k == "PORT")
+            .expect("PORT env should be set");
+        assert_eq!(port_env.1, Some(std::ffi::OsStr::new("7777")));
+    }
+
+    #[test]
+    fn test_build_api_command_cargo_watch_sets_port_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = build_api_command(&RustWatcher::CargoWatch, tmp.path(), 8080);
+        let envs: Vec<_> = cmd.get_envs().collect();
+        let port_env = envs
+            .iter()
+            .find(|(k, _)| *k == "PORT")
+            .expect("PORT env should be set");
+        assert_eq!(port_env.1, Some(std::ffi::OsStr::new("8080")));
+    }
+
+    #[test]
+    fn test_build_api_command_watchexec_sets_port_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = build_api_command(&RustWatcher::Watchexec, tmp.path(), 4444);
+        let envs: Vec<_> = cmd.get_envs().collect();
+        let port_env = envs
+            .iter()
+            .find(|(k, _)| *k == "PORT")
+            .expect("PORT env should be set");
+        assert_eq!(port_env.1, Some(std::ffi::OsStr::new("4444")));
+    }
+
+    #[test]
+    fn test_build_api_command_bacon_sets_port_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = build_api_command(&RustWatcher::Bacon, tmp.path(), 6000);
+        let envs: Vec<_> = cmd.get_envs().collect();
+        let port_env = envs
+            .iter()
+            .find(|(k, _)| *k == "PORT")
+            .expect("PORT env should be set");
+        assert_eq!(port_env.1, Some(std::ffi::OsStr::new("6000")));
+    }
+
+    #[test]
+    fn test_build_api_command_no_watcher_sets_current_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let api_path = tmp.path().join("my-api");
+        std::fs::create_dir_all(&api_path).unwrap();
+        let cmd = build_api_command(&RustWatcher::None, &api_path, 3000);
+        assert_eq!(cmd.get_current_dir(), Some(api_path.as_path()));
+    }
+
+    #[test]
+    fn test_build_api_command_cargo_watch_sets_current_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let api_path = tmp.path().join("api");
+        std::fs::create_dir_all(&api_path).unwrap();
+        let cmd = build_api_command(&RustWatcher::CargoWatch, &api_path, 3000);
+        assert_eq!(cmd.get_current_dir(), Some(api_path.as_path()));
+    }
+
+    #[test]
+    fn test_build_api_command_watchexec_args() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = build_api_command(&RustWatcher::Watchexec, tmp.path(), 3000);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args, &["-r", "-e", "rs", "--", "cargo", "run"]);
+    }
+
+    #[test]
+    fn test_build_api_command_bacon_args() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd = build_api_command(&RustWatcher::Bacon, tmp.path(), 3000);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args, &["run"]);
+    }
+
+    #[test]
+    fn test_build_api_command_different_ports() {
+        let tmp = tempfile::tempdir().unwrap();
+        for port in [80, 443, 3000, 8080, 9090, 65535] {
+            let cmd = build_api_command(&RustWatcher::None, tmp.path(), port);
+            let envs: Vec<_> = cmd.get_envs().collect();
+            let port_env = envs
+                .iter()
+                .find(|(k, _)| *k == "PORT")
+                .expect("PORT env should be set");
+            assert_eq!(
+                port_env.1,
+                Some(std::ffi::OsStr::new(&port.to_string())),
+                "Port {} should be set in env",
+                port
+            );
+        }
+    }
+
+    // ========================================================================
+    // RustWatcher variant tests
+    // ========================================================================
+
+    #[test]
+    fn test_rust_watcher_debug() {
+        // Ensure Debug is derived correctly
+        let watcher = RustWatcher::CargoWatch;
+        let debug_str = format!("{:?}", watcher);
+        assert_eq!(debug_str, "CargoWatch");
+    }
+
+    #[test]
+    fn test_rust_watcher_partial_eq() {
+        assert_eq!(RustWatcher::CargoWatch, RustWatcher::CargoWatch);
+        assert_eq!(RustWatcher::Watchexec, RustWatcher::Watchexec);
+        assert_eq!(RustWatcher::Bacon, RustWatcher::Bacon);
+        assert_eq!(RustWatcher::None, RustWatcher::None);
+        assert_ne!(RustWatcher::CargoWatch, RustWatcher::None);
+        assert_ne!(RustWatcher::Watchexec, RustWatcher::Bacon);
+    }
+
+    // ========================================================================
+    // Additional build_usage_examples tests
+    // ========================================================================
+
+    #[test]
+    fn test_build_usage_examples_no_entities_no_features() {
+        let entities: Vec<info::EntityInfo> = vec![];
+        let features = info::FeatureFlags {
+            graphql: false,
+            websocket: false,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+
+        // Should have only REST with /health fallback
+        assert_eq!(examples.len(), 1);
+        assert_eq!(examples[0].0, "REST");
+        assert!(examples[0].1.contains("/health"));
+        assert!(!examples[0].1.contains("/graphql"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_websocket_only() {
+        let entities = vec![make_entity("user")];
+        let features = info::FeatureFlags {
+            graphql: false,
+            websocket: true,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+
+        assert_eq!(examples.len(), 2);
+        assert_eq!(examples[0].0, "REST");
+        assert!(examples[0].1.contains("/users"));
+        assert_eq!(examples[1].0, "WS");
+        assert!(examples[1].1.contains("websocat"));
+        assert!(examples[1].1.contains("ws://"));
+        assert!(examples[1].1.contains("/ws"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_grpc_only() {
+        let entities = vec![make_entity("item")];
+        let features = info::FeatureFlags {
+            graphql: false,
+            websocket: false,
+            grpc: true,
+        };
+
+        let examples = build_usage_examples(5050, &entities, &features);
+
+        assert_eq!(examples.len(), 2);
+        assert_eq!(examples[0].0, "REST");
+        assert!(examples[0].1.contains("/items"));
+        assert_eq!(examples[1].0, "gRPC");
+        assert!(examples[1].1.contains("grpcurl"));
+        assert!(examples[1].1.contains("-plaintext"));
+        assert!(examples[1].1.contains("5050"));
+        assert!(examples[1].1.contains("list"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_graphql_only_with_entity() {
+        let entities = vec![make_entity("category")];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: false,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(4000, &entities, &features);
+
+        assert_eq!(examples.len(), 2);
+        assert_eq!(examples[0].0, "REST");
+        assert!(examples[0].1.contains("/categories"));
+        assert_eq!(examples[1].0, "GQL");
+        assert!(examples[1].1.contains("categories"));
+        assert!(examples[1].1.contains("Content-Type: application/json"));
+        assert!(examples[1].1.contains("4000"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_uses_first_entity_only() {
+        // Only the first entity should be used for route examples
+        let entities = vec![
+            make_entity("order"),
+            make_entity("product"),
+            make_entity("user"),
+        ];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: false,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+
+        // REST should use "orders" (pluralized first entity)
+        assert!(examples[0].1.contains("/orders"));
+        assert!(!examples[0].1.contains("/products"));
+        assert!(!examples[0].1.contains("/users"));
+
+        // GQL should also use "orders"
+        assert!(examples[1].1.contains("orders"));
+        assert!(!examples[1].1.contains("products"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_entity_pluralization() {
+        // Test with entities that have non-trivial pluralization
+        let entities = vec![make_entity("category")];
+        let features = info::FeatureFlags {
+            graphql: false,
+            websocket: false,
+            grpc: false,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+        assert!(
+            examples[0].1.contains("/categories"),
+            "Expected 'categories' but got: {}",
+            examples[0].1
+        );
+    }
+
+    #[test]
+    fn test_build_usage_examples_no_entities_graphql_grpc_ws() {
+        // No entities, but all features enabled → playground fallbacks
+        let entities: Vec<info::EntityInfo> = vec![];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: true,
+            grpc: true,
+        };
+
+        let examples = build_usage_examples(8080, &entities, &features);
+
+        assert_eq!(examples.len(), 4);
+        // REST → /health
+        assert!(examples[0].1.contains("/health"));
+        // GQL → playground
+        assert!(examples[1].1.contains("/graphql/playground"));
+        // gRPC
+        assert!(examples[2].1.contains("grpcurl"));
+        // WS
+        assert!(examples[3].1.contains("websocat"));
+    }
+
+    #[test]
+    fn test_build_usage_examples_rest_always_first() {
+        // REST should always be the first example regardless of features
+        let entities = vec![make_entity("task")];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: true,
+            grpc: true,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+        assert_eq!(examples[0].0, "REST");
+    }
+
+    #[test]
+    fn test_build_usage_examples_order_is_rest_gql_grpc_ws() {
+        let entities = vec![make_entity("note")];
+        let features = info::FeatureFlags {
+            graphql: true,
+            websocket: true,
+            grpc: true,
+        };
+
+        let examples = build_usage_examples(3000, &entities, &features);
+
+        assert_eq!(examples.len(), 4);
+        assert_eq!(examples[0].0, "REST");
+        assert_eq!(examples[1].0, "GQL");
+        assert_eq!(examples[2].0, "gRPC");
+        assert_eq!(examples[3].0, "WS");
+    }
+
+    // ========================================================================
+    // detect_rust_watcher tests
+    // ========================================================================
+
+    #[test]
+    fn test_detect_rust_watcher_result_is_valid_variant() {
+        let watcher = detect_rust_watcher();
+        // The result must be one of the known variants
+        let valid = matches!(
+            watcher,
+            RustWatcher::CargoWatch
+                | RustWatcher::Watchexec
+                | RustWatcher::Bacon
+                | RustWatcher::None
+        );
+        assert!(valid, "detect_rust_watcher returned an unexpected variant");
+    }
+
+    #[test]
+    fn test_detect_rust_watcher_label_not_empty() {
+        let watcher = detect_rust_watcher();
+        assert!(
+            !watcher.label().is_empty(),
+            "Watcher label should never be empty"
+        );
+    }
 }
