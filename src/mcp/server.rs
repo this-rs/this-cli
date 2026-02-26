@@ -299,4 +299,125 @@ mod tests {
         let resp = resp.unwrap();
         assert!(resp.result.is_some());
     }
+
+    #[test]
+    fn test_handle_tools_call_before_init() {
+        let mut server = McpServer::new();
+        let resp = server.handle_message(
+            r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"init_project","arguments":{"name":"test"}},"id":1}"#,
+        );
+        let resp = resp.unwrap();
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_REQUEST);
+    }
+
+    #[test]
+    fn test_handle_tools_call_missing_params() {
+        let mut server = McpServer::new();
+        server.handle_message(r#"{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}"#);
+        let resp = server.handle_message(r#"{"jsonrpc":"2.0","method":"tools/call","id":2}"#);
+        let resp = resp.unwrap();
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_handle_tools_call_invalid_params() {
+        let mut server = McpServer::new();
+        server.handle_message(r#"{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}"#);
+        let resp = server.handle_message(
+            r#"{"jsonrpc":"2.0","method":"tools/call","params":{"not_name":"foo"},"id":2}"#,
+        );
+        let resp = resp.unwrap();
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_handle_cancelled_notification() {
+        let mut server = McpServer::new();
+        let resp = server.handle_message(r#"{"jsonrpc":"2.0","method":"notifications/cancelled"}"#);
+        assert!(
+            resp.is_none(),
+            "Cancelled notification should not produce a response"
+        );
+    }
+
+    #[test]
+    fn test_handle_unknown_notification() {
+        let mut server = McpServer::new();
+        let resp =
+            server.handle_message(r#"{"jsonrpc":"2.0","method":"notifications/unknown_thing"}"#);
+        assert!(
+            resp.is_none(),
+            "Unknown notification should be silently ignored"
+        );
+    }
+
+    #[test]
+    fn test_handle_initialize_minimal_params() {
+        let mut server = McpServer::new();
+        let resp = server.handle_message(
+            r#"{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}"#,
+        );
+        let resp = resp.unwrap();
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["protocolVersion"], "2024-11-05");
+        assert_eq!(result["serverInfo"]["name"], "this-cli");
+        assert!(server.initialized);
+    }
+
+    #[test]
+    fn test_handle_initialize_no_params() {
+        let mut server = McpServer::new();
+        let resp = server.handle_message(r#"{"jsonrpc":"2.0","method":"initialize","id":1}"#);
+        let resp = resp.unwrap();
+        assert!(resp.result.is_some());
+        assert!(server.initialized);
+    }
+
+    #[test]
+    fn test_handle_tools_call_unknown_tool() {
+        let mut server = McpServer::new();
+        server.handle_message(r#"{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}"#);
+        let resp = server.handle_message(
+            r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}},"id":2}"#,
+        );
+        let resp = resp.unwrap();
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["isError"], true);
+    }
+
+    #[test]
+    fn test_response_has_correct_id() {
+        let mut server = McpServer::new();
+        let resp =
+            server.handle_message(r#"{"jsonrpc":"2.0","method":"ping","id":"my-string-id"}"#);
+        let resp = resp.unwrap();
+        assert_eq!(resp.id, Value::String("my-string-id".to_string()));
+    }
+
+    #[test]
+    fn test_pipe_trait() {
+        let result = 42.pipe(|x| x * 2);
+        assert_eq!(result, 84);
+    }
+
+    #[test]
+    fn test_handle_empty_json_parse_error() {
+        let mut server = McpServer::new();
+        let resp = server.handle_message("{}");
+        // Empty object missing "method" field
+        let resp = resp.unwrap();
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, PARSE_ERROR);
+    }
+
+    #[test]
+    fn test_server_new_not_initialized() {
+        let server = McpServer::new();
+        assert!(!server.initialized);
+    }
 }
