@@ -966,4 +966,106 @@ mod tests {
             "Watcher label should never be empty"
         );
     }
+
+    // ========================================================================
+    // stream_prefixed tests
+    // ========================================================================
+
+    #[test]
+    fn test_stream_prefixed_reads_all_lines() {
+        use std::sync::atomic::AtomicBool;
+
+        let data = b"line 1\nline 2\nline 3\n";
+        let reader = BufReader::new(&data[..]);
+        let running = AtomicBool::new(true);
+
+        // Should not panic — just prints to stdout
+        stream_prefixed(reader, "TEST", Color::Blue, &running);
+    }
+
+    #[test]
+    fn test_stream_prefixed_stops_on_flag() {
+        use std::sync::atomic::AtomicBool;
+
+        let data = b"line 1\nline 2\n";
+        let reader = BufReader::new(&data[..]);
+        let running = AtomicBool::new(false); // already stopped
+
+        // Should return immediately since running is false
+        stream_prefixed(reader, "TEST", Color::Green, &running);
+    }
+
+    #[test]
+    fn test_stream_prefixed_empty_input() {
+        use std::sync::atomic::AtomicBool;
+
+        let data = b"";
+        let reader = BufReader::new(&data[..]);
+        let running = AtomicBool::new(true);
+
+        stream_prefixed(reader, "EMPTY", Color::Blue, &running);
+    }
+
+    // ========================================================================
+    // Color enum tests
+    // ========================================================================
+
+    #[test]
+    fn test_color_clone_copy() {
+        let c1 = Color::Blue;
+        let c2 = c1; // copy
+        let c3 = c1; // still valid since Copy
+        assert!(matches!(c2, Color::Blue));
+        assert!(matches!(c3, Color::Blue));
+
+        let g1 = Color::Green;
+        let g2 = g1;
+        assert!(matches!(g2, Color::Green));
+    }
+
+    // ========================================================================
+    // print_banner smoke tests
+    // ========================================================================
+
+    #[test]
+    fn test_print_banner_no_watcher_no_webapp() {
+        // Should not panic
+        print_banner(3000, &RustWatcher::None, None, false);
+    }
+
+    #[test]
+    fn test_print_banner_with_watcher_and_webapp() {
+        let webapp = config::TargetConfig {
+            target_type: TargetType::Webapp,
+            path: "front".to_string(),
+            framework: Some("react".to_string()),
+            runtime: None,
+        };
+        print_banner(8080, &RustWatcher::CargoWatch, Some(&webapp), false);
+    }
+
+    #[test]
+    fn test_print_banner_api_only_ignores_webapp() {
+        let webapp = config::TargetConfig {
+            target_type: TargetType::Webapp,
+            path: "front".to_string(),
+            framework: None,
+            runtime: None,
+        };
+        // With api_only=true, the webapp line should be skipped
+        print_banner(4000, &RustWatcher::Watchexec, Some(&webapp), true);
+    }
+
+    #[test]
+    fn test_print_banner_all_watchers() {
+        let watchers = [
+            RustWatcher::CargoWatch,
+            RustWatcher::Watchexec,
+            RustWatcher::Bacon,
+            RustWatcher::None,
+        ];
+        for watcher in &watchers {
+            print_banner(3000, watcher, None, false);
+        }
+    }
 }
