@@ -59,6 +59,21 @@ impl DryRunWriter {
         }
     }
 
+    /// Get the list of files that would be created
+    pub fn files_created(&self) -> Vec<PathBuf> {
+        self.files_created.borrow().clone()
+    }
+
+    /// Get the list of files that would be updated
+    pub fn files_updated(&self) -> Vec<PathBuf> {
+        self.files_updated.borrow().clone()
+    }
+
+    /// Get the list of directories that would be created
+    pub fn dirs_created(&self) -> Vec<PathBuf> {
+        self.dirs_created.borrow().clone()
+    }
+
     /// Print summary of what would be done
     pub fn print_summary(&self) {
         let created = self.files_created.borrow();

@@ -3,6 +3,8 @@ mod commands;
 mod config;
 mod mcp;
 mod templates;
+#[cfg(test)]
+mod test_helpers;
 mod utils;
 
 use clap::Parser;
