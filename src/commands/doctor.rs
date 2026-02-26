@@ -925,4 +925,921 @@ this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
         assert!(matches!(results[0].level, DiagnosticLevel::Warn));
         assert!(results[0].message.contains("WebSocketExposure not found"));
     }
+
+    // ================================================================
+    // check_module_registration tests
+    // ================================================================
+
+    #[test]
+    fn test_check_module_registration_no_module_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let results = check_module_registration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("module.rs not found"));
+    }
+
+    #[test]
+    fn test_check_module_registration_no_entities() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            "fn entity_types() -> Vec<&'static str> { vec![] }",
+        )
+        .unwrap();
+
+        let results = check_module_registration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("No entities"));
+    }
+
+    #[test]
+    fn test_check_module_registration_all_registered_with_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities_dir = dir.path().join("src/entities");
+        std::fs::create_dir_all(&entities_dir).unwrap();
+        std::fs::write(
+            entities_dir.join("mod.rs"),
+            "pub mod product;\npub mod category;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            r#"fn entity_types() -> Vec<&'static str> {
+    vec![
+        // [this:entity_types]
+        "product",
+        "category",
+    ]
+}
+"#,
+        )
+        .unwrap();
+
+        let results = check_module_registration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("All 2 entities registered"));
+    }
+
+    #[test]
+    fn test_check_module_registration_missing_entity() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities_dir = dir.path().join("src/entities");
+        std::fs::create_dir_all(&entities_dir).unwrap();
+        std::fs::write(
+            entities_dir.join("mod.rs"),
+            "pub mod product;\npub mod category;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            r#"fn entity_types() -> Vec<&'static str> {
+    vec![
+        // [this:entity_types]
+        "product",
+    ]
+}
+"#,
+        )
+        .unwrap();
+
+        let results = check_module_registration(dir.path());
+        assert!(results
+            .iter()
+            .any(|r| matches!(r.level, DiagnosticLevel::Warn)
+                && r.message.contains("category")));
+    }
+
+    #[test]
+    fn test_check_module_registration_without_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities_dir = dir.path().join("src/entities");
+        std::fs::create_dir_all(&entities_dir).unwrap();
+        std::fs::write(entities_dir.join("mod.rs"), "pub mod product;\n").unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            "fn entity_types() -> Vec<&'static str> { vec![\"product\"] }",
+        )
+        .unwrap();
+
+        let results = check_module_registration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("All 1 entities registered"));
+    }
+
+    // ================================================================
+    // check_stores_configuration tests
+    // ================================================================
+
+    #[test]
+    fn test_check_stores_no_stores_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let results = check_stores_configuration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("stores.rs not found"));
+    }
+
+    #[test]
+    fn test_check_stores_no_entities() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/stores.rs"), "pub struct Stores {}").unwrap();
+
+        let results = check_stores_configuration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("No stores"));
+    }
+
+    #[test]
+    fn test_check_stores_all_configured_with_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities_dir = dir.path().join("src/entities");
+        std::fs::create_dir_all(&entities_dir).unwrap();
+        std::fs::write(
+            entities_dir.join("mod.rs"),
+            "pub mod product;\npub mod category;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/stores.rs"),
+            r#"pub struct Stores {
+    // [this:store_fields]
+    products_store: Arc<dyn DataService<Product>>,
+    categories_store: Arc<dyn DataService<Category>>,
+}
+"#,
+        )
+        .unwrap();
+
+        let results = check_stores_configuration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("All 2 stores configured"));
+    }
+
+    #[test]
+    fn test_check_stores_missing_entity_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities_dir = dir.path().join("src/entities");
+        std::fs::create_dir_all(&entities_dir).unwrap();
+        std::fs::write(
+            entities_dir.join("mod.rs"),
+            "pub mod product;\npub mod category;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/stores.rs"),
+            r#"pub struct Stores {
+    // [this:store_fields]
+    products_store: Arc<dyn DataService<Product>>,
+}
+"#,
+        )
+        .unwrap();
+
+        let results = check_stores_configuration(dir.path());
+        assert!(results
+            .iter()
+            .any(|r| matches!(r.level, DiagnosticLevel::Warn)
+                && r.message.contains("category")));
+    }
+
+    #[test]
+    fn test_check_stores_without_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities_dir = dir.path().join("src/entities");
+        std::fs::create_dir_all(&entities_dir).unwrap();
+        std::fs::write(entities_dir.join("mod.rs"), "pub mod product;\n").unwrap();
+        std::fs::write(
+            dir.path().join("src/stores.rs"),
+            "pub struct Stores {\n    products_store: Arc<dyn DataService<Product>>,\n}",
+        )
+        .unwrap();
+
+        let results = check_stores_configuration(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+    }
+
+    // ================================================================
+    // check_grpc tests
+    // ================================================================
+
+    #[test]
+    fn test_check_grpc_not_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6" }
+"#,
+        )
+        .unwrap();
+
+        let results = check_grpc(dir.path());
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_check_grpc_enabled_and_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["grpc"] }
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/main.rs"),
+            "use this::server::exposure::grpc::GrpcExposure;\nfn main() {}",
+        )
+        .unwrap();
+
+        let results = check_grpc(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("GrpcExposure"));
+    }
+
+    #[test]
+    fn test_check_grpc_enabled_but_not_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["grpc"] }
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/main.rs"),
+            "fn main() { println!(\"no grpc\"); }",
+        )
+        .unwrap();
+
+        let results = check_grpc(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("GrpcExposure not found"));
+    }
+
+    #[test]
+    fn test_check_grpc_enabled_but_no_main_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["grpc"] }
+"#,
+        )
+        .unwrap();
+
+        let results = check_grpc(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("main.rs not found"));
+    }
+
+    // ================================================================
+    // check_workspace tests
+    // ================================================================
+
+    #[test]
+    fn test_check_workspace_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("api")).unwrap();
+        std::fs::write(
+            dir.path().join("api/Cargo.toml"),
+            "[package]\nname = \"test\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: my-workspace\napi:\n  path: api\n  port: 3000\ntargets: []\n",
+        )
+        .unwrap();
+
+        let results = check_workspace(dir.path());
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Pass)
+                    && r.message.contains("this.yaml valid"))
+        );
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Pass)
+                    && r.message.contains("Cargo.toml found"))
+        );
+    }
+
+    #[test]
+    fn test_check_workspace_invalid_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "this is: [not: valid: yaml: {{{",
+        )
+        .unwrap();
+
+        let results = check_workspace(dir.path());
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Error)
+                    && r.message.contains("this.yaml invalid"))
+        );
+    }
+
+    #[test]
+    fn test_check_workspace_missing_api_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: my-workspace\napi:\n  path: api\n  port: 3000\ntargets: []\n",
+        )
+        .unwrap();
+
+        let results = check_workspace(dir.path());
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Error)
+                    && r.message.contains("not found"))
+        );
+    }
+
+    #[test]
+    fn test_check_workspace_with_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("api")).unwrap();
+        std::fs::create_dir_all(dir.path().join("front")).unwrap();
+        std::fs::write(
+            dir.path().join("api/Cargo.toml"),
+            "[package]\nname = \"test\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            r#"name: my-workspace
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#,
+        )
+        .unwrap();
+
+        let results = check_workspace(dir.path());
+        // Should have pass for this.yaml, api/Cargo.toml, and target
+        let pass_count = results
+            .iter()
+            .filter(|r| matches!(r.level, DiagnosticLevel::Pass))
+            .count();
+        assert!(pass_count >= 3);
+    }
+
+    #[test]
+    fn test_check_workspace_target_dir_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("api")).unwrap();
+        std::fs::write(
+            dir.path().join("api/Cargo.toml"),
+            "[package]\nname = \"test\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            r#"name: my-workspace
+api:
+  path: api
+  port: 3000
+targets:
+  - target_type: webapp
+    framework: react
+    path: front
+"#,
+        )
+        .unwrap();
+
+        let results = check_workspace(dir.path());
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Warn)
+                    && r.message.contains("directory")
+                    && r.message.contains("not found"))
+        );
+    }
+
+    // ================================================================
+    // check_links tests (additional)
+    // ================================================================
+
+    #[test]
+    fn test_check_links_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let results = check_links(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("not found"));
+    }
+
+    #[test]
+    fn test_check_links_empty_links() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        let results = check_links(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("empty"));
+    }
+
+    #[test]
+    fn test_check_links_valid_with_known_entities() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/entities/product")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/entities/category")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_category
+    source_type: product
+    target_type: category
+    forward_route_name: categories
+    reverse_route_name: products
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let results = check_links(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("1 links"));
+    }
+
+    #[test]
+    fn test_check_links_valid_with_yaml_entities() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            r#"entities:
+  - singular: order
+    plural: orders
+  - singular: product
+    plural: products
+links:
+  - link_type: has_items
+    source_type: order
+    target_type: product
+    forward_route_name: products
+    reverse_route_name: order
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let results = check_links(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+    }
+
+    #[test]
+    fn test_check_links_invalid_yaml_syntax() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            "this is: [not: valid: yaml: {{{",
+        )
+        .unwrap();
+
+        let results = check_links(dir.path());
+        assert!(results.iter().any(
+            |r| matches!(r.level, DiagnosticLevel::Error) && r.message.contains("Invalid YAML")
+        ));
+    }
+
+    // ================================================================
+    // check_cargo_toml tests (additional)
+    // ================================================================
+
+    #[test]
+    fn test_check_cargo_toml_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = check_cargo_toml(dir.path());
+        assert!(matches!(result.level, DiagnosticLevel::Error));
+        assert!(result.message.contains("not found"));
+    }
+
+    #[test]
+    fn test_check_cargo_toml_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "this is not valid toml [[[").unwrap();
+
+        let result = check_cargo_toml(dir.path());
+        assert!(matches!(result.level, DiagnosticLevel::Error));
+        assert!(result.message.contains("Invalid TOML"));
+    }
+
+    #[test]
+    fn test_check_cargo_toml_no_deps_section() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let result = check_cargo_toml(dir.path());
+        assert!(matches!(result.level, DiagnosticLevel::Error));
+        assert!(result.message.contains("No [dependencies] section"));
+    }
+
+    #[test]
+    fn test_check_cargo_toml_with_path_dep() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", path = "../this" }
+"#,
+        )
+        .unwrap();
+
+        let result = check_cargo_toml(dir.path());
+        assert!(matches!(result.level, DiagnosticLevel::Pass));
+        assert!(result.message.contains("path:"));
+    }
+
+    // ================================================================
+    // run_checks integration test
+    // ================================================================
+
+    #[test]
+    fn test_run_checks_healthy_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Create a minimal healthy project
+        std::fs::create_dir_all(root.join("src/entities/product")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"[package]
+name = "healthy-project"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.8" }
+"#,
+        )
+        .unwrap();
+
+        std::fs::write(root.join("src/entities/mod.rs"), "pub mod product;\n").unwrap();
+
+        std::fs::write(
+            root.join("src/module.rs"),
+            "// [this:entity_types]\n\"product\"\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("src/stores.rs"),
+            "// [this:store_fields]\nproducts_store: x\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        let results = run_checks(root);
+
+        // All results should be Pass
+        let errors = results
+            .iter()
+            .filter(|r| matches!(r.level, DiagnosticLevel::Error))
+            .count();
+        assert_eq!(errors, 0, "Healthy project should have no errors");
+
+        // At least the Cargo.toml, Entities, Module, Stores checks should pass
+        let passes = results
+            .iter()
+            .filter(|r| matches!(r.level, DiagnosticLevel::Pass))
+            .count();
+        assert!(
+            passes >= 4,
+            "Expected at least 4 pass results, got {}",
+            passes
+        );
+    }
+
+    #[test]
+    fn test_run_checks_broken_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Broken project: entity in entities dir but not registered
+        std::fs::create_dir_all(root.join("src/entities/product")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"[package]
+name = "broken-project"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.8" }
+"#,
+        )
+        .unwrap();
+
+        // Entities mod.rs declares product but module.rs doesn't register it
+        std::fs::write(root.join("src/entities/mod.rs"), "pub mod product;\n").unwrap();
+
+        // Empty module.rs and stores.rs
+        std::fs::write(root.join("src/module.rs"), "fn entity_types() {}").unwrap();
+        std::fs::write(root.join("src/stores.rs"), "pub struct Stores {}").unwrap();
+
+        // links.yaml referencing unknown entities
+        std::fs::write(
+            root.join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_ghost
+    source_type: product
+    target_type: ghost
+    forward_route_name: ghosts
+    reverse_route_name: product
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let results = run_checks(root);
+
+        // Should have warnings for module registration and stores
+        let warnings = results
+            .iter()
+            .filter(|r| matches!(r.level, DiagnosticLevel::Warn))
+            .count();
+        assert!(
+            warnings >= 2,
+            "Broken project should have at least 2 warnings, got {}",
+            warnings
+        );
+    }
+
+    // ================================================================
+    // DiagnosticResult and display tests
+    // ================================================================
+
+    #[test]
+    fn test_diagnostic_result_pass() {
+        let result = DiagnosticResult::pass("Test", "Everything is fine");
+        assert!(matches!(result.level, DiagnosticLevel::Pass));
+        assert_eq!(result.category, "Test");
+        assert_eq!(result.message, "Everything is fine");
+        assert_eq!(result.icon(), "\u{2705}");
+        assert_eq!(result.level_str(), "pass");
+    }
+
+    #[test]
+    fn test_diagnostic_result_warn() {
+        let result = DiagnosticResult::warn("Test", "Something looks off");
+        assert!(matches!(result.level, DiagnosticLevel::Warn));
+        assert_eq!(result.icon(), "\u{26a0}\u{fe0f}");
+        assert_eq!(result.level_str(), "warn");
+    }
+
+    #[test]
+    fn test_diagnostic_result_error() {
+        let result = DiagnosticResult::error("Test", "Something is broken");
+        assert!(matches!(result.level, DiagnosticLevel::Error));
+        assert_eq!(result.icon(), "\u{274c}");
+        assert_eq!(result.level_str(), "error");
+    }
+
+    #[test]
+    fn test_diagnostic_result_to_serializable() {
+        let result = DiagnosticResult::warn("Links", "Unknown entity reference");
+        let serializable = result.to_serializable();
+        assert_eq!(serializable.level, "warn");
+        assert_eq!(serializable.category, "Links");
+        assert_eq!(serializable.message, "Unknown entity reference");
+    }
+
+    #[test]
+    fn test_display_diagnostics_smoke_no_panic() {
+        // Ensure calling display() on various DiagnosticResults doesn't panic
+        let results = vec![
+            DiagnosticResult::pass("Cargo.toml", "this-rs v0.0.8 detected"),
+            DiagnosticResult::warn("Module", "Entity 'product' not registered"),
+            DiagnosticResult::error("Entities", "mod.rs declares non-existent entity"),
+        ];
+
+        for result in &results {
+            result.display(); // Should not panic
+        }
+    }
+
+    // ================================================================
+    // detect_project_name tests
+    // ================================================================
+
+    #[test]
+    fn test_detect_project_name_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"my-cool-app\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let name = detect_project_name(dir.path());
+        assert_eq!(name, "my-cool-app");
+    }
+
+    #[test]
+    fn test_detect_project_name_missing_cargo() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = detect_project_name(dir.path());
+        assert_eq!(name, "unknown");
+    }
+
+    #[test]
+    fn test_detect_project_name_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "not valid toml [[[").unwrap();
+
+        let name = detect_project_name(dir.path());
+        assert_eq!(name, "unknown");
+    }
+
+    // ================================================================
+    // check_entities additional tests
+    // ================================================================
+
+    #[test]
+    fn test_check_entities_missing_dir_in_mod_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities = dir.path().join("src/entities");
+        std::fs::create_dir_all(entities.join("product")).unwrap();
+        // mod.rs declares product AND category, but category dir doesn't exist
+        std::fs::write(
+            entities.join("mod.rs"),
+            "pub mod product;\npub mod category;\n",
+        )
+        .unwrap();
+
+        let results = check_entities(dir.path());
+        assert!(
+            results.iter().any(
+                |r| matches!(r.level, DiagnosticLevel::Error) && r.message.contains("category")
+            )
+        );
+    }
+
+    #[test]
+    fn test_check_entities_multiple_orphans() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities = dir.path().join("src/entities");
+        std::fs::create_dir_all(entities.join("product")).unwrap();
+        std::fs::create_dir_all(entities.join("category")).unwrap();
+        std::fs::write(entities.join("mod.rs"), "").unwrap();
+
+        let results = check_entities(dir.path());
+        let warns: Vec<_> = results
+            .iter()
+            .filter(|r| matches!(r.level, DiagnosticLevel::Warn))
+            .collect();
+        assert_eq!(warns.len(), 2);
+    }
+
+    // ================================================================
+    // check_websocket additional test: no main.rs
+    // ================================================================
+
+    #[test]
+    fn test_check_websocket_enabled_but_no_main_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
+"#,
+        )
+        .unwrap();
+
+        let results = check_websocket(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("main.rs not found"));
+    }
+
+    // ================================================================
+    // Full project with websocket and grpc features
+    // ================================================================
+
+    #[test]
+    fn test_run_checks_project_with_features() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"[package]
+name = "feature-project"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.8", features = ["websocket", "grpc"] }
+"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    // Uses WebSocketExposure and GrpcExposure\n}\n",
+        )
+        .unwrap();
+
+        std::fs::write(root.join("src/module.rs"), "fn entity_types() {}").unwrap();
+        std::fs::write(root.join("src/stores.rs"), "pub struct Stores {}").unwrap();
+        std::fs::write(
+            root.join("config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        let results = run_checks(root);
+
+        // Should have pass for WebSocket and gRPC
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Pass) && r.category == "WebSocket")
+        );
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Pass) && r.category == "gRPC")
+        );
+    }
 }
