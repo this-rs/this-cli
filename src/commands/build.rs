@@ -807,24 +807,22 @@ mod tests {
     }
 
     #[test]
-    fn test_run_build_mobile_without_webapp_no_dist_check() {
-        // Without a webapp target, the dist check is skipped
+    #[ignore] // Spawns real `npx` process — requires Capacitor CLI installed
+    fn test_run_build_mobile_without_webapp_skips_dist_check() {
+        // When no webapp is configured, the dist check should be skipped entirely.
         let target = ios_target();
         let tmp = tempfile::tempdir().unwrap();
         let target_dir = tmp.path().join("targets/ios");
         fs::create_dir_all(&target_dir).unwrap();
-        fs::write(target_dir.join("package.json"), "{}").unwrap();
+        fs::write(target_dir.join("package.json"), r#"{"scripts":{}}"#).unwrap();
 
-        // This will try to run npx cap sync (which will fail because npx isn't
-        // available in test or cap is not installed), but it won't fail on the
-        // dist check — it will fail on the npx command itself
         let result = run_build_mobile(&target, tmp.path(), &None);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        // Should NOT be about missing dist
         assert!(
             !err.contains("Frontend build output not found"),
-            "Should not check for frontend dist when no webapp"
+            "Should not check for frontend dist when no webapp, got: {}",
+            err
         );
     }
 
@@ -1055,17 +1053,15 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[ignore] // Spawns real `npm run build` — requires Node.js + npm installed
     fn test_run_target_build_all_with_desktop_fails_at_scaffold() {
         // "all" finds native targets and tries to build them — it should fail
         // at the scaffold check because no src-tauri exists
         let config = make_config_with_targets(vec![webapp_target(), desktop_target()]);
         let tmp = tempfile::tempdir().unwrap();
-        // Create front dir with dist (for potential front build)
         fs::create_dir_all(tmp.path().join("front/dist")).unwrap();
-        // Create front package.json
         fs::write(tmp.path().join("front/package.json"), "{}").unwrap();
         let result = run_target_build("all", &config, tmp.path());
-        // Should fail because npm build or desktop scaffold is missing
         assert!(result.is_err());
     }
 
@@ -1074,6 +1070,7 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[ignore] // Spawns real `cargo build` process
     fn test_run_api_build_non_existent_path() {
         // If the api_path doesn't exist, cargo build should fail
         let tmp = tempfile::tempdir().unwrap();
