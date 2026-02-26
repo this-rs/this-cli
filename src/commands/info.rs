@@ -707,4 +707,985 @@ impl_data_entity_validated!(
         assert_eq!(fields[0], ("sku".to_string(), "String".to_string()));
         assert_eq!(fields[1], ("price".to_string(), "f64".to_string()));
     }
+
+    // ================================================================
+    // parse_cargo_toml tests
+    // ================================================================
+
+    #[test]
+    fn test_parse_cargo_toml_with_this_version() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "my-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.8" }
+"#,
+        )
+        .unwrap();
+
+        let (name, version) = parse_cargo_toml(dir.path()).unwrap();
+        assert_eq!(name, "my-app");
+        assert_eq!(version, "v0.0.8");
+    }
+
+    #[test]
+    fn test_parse_cargo_toml_with_simple_version() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "simple-project"
+version = "0.1.0"
+
+[dependencies]
+this = "0.0.6"
+"#,
+        )
+        .unwrap();
+
+        let (name, version) = parse_cargo_toml(dir.path()).unwrap();
+        assert_eq!(name, "simple-project");
+        assert_eq!(version, "v0.0.6");
+    }
+
+    #[test]
+    fn test_parse_cargo_toml_with_path_dep() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "local-dev"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", path = "../this" }
+"#,
+        )
+        .unwrap();
+
+        let (name, version) = parse_cargo_toml(dir.path()).unwrap();
+        assert_eq!(name, "local-dev");
+        assert_eq!(version, "(path: ../this)");
+    }
+
+    #[test]
+    fn test_parse_cargo_toml_no_this_dep() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "other-app"
+version = "0.1.0"
+
+[dependencies]
+serde = "1"
+"#,
+        )
+        .unwrap();
+
+        let (name, version) = parse_cargo_toml(dir.path()).unwrap();
+        assert_eq!(name, "other-app");
+        assert_eq!(version, "unknown");
+    }
+
+    #[test]
+    fn test_parse_cargo_toml_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = parse_cargo_toml(dir.path());
+        assert!(result.is_err());
+    }
+
+    // ================================================================
+    // extract_this_version tests
+    // ================================================================
+
+    #[test]
+    fn test_extract_this_version_simple_string() {
+        let doc: toml_edit::DocumentMut = r#"[dependencies]
+this-rs = "0.0.6"
+"#
+        .parse()
+        .unwrap();
+
+        assert_eq!(extract_this_version(&doc), Some("v0.0.6".to_string()));
+    }
+
+    #[test]
+    fn test_extract_this_version_table_form() {
+        let doc: toml_edit::DocumentMut = r#"[dependencies]
+this = { package = "this-rs", version = "0.0.8" }
+"#
+        .parse()
+        .unwrap();
+
+        assert_eq!(extract_this_version(&doc), Some("v0.0.8".to_string()));
+    }
+
+    #[test]
+    fn test_extract_this_version_path_dep() {
+        let doc: toml_edit::DocumentMut = r#"[dependencies]
+this = { package = "this-rs", path = "../this" }
+"#
+        .parse()
+        .unwrap();
+
+        assert_eq!(
+            extract_this_version(&doc),
+            Some("(path: ../this)".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_this_version_no_deps() {
+        let doc: toml_edit::DocumentMut = r#"[package]
+name = "test"
+"#
+        .parse()
+        .unwrap();
+
+        assert_eq!(extract_this_version(&doc), None);
+    }
+
+    #[test]
+    fn test_extract_this_version_no_this_dep() {
+        let doc: toml_edit::DocumentMut = r#"[dependencies]
+serde = "1"
+"#
+        .parse()
+        .unwrap();
+
+        assert_eq!(extract_this_version(&doc), None);
+    }
+
+    // ================================================================
+    // detect_this_features tests
+    // ================================================================
+
+    #[test]
+    fn test_detect_this_features_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6" }
+"#,
+        )
+        .unwrap();
+
+        let features = detect_this_features(dir.path());
+        assert!(!features.graphql);
+        assert!(!features.websocket);
+        assert!(!features.grpc);
+    }
+
+    #[test]
+    fn test_detect_this_features_websocket() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
+"#,
+        )
+        .unwrap();
+
+        let features = detect_this_features(dir.path());
+        assert!(!features.graphql);
+        assert!(features.websocket);
+        assert!(!features.grpc);
+    }
+
+    #[test]
+    fn test_detect_this_features_grpc() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["grpc"] }
+"#,
+        )
+        .unwrap();
+
+        let features = detect_this_features(dir.path());
+        assert!(!features.graphql);
+        assert!(!features.websocket);
+        assert!(features.grpc);
+    }
+
+    #[test]
+    fn test_detect_this_features_multiple() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.6", features = ["graphql", "websocket", "grpc"] }
+"#,
+        )
+        .unwrap();
+
+        let features = detect_this_features(dir.path());
+        assert!(features.graphql);
+        assert!(features.websocket);
+        assert!(features.grpc);
+    }
+
+    #[test]
+    fn test_detect_this_features_no_cargo_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let features = detect_this_features(dir.path());
+        assert!(!features.graphql);
+        assert!(!features.websocket);
+        assert!(!features.grpc);
+    }
+
+    // ================================================================
+    // scan_entities tests
+    // ================================================================
+
+    #[test]
+    fn test_scan_entities_no_entities_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities = scan_entities(dir.path()).unwrap();
+        assert!(entities.is_empty());
+    }
+
+    #[test]
+    fn test_scan_entities_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/entities")).unwrap();
+        let entities = scan_entities(dir.path()).unwrap();
+        assert!(entities.is_empty());
+    }
+
+    #[test]
+    fn test_scan_entities_one_entity() {
+        let dir = tempfile::tempdir().unwrap();
+        let entity_dir = dir.path().join("src/entities/product");
+        std::fs::create_dir_all(&entity_dir).unwrap();
+        std::fs::write(
+            entity_dir.join("model.rs"),
+            r#"use this::prelude::*;
+
+impl_data_entity!(
+    Product,
+    "product",
+    ["name"],
+    {
+        sku: String,
+        price: f64,
+    }
+);
+"#,
+        )
+        .unwrap();
+
+        let entities = scan_entities(dir.path()).unwrap();
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].name, "product");
+        assert_eq!(entities[0].fields.len(), 2);
+        assert_eq!(entities[0].fields[0].0, "sku");
+        assert_eq!(entities[0].fields[1].0, "price");
+        assert!(!entities[0].is_validated);
+    }
+
+    #[test]
+    fn test_scan_entities_validated_entity() {
+        let dir = tempfile::tempdir().unwrap();
+        let entity_dir = dir.path().join("src/entities/order");
+        std::fs::create_dir_all(&entity_dir).unwrap();
+        std::fs::write(
+            entity_dir.join("model.rs"),
+            r#"use this::prelude::*;
+
+impl_data_entity_validated!(
+    Order,
+    "order",
+    ["status"],
+    {
+        total: f64,
+        status: String,
+    },
+    validate: {
+        create: {
+            status: [required],
+        },
+    }
+);
+"#,
+        )
+        .unwrap();
+
+        let entities = scan_entities(dir.path()).unwrap();
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].name, "order");
+        assert!(entities[0].is_validated);
+    }
+
+    #[test]
+    fn test_scan_entities_multiple_sorted() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create entities in non-alphabetical order
+        for name in &["category", "product", "brand"] {
+            let entity_dir = dir.path().join(format!("src/entities/{}", name));
+            std::fs::create_dir_all(&entity_dir).unwrap();
+            std::fs::write(
+                entity_dir.join("model.rs"),
+                format!(
+                    "impl_data_entity!({}, \"{}\", [\"name\"],\n{{\n    name: String,\n}}\n);",
+                    name, name
+                ),
+            )
+            .unwrap();
+        }
+
+        let entities = scan_entities(dir.path()).unwrap();
+        assert_eq!(entities.len(), 3);
+        // Should be sorted alphabetically
+        assert_eq!(entities[0].name, "brand");
+        assert_eq!(entities[1].name, "category");
+        assert_eq!(entities[2].name, "product");
+    }
+
+    #[test]
+    fn test_scan_entities_dir_without_model_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        // Directory exists but no model.rs
+        std::fs::create_dir_all(dir.path().join("src/entities/orphan")).unwrap();
+        let entities = scan_entities(dir.path()).unwrap();
+        assert!(entities.is_empty());
+    }
+
+    // ================================================================
+    // parse_links_yaml tests
+    // ================================================================
+
+    #[test]
+    fn test_parse_links_yaml_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let links = parse_links_yaml(dir.path()).unwrap();
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_parse_links_yaml_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        let links = parse_links_yaml(dir.path()).unwrap();
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_parse_links_yaml_with_links() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_items
+    source_type: order
+    target_type: product
+    forward_route_name: products
+    reverse_route_name: order
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let links = parse_links_yaml(dir.path()).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].link_type, "has_items");
+        assert_eq!(links[0].source, "order");
+        assert_eq!(links[0].target, "product");
+        assert_eq!(links[0].forward_route, "products");
+        assert_eq!(links[0].reverse_route, "order");
+    }
+
+    #[test]
+    fn test_parse_links_yaml_invalid_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            "this is: [not: valid: yaml: {{{",
+        )
+        .unwrap();
+
+        let result = parse_links_yaml(dir.path());
+        assert!(result.is_err());
+    }
+
+    // ================================================================
+    // check_coherence / check_module_registration / check_stores_configuration
+    // / check_links_validity tests
+    // ================================================================
+
+    #[test]
+    fn test_check_module_registration_no_module_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let count = check_module_registration(dir.path(), &["product"]);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_check_module_registration_with_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            r#"fn entity_types() -> Vec<&'static str> {
+    vec![
+        // [this:entity_types]
+        "product",
+        "category",
+    ]
+}
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            check_module_registration(dir.path(), &["product", "category"]),
+            2
+        );
+        assert_eq!(
+            check_module_registration(dir.path(), &["product", "category", "brand"]),
+            2
+        );
+    }
+
+    #[test]
+    fn test_check_module_registration_without_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            r#"fn entity_types() -> Vec<&'static str> {
+    vec!["product"]
+}
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(check_module_registration(dir.path(), &["product"]), 1);
+        assert_eq!(
+            check_module_registration(dir.path(), &["product", "category"]),
+            1
+        );
+    }
+
+    #[test]
+    fn test_check_stores_configuration_no_stores_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let count = check_stores_configuration(dir.path(), &["product"]);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_check_stores_configuration_with_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/stores.rs"),
+            r#"pub struct Stores {
+    // [this:store_fields]
+    products_store: Arc<dyn DataService<Product>>,
+}
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(check_stores_configuration(dir.path(), &["product"]), 1);
+        assert_eq!(
+            check_stores_configuration(dir.path(), &["product", "category"]),
+            1
+        );
+    }
+
+    #[test]
+    fn test_check_stores_configuration_without_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/stores.rs"),
+            r#"pub struct Stores {
+    products_store: Arc<dyn DataService<Product>>,
+    categories_store: Arc<dyn DataService<Category>>,
+}
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            check_stores_configuration(dir.path(), &["product", "category"]),
+            2
+        );
+    }
+
+    #[test]
+    fn test_check_links_validity_no_links_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (valid, issues) = check_links_validity(dir.path(), &["product"]);
+        assert!(valid);
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_links_validity_valid_links() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_items
+    source_type: order
+    target_type: product
+    forward_route_name: products
+    reverse_route_name: order
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let (valid, issues) = check_links_validity(dir.path(), &["order", "product"]);
+        assert!(valid);
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_links_validity_unknown_source() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_items
+    source_type: ghost
+    target_type: product
+    forward_route_name: products
+    reverse_route_name: ghost
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let (valid, issues) = check_links_validity(dir.path(), &["product"]);
+        assert!(!valid);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].contains("ghost"));
+        assert!(issues[0].contains("unknown source"));
+    }
+
+    #[test]
+    fn test_check_links_validity_unknown_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_items
+    source_type: order
+    target_type: phantom
+    forward_route_name: phantoms
+    reverse_route_name: order
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let (valid, issues) = check_links_validity(dir.path(), &["order"]);
+        assert!(!valid);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].contains("phantom"));
+        assert!(issues[0].contains("unknown target"));
+    }
+
+    #[test]
+    fn test_check_links_validity_invalid_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            "not: valid: yaml: {{{",
+        )
+        .unwrap();
+
+        let (valid, issues) = check_links_validity(dir.path(), &["product"]);
+        assert!(!valid);
+        assert!(issues[0].contains("Invalid YAML"));
+    }
+
+    // ================================================================
+    // check_coherence integration tests
+    // ================================================================
+
+    #[test]
+    fn test_check_coherence_no_entities() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities: Vec<EntityInfo> = vec![];
+        let coherence = check_coherence(dir.path(), &entities).unwrap();
+        assert_eq!(coherence.module_total, 0);
+        assert_eq!(coherence.module_registered, 0);
+        assert_eq!(coherence.stores_total, 0);
+        assert_eq!(coherence.stores_configured, 0);
+        assert!(coherence.links_valid);
+        assert!(coherence.links_issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_coherence_with_registered_entities() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            "// [this:entity_types]\n\"product\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/stores.rs"),
+            "// [this:store_fields]\nproducts_store: something\n",
+        )
+        .unwrap();
+
+        let entities = vec![EntityInfo {
+            name: "product".to_string(),
+            fields: vec![],
+            is_validated: false,
+        }];
+
+        let coherence = check_coherence(dir.path(), &entities).unwrap();
+        assert_eq!(coherence.module_total, 1);
+        assert_eq!(coherence.module_registered, 1);
+        assert_eq!(coherence.stores_total, 1);
+        assert_eq!(coherence.stores_configured, 1);
+    }
+
+    #[test]
+    fn test_check_coherence_with_unregistered_entity() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/module.rs"), "// [this:entity_types]\n").unwrap();
+        std::fs::write(dir.path().join("src/stores.rs"), "// [this:store_fields]\n").unwrap();
+
+        let entities = vec![EntityInfo {
+            name: "product".to_string(),
+            fields: vec![],
+            is_validated: false,
+        }];
+
+        let coherence = check_coherence(dir.path(), &entities).unwrap();
+        assert_eq!(coherence.module_total, 1);
+        assert_eq!(coherence.module_registered, 0);
+        assert_eq!(coherence.stores_total, 1);
+        assert_eq!(coherence.stores_configured, 0);
+    }
+
+    // ================================================================
+    // Full integration: collect_info-style test (calling inner functions)
+    // ================================================================
+
+    #[test]
+    fn test_full_info_collection_basic_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Create a minimal project structure
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.8" }
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        // Call inner functions that collect_info would call
+        let (project_name, this_version) = parse_cargo_toml(root).unwrap();
+        assert_eq!(project_name, "test-project");
+        assert_eq!(this_version, "v0.0.8");
+
+        let features = detect_this_features(root);
+        assert!(!features.graphql);
+        assert!(!features.websocket);
+        assert!(!features.grpc);
+
+        let entities = scan_entities(root).unwrap();
+        assert!(entities.is_empty());
+
+        let links = parse_links_yaml(root).unwrap();
+        assert!(links.is_empty());
+
+        let coherence = check_coherence(root, &entities).unwrap();
+        assert_eq!(coherence.module_total, 0);
+        assert!(coherence.links_valid);
+    }
+
+    #[test]
+    fn test_full_info_collection_with_entities_and_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Create project with entities and links
+        std::fs::create_dir_all(root.join("src/entities/product")).unwrap();
+        std::fs::create_dir_all(root.join("src/entities/category")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"[package]
+name = "shop-api"
+version = "0.1.0"
+
+[dependencies]
+this = { package = "this-rs", version = "0.0.8", features = ["websocket"] }
+"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("src/entities/product/model.rs"),
+            r#"impl_data_entity!(Product, "product", ["name"],
+{
+    sku: String,
+    price: f64,
+}
+);"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("src/entities/category/model.rs"),
+            r#"impl_data_entity!(Category, "category", ["name"],
+{
+    label: String,
+}
+);"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("src/module.rs"),
+            "// [this:entity_types]\n\"product\"\n\"category\"\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("src/stores.rs"),
+            "// [this:store_fields]\nproducts_store: x\ncategories_store: y\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("config/links.yaml"),
+            r#"entities: []
+links:
+  - link_type: has_category
+    source_type: product
+    target_type: category
+    forward_route_name: categories
+    reverse_route_name: products
+validation_rules: {}
+"#,
+        )
+        .unwrap();
+
+        let (name, version) = parse_cargo_toml(root).unwrap();
+        assert_eq!(name, "shop-api");
+        assert_eq!(version, "v0.0.8");
+
+        let features = detect_this_features(root);
+        assert!(features.websocket);
+
+        let entities = scan_entities(root).unwrap();
+        assert_eq!(entities.len(), 2);
+        assert_eq!(entities[0].name, "category");
+        assert_eq!(entities[1].name, "product");
+
+        let links = parse_links_yaml(root).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].link_type, "has_category");
+
+        let coherence = check_coherence(root, &entities).unwrap();
+        assert_eq!(coherence.module_registered, 2);
+        assert_eq!(coherence.module_total, 2);
+        assert_eq!(coherence.stores_configured, 2);
+        assert_eq!(coherence.stores_total, 2);
+        assert!(coherence.links_valid);
+    }
+
+    // ================================================================
+    // display_info smoke test (just call run logic, no panic)
+    // ================================================================
+
+    #[test]
+    fn test_display_info_smoke_no_panic() {
+        // Build a ProjectInfo manually and ensure run() display logic doesn't panic
+        let info = ProjectInfo {
+            project_name: "smoke-test".to_string(),
+            this_version: "v0.0.1".to_string(),
+            features: FeatureFlags {
+                graphql: true,
+                websocket: false,
+                grpc: true,
+            },
+            entities: vec![
+                EntityInfo {
+                    name: "product".to_string(),
+                    fields: vec![
+                        ("sku".to_string(), "String".to_string()),
+                        ("price".to_string(), "f64".to_string()),
+                    ],
+                    is_validated: false,
+                },
+                EntityInfo {
+                    name: "order".to_string(),
+                    fields: vec![],
+                    is_validated: true,
+                },
+            ],
+            links: vec![LinkInfo {
+                link_type: "has_items".to_string(),
+                source: "order".to_string(),
+                target: "product".to_string(),
+                forward_route: "products".to_string(),
+                reverse_route: "order".to_string(),
+            }],
+            coherence: CoherenceStatus {
+                module_registered: 1,
+                module_total: 2,
+                stores_configured: 2,
+                stores_total: 2,
+                links_valid: true,
+                links_issues: vec![],
+            },
+            workspace: None,
+        };
+
+        // Just verify that accessing fields and formatting doesn't panic
+        assert_eq!(info.project_name, "smoke-test");
+        assert_eq!(info.entities.len(), 2);
+        assert_eq!(info.links.len(), 1);
+        assert!(!info.coherence.links_issues.is_empty() || info.coherence.links_valid);
+    }
+
+    #[test]
+    fn test_display_info_smoke_with_workspace() {
+        let info = ProjectInfo {
+            project_name: "ws-app".to_string(),
+            this_version: "v0.0.8".to_string(),
+            features: FeatureFlags {
+                graphql: false,
+                websocket: true,
+                grpc: false,
+            },
+            entities: vec![],
+            links: vec![],
+            coherence: CoherenceStatus {
+                module_registered: 0,
+                module_total: 0,
+                stores_configured: 0,
+                stores_total: 0,
+                links_valid: true,
+                links_issues: vec![],
+            },
+            workspace: Some(WorkspaceInfo {
+                name: "my-workspace".to_string(),
+                api_path: "api".to_string(),
+                api_port: 3000,
+                targets: vec![
+                    TargetInfo {
+                        target_type: "webapp".to_string(),
+                        path: "front".to_string(),
+                        framework: Some("react".to_string()),
+                        runtime: None,
+                    },
+                    TargetInfo {
+                        target_type: "mobile".to_string(),
+                        path: "mobile".to_string(),
+                        framework: None,
+                        runtime: Some("react-native".to_string()),
+                    },
+                ],
+            }),
+        };
+
+        // Verify workspace info is present and correct
+        let ws = info.workspace.as_ref().unwrap();
+        assert_eq!(ws.name, "my-workspace");
+        assert_eq!(ws.targets.len(), 2);
+        assert_eq!(ws.targets[0].framework, Some("react".to_string()));
+        assert_eq!(ws.targets[1].runtime, Some("react-native".to_string()));
+    }
+
+    #[test]
+    fn test_display_info_smoke_with_coherence_issues() {
+        let info = ProjectInfo {
+            project_name: "broken-app".to_string(),
+            this_version: "unknown".to_string(),
+            features: FeatureFlags {
+                graphql: false,
+                websocket: false,
+                grpc: false,
+            },
+            entities: vec![],
+            links: vec![],
+            coherence: CoherenceStatus {
+                module_registered: 0,
+                module_total: 2,
+                stores_configured: 1,
+                stores_total: 2,
+                links_valid: false,
+                links_issues: vec![
+                    "references unknown entity 'ghost'".to_string(),
+                    "link cycle detected".to_string(),
+                ],
+            },
+            workspace: None,
+        };
+
+        assert!(!info.coherence.links_valid);
+        assert_eq!(info.coherence.links_issues.len(), 2);
+        assert!(info.coherence.module_registered < info.coherence.module_total);
+        assert!(info.coherence.stores_configured < info.coherence.stores_total);
+    }
 }

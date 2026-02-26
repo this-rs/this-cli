@@ -637,4 +637,448 @@ mod tests {
         assert_eq!(fs::read_to_string(dst.join("a.txt")).unwrap(), "hello");
         assert_eq!(fs::read_to_string(dst.join("sub/b.txt")).unwrap(), "world");
     }
+
+    // ========================================================================
+    // Additional find_webapp_target tests
+    // ========================================================================
+
+    #[test]
+    fn test_find_webapp_target_among_multiple_targets() {
+        let config = make_config_with_targets(vec![
+            desktop_target(),
+            webapp_target(),
+            ios_target(),
+            android_target(),
+        ]);
+        let result = find_webapp_target(&config);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().target_type, TargetType::Webapp);
+        assert_eq!(result.unwrap().path, "front");
+    }
+
+    #[test]
+    fn test_find_webapp_target_only_native_targets() {
+        let config =
+            make_config_with_targets(vec![desktop_target(), ios_target(), android_target()]);
+        assert!(find_webapp_target(&config).is_none());
+    }
+
+    #[test]
+    fn test_find_webapp_target_returns_first_webapp() {
+        // If multiple webapp targets exist, find returns the first one
+        let mut second_webapp = webapp_target();
+        second_webapp.path = "front2".to_string();
+        second_webapp.framework = Some("vue".to_string());
+
+        let config = make_config_with_targets(vec![webapp_target(), second_webapp]);
+        let result = find_webapp_target(&config);
+        assert!(result.is_some());
+        // Should be the first one
+        assert_eq!(result.unwrap().path, "front");
+        assert_eq!(result.unwrap().framework, Some("react".to_string()));
+    }
+
+    #[test]
+    fn test_find_webapp_target_website_is_not_webapp() {
+        let website = config::TargetConfig {
+            target_type: TargetType::Website,
+            framework: None,
+            runtime: None,
+            path: "site".to_string(),
+        };
+        let config = make_config_with_targets(vec![website]);
+        assert!(
+            find_webapp_target(&config).is_none(),
+            "Website target should not be matched as webapp"
+        );
+    }
+
+    // ========================================================================
+    // Additional require_webapp tests
+    // ========================================================================
+
+    #[test]
+    fn test_require_webapp_error_includes_flag_name_docker() {
+        let result = require_webapp(&None, "--docker");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("--docker"));
+        assert!(err.contains("No webapp target configured"));
+    }
+
+    #[test]
+    fn test_require_webapp_error_includes_flag_name_front_only() {
+        let result = require_webapp(&None, "--front-only");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("--front-only"));
+    }
+
+    #[test]
+    fn test_require_webapp_error_suggests_add_target() {
+        let result = require_webapp(&None, "--embed");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("this add target webapp"),
+            "Error should suggest adding a webapp target"
+        );
+    }
+
+    // ========================================================================
+    // run_target_build error path tests
+    // ========================================================================
+
+    #[test]
+    fn test_run_target_build_website_rejected() {
+        let website = config::TargetConfig {
+            target_type: TargetType::Website,
+            framework: None,
+            runtime: None,
+            path: "site".to_string(),
+        };
+        let config = make_config_with_targets(vec![website]);
+        let tmp = tempfile::tempdir().unwrap();
+        let result = run_target_build("website", &config, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not a native target"));
+    }
+
+    #[test]
+    fn test_run_target_build_error_lists_configured_targets() {
+        let config =
+            make_config_with_targets(vec![webapp_target(), desktop_target(), ios_target()]);
+        let tmp = tempfile::tempdir().unwrap();
+        let result = run_target_build("android", &config, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Target 'android' not found"));
+        assert!(err.contains("webapp"));
+        assert!(err.contains("desktop"));
+        assert!(err.contains("ios"));
+    }
+
+    // ========================================================================
+    // run_front_build error path tests
+    // ========================================================================
+
+    #[test]
+    fn test_run_front_build_missing_package_json() {
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+        // Create the front directory but no package.json
+        fs::create_dir_all(tmp.path().join("front")).unwrap();
+        let result = run_front_build(&webapp, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("No package.json found"));
+    }
+
+    #[test]
+    fn test_run_front_build_missing_front_dir() {
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+        // Don't even create the front directory
+        let result = run_front_build(&webapp, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("No package.json found"));
+    }
+
+    // ========================================================================
+    // run_build_mobile error path tests
+    // ========================================================================
+
+    #[test]
+    fn test_run_build_mobile_ios_missing_front_dist() {
+        let target = ios_target();
+        let tmp = tempfile::tempdir().unwrap();
+        let target_dir = tmp.path().join("targets/ios");
+        fs::create_dir_all(&target_dir).unwrap();
+        // Create package.json so it passes the first check
+        fs::write(target_dir.join("package.json"), "{}").unwrap();
+
+        // Provide a webapp that doesn't have dist yet
+        let webapp = webapp_target();
+        let result = run_build_mobile(&target, tmp.path(), &Some(&webapp));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Frontend build output not found"));
+    }
+
+    #[test]
+    #[ignore] // Spawns real `npx` process — requires Capacitor CLI installed
+    fn test_run_build_mobile_without_webapp_skips_dist_check() {
+        // When no webapp is configured, the dist check should be skipped entirely.
+        let target = ios_target();
+        let tmp = tempfile::tempdir().unwrap();
+        let target_dir = tmp.path().join("targets/ios");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("package.json"), r#"{"scripts":{}}"#).unwrap();
+
+        let result = run_build_mobile(&target, tmp.path(), &None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            !err.contains("Frontend build output not found"),
+            "Should not check for frontend dist when no webapp, got: {}",
+            err
+        );
+    }
+
+    // ========================================================================
+    // run_build_desktop error path tests
+    // ========================================================================
+
+    #[test]
+    fn test_run_build_desktop_suggests_add_target_on_missing_scaffold() {
+        let target = desktop_target();
+        let config = make_config_with_targets(vec![desktop_target()]);
+        let tmp = tempfile::tempdir().unwrap();
+        // Create the target dir but not src-tauri
+        fs::create_dir_all(tmp.path().join("targets/desktop")).unwrap();
+        let result = run_build_desktop(&target, &config, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("No Cargo.toml found"));
+        assert!(err.contains("this add target desktop"));
+    }
+
+    // ========================================================================
+    // copy_dir_recursive additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_copy_dir_recursive_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("empty_src");
+        let dst = tmp.path().join("empty_dst");
+        fs::create_dir_all(&src).unwrap();
+
+        copy_dir_recursive(&src, &dst).unwrap();
+        assert!(dst.exists());
+        assert!(dst.is_dir());
+    }
+
+    #[test]
+    fn test_copy_dir_recursive_nested_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+
+        // Create deep nested structure
+        fs::create_dir_all(src.join("a/b/c")).unwrap();
+        fs::write(src.join("a/b/c/deep.txt"), "deep content").unwrap();
+        fs::write(src.join("a/top.txt"), "top content").unwrap();
+
+        copy_dir_recursive(&src, &dst).unwrap();
+
+        assert!(dst.join("a/b/c/deep.txt").exists());
+        assert!(dst.join("a/top.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dst.join("a/b/c/deep.txt")).unwrap(),
+            "deep content"
+        );
+        assert_eq!(
+            fs::read_to_string(dst.join("a/top.txt")).unwrap(),
+            "top content"
+        );
+    }
+
+    #[test]
+    fn test_copy_dir_recursive_overwrites_existing_dst() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dst).unwrap();
+
+        // Pre-populate dst with a file
+        fs::write(dst.join("existing.txt"), "old content").unwrap();
+
+        // Copy src (which has a different file)
+        fs::write(src.join("new.txt"), "new content").unwrap();
+
+        copy_dir_recursive(&src, &dst).unwrap();
+
+        // Both files should exist
+        assert!(dst.join("existing.txt").exists());
+        assert!(dst.join("new.txt").exists());
+    }
+
+    // ========================================================================
+    // run_docker (Dockerfile template rendering) tests
+    // ========================================================================
+
+    #[test]
+    fn test_run_docker_generates_dockerfile() {
+        let config = make_config_with_targets(vec![webapp_target()]);
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let writer = crate::utils::file_writer::RealWriter;
+        let result = run_docker(&config, &webapp, tmp.path(), &writer);
+        assert!(result.is_ok());
+
+        let dockerfile_path = tmp.path().join("Dockerfile");
+        assert!(
+            dockerfile_path.exists(),
+            "Dockerfile should be generated at workspace root"
+        );
+    }
+
+    #[test]
+    fn test_run_docker_dockerfile_content_has_stages() {
+        let config = make_config_with_targets(vec![webapp_target()]);
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let writer = crate::utils::file_writer::RealWriter;
+        run_docker(&config, &webapp, tmp.path(), &writer).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("Dockerfile")).unwrap();
+
+        // Stage 1: frontend build
+        assert!(
+            content.contains("FROM node:"),
+            "Dockerfile should have a node stage"
+        );
+        assert!(
+            content.contains("npm ci"),
+            "Dockerfile should install npm dependencies"
+        );
+        assert!(
+            content.contains("npm run build"),
+            "Dockerfile should build frontend"
+        );
+
+        // Stage 2: Rust builder
+        assert!(
+            content.contains("FROM rust:"),
+            "Dockerfile should have a Rust builder stage"
+        );
+        assert!(
+            content.contains("cargo build --release"),
+            "Dockerfile should build Rust in release mode"
+        );
+        assert!(
+            content.contains("embedded-frontend"),
+            "Dockerfile should use embedded-frontend feature"
+        );
+
+        // Stage 3: Runtime
+        assert!(
+            content.contains("FROM alpine:"),
+            "Dockerfile should have an Alpine runtime stage"
+        );
+    }
+
+    #[test]
+    fn test_run_docker_dockerfile_uses_project_name() {
+        let mut config = make_config_with_targets(vec![webapp_target()]);
+        config.name = "my-cool-app".to_string();
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let writer = crate::utils::file_writer::RealWriter;
+        run_docker(&config, &webapp, tmp.path(), &writer).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("Dockerfile")).unwrap();
+        assert!(
+            content.contains("my-cool-app"),
+            "Dockerfile should reference project name"
+        );
+    }
+
+    #[test]
+    fn test_run_docker_dockerfile_uses_correct_paths() {
+        let mut config = make_config_with_targets(vec![webapp_target()]);
+        config.api.path = "backend".to_string();
+        let mut webapp = webapp_target();
+        webapp.path = "frontend".to_string();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let writer = crate::utils::file_writer::RealWriter;
+        run_docker(&config, &webapp, tmp.path(), &writer).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("Dockerfile")).unwrap();
+        assert!(
+            content.contains("backend"),
+            "Dockerfile should reference api path"
+        );
+        assert!(
+            content.contains("frontend"),
+            "Dockerfile should reference webapp path"
+        );
+    }
+
+    #[test]
+    fn test_run_docker_dockerfile_uses_correct_port() {
+        let mut config = make_config_with_targets(vec![webapp_target()]);
+        config.api.port = 9090;
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let writer = crate::utils::file_writer::RealWriter;
+        run_docker(&config, &webapp, tmp.path(), &writer).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("Dockerfile")).unwrap();
+        assert!(
+            content.contains("EXPOSE 9090"),
+            "Dockerfile should EXPOSE the configured port, got: {}",
+            content
+        );
+    }
+
+    #[test]
+    fn test_run_docker_dockerfile_has_cmd() {
+        let mut config = make_config_with_targets(vec![webapp_target()]);
+        config.name = "myapp".to_string();
+        let webapp = webapp_target();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let writer = crate::utils::file_writer::RealWriter;
+        run_docker(&config, &webapp, tmp.path(), &writer).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("Dockerfile")).unwrap();
+        assert!(
+            content.contains("CMD [\"myapp\"]"),
+            "Dockerfile should have CMD with project name"
+        );
+    }
+
+    // ========================================================================
+    // run_target_build "all" mode tests
+    // ========================================================================
+
+    #[test]
+    #[ignore] // Spawns real `npm run build` — requires Node.js + npm installed
+    fn test_run_target_build_all_with_desktop_fails_at_scaffold() {
+        // "all" finds native targets and tries to build them — it should fail
+        // at the scaffold check because no src-tauri exists
+        let config = make_config_with_targets(vec![webapp_target(), desktop_target()]);
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("front/dist")).unwrap();
+        fs::write(tmp.path().join("front/package.json"), "{}").unwrap();
+        let result = run_target_build("all", &config, tmp.path());
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // run_api_build error path test
+    // ========================================================================
+
+    #[test]
+    #[ignore] // Spawns real `cargo build` process
+    fn test_run_api_build_non_existent_path() {
+        // If the api_path doesn't exist, cargo build should fail
+        let tmp = tempfile::tempdir().unwrap();
+        let fake_api_path = tmp.path().join("nonexistent-api");
+        let result = run_api_build(&fake_api_path, false);
+        assert!(
+            result.is_err(),
+            "Should fail when API path doesn't exist for cargo build"
+        );
+    }
 }

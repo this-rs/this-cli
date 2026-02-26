@@ -68,7 +68,19 @@ pub fn parse_fields(input: &str) -> Result<Vec<Field>> {
 }
 
 pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
-    let project_root = project::detect_project_root()?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+    run_in(args, writer, &cwd)
+}
+
+/// Run the add entity command with an explicit starting directory.
+/// This avoids relying on the process-global CWD, making it safe for parallel tests.
+pub(crate) fn run_in(
+    args: AddEntityArgs,
+    writer: &dyn FileWriter,
+    cwd: &std::path::Path,
+) -> Result<()> {
+    let project_root = project::detect_project_root_from(cwd)?;
     let entity_name = naming::to_snake_case(&args.name);
     let entity_pascal = naming::to_pascal_case(&args.name);
     let entity_plural = naming::pluralize(&entity_name);
@@ -845,6 +857,716 @@ fn update_links_yaml(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::*;
+    use tempfile::TempDir;
+
+    /// Create a minimal project scaffold suitable for `add entity` testing.
+    ///
+    /// The scaffold includes:
+    /// - Cargo.toml with `this` dependency
+    /// - src/entities/ directory (empty)
+    /// - src/stores.rs with all markers
+    /// - src/module.rs with all markers
+    /// - config/links.yaml with proper entities list format
+    fn setup_entity_project(tmp: &TempDir, name: &str) -> std::path::PathBuf {
+        let project = tmp.path().join(name);
+        std::fs::create_dir_all(project.join("src/entities")).unwrap();
+        std::fs::create_dir_all(project.join("config")).unwrap();
+
+        // Cargo.toml with this dependency
+        let cargo_toml = format!(
+            r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+this = "0.0.8"
+tokio = {{ version = "1", features = ["full"] }}
+"#
+        );
+        std::fs::write(project.join("Cargo.toml"), cargo_toml).unwrap();
+
+        // src/stores.rs with markers (mimics the template output)
+        let stores_rs = format!(
+            r#"#[allow(unused_imports)]
+use std::sync::Arc;
+
+use this::prelude::*;
+
+pub trait EntityStore: EntityFetcher + EntityCreator + Send + Sync {{}}
+impl<T> EntityStore for T where T: EntityFetcher + EntityCreator + Send + Sync {{}}
+
+pub struct {pascal}Stores {{
+    // [this:store_fields]
+}}
+
+impl {pascal}Stores {{
+    pub fn new_in_memory() -> Self {{
+        // [this:store_init_vars]
+
+        Self {{
+            // [this:store_init_fields]
+        }}
+    }}
+}}
+"#,
+            pascal = "Test"
+        );
+        std::fs::write(project.join("src/stores.rs"), stores_rs).unwrap();
+
+        // src/module.rs with markers (mimics the template output)
+        let module_rs = format!(
+            r#"use std::sync::Arc;
+
+use this::core::module::Module;
+use this::prelude::*;
+use this::server::entity_registry::EntityRegistry;
+
+// [this:module_imports]
+
+use crate::stores::TestStores;
+
+pub struct TestModule {{
+    pub stores: TestStores,
+}}
+
+impl TestModule {{
+    pub fn new(stores: TestStores) -> Self {{
+        Self {{ stores }}
+    }}
+}}
+
+impl Module for TestModule {{
+    fn name(&self) -> &str {{
+        "{name}"
+    }}
+
+    fn entity_types(&self) -> Vec<&str> {{
+        vec![
+            // [this:entity_types]
+        ]
+    }}
+
+    fn links_config(&self) -> anyhow::Result<LinksConfig> {{
+        let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/config/links.yaml");
+        LinksConfig::from_yaml_file(config_path)
+    }}
+
+    fn register_entities(&self, _registry: &mut EntityRegistry) {{
+        // [this:register_entities]
+    }}
+
+    fn get_entity_fetcher(&self, _entity_type: &str) -> Option<Arc<dyn EntityFetcher>> {{
+        match _entity_type {{
+            // [this:entity_fetcher]
+            _ => None,
+        }}
+    }}
+
+    fn get_entity_creator(&self, _entity_type: &str) -> Option<Arc<dyn EntityCreator>> {{
+        match _entity_type {{
+            // [this:entity_creator]
+            _ => None,
+        }}
+    }}
+}}
+"#,
+            name = name
+        );
+        std::fs::write(project.join("src/module.rs"), module_rs).unwrap();
+
+        // config/links.yaml
+        std::fs::write(
+            project.join("config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        project
+    }
+
+    /// Create a workspace scaffold with API subdirectory for entity testing.
+    fn setup_entity_workspace(tmp: &TempDir, name: &str) -> std::path::PathBuf {
+        let ws = tmp.path().join(name);
+        std::fs::create_dir_all(ws.join("api/src/entities")).unwrap();
+        std::fs::create_dir_all(ws.join("api/config")).unwrap();
+
+        // this.yaml
+        let this_yaml = format!("name: {name}\napi:\n  path: api\n  port: 3000\ntargets: []\n");
+        std::fs::write(ws.join("this.yaml"), this_yaml).unwrap();
+
+        // Workspace Cargo.toml
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"api\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        // API Cargo.toml
+        let api_cargo = format!(
+            r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+this = "0.0.8"
+tokio = {{ version = "1", features = ["full"] }}
+"#
+        );
+        std::fs::write(ws.join("api/Cargo.toml"), api_cargo).unwrap();
+
+        // src/stores.rs with markers
+        let stores_rs = format!(
+            r#"#[allow(unused_imports)]
+use std::sync::Arc;
+
+use this::prelude::*;
+
+pub trait EntityStore: EntityFetcher + EntityCreator + Send + Sync {{}}
+impl<T> EntityStore for T where T: EntityFetcher + EntityCreator + Send + Sync {{}}
+
+pub struct {pascal}Stores {{
+    // [this:store_fields]
+}}
+
+impl {pascal}Stores {{
+    pub fn new_in_memory() -> Self {{
+        // [this:store_init_vars]
+
+        Self {{
+            // [this:store_init_fields]
+        }}
+    }}
+}}
+"#,
+            pascal = "Test"
+        );
+        std::fs::write(ws.join("api/src/stores.rs"), stores_rs).unwrap();
+
+        // src/module.rs with markers
+        let module_rs = format!(
+            r#"use std::sync::Arc;
+
+use this::core::module::Module;
+use this::prelude::*;
+use this::server::entity_registry::EntityRegistry;
+
+// [this:module_imports]
+
+use crate::stores::TestStores;
+
+pub struct TestModule {{
+    pub stores: TestStores,
+}}
+
+impl TestModule {{
+    pub fn new(stores: TestStores) -> Self {{
+        Self {{ stores }}
+    }}
+}}
+
+impl Module for TestModule {{
+    fn name(&self) -> &str {{
+        "{name}"
+    }}
+
+    fn entity_types(&self) -> Vec<&str> {{
+        vec![
+            // [this:entity_types]
+        ]
+    }}
+
+    fn links_config(&self) -> anyhow::Result<LinksConfig> {{
+        let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/config/links.yaml");
+        LinksConfig::from_yaml_file(config_path)
+    }}
+
+    fn register_entities(&self, _registry: &mut EntityRegistry) {{
+        // [this:register_entities]
+    }}
+
+    fn get_entity_fetcher(&self, _entity_type: &str) -> Option<Arc<dyn EntityFetcher>> {{
+        match _entity_type {{
+            // [this:entity_fetcher]
+            _ => None,
+        }}
+    }}
+
+    fn get_entity_creator(&self, _entity_type: &str) -> Option<Arc<dyn EntityCreator>> {{
+        match _entity_type {{
+            // [this:entity_creator]
+            _ => None,
+        }}
+    }}
+}}
+"#,
+            name = name
+        );
+        std::fs::write(ws.join("api/src/module.rs"), module_rs).unwrap();
+
+        // config/links.yaml
+        std::fs::write(
+            ws.join("api/config/links.yaml"),
+            "entities: []\nlinks: []\nvalidation_rules: {}\n",
+        )
+        .unwrap();
+
+        ws
+    }
+
+    fn default_args(name: &str) -> super::super::AddEntityArgs {
+        super::super::AddEntityArgs {
+            name: name.to_string(),
+            fields: None,
+            validated: false,
+            indexed: "name".to_string(),
+            backend: "in-memory".to_string(),
+        }
+    }
+
+    // ========================================================================
+    // run_in() tests
+    // ========================================================================
+
+    #[test]
+    fn test_add_entity_creates_files() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "creates_files");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        let result = run_in(args, &writer, &project);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+
+        // Verify all entity files were created
+        assert_file_exists(&project, "src/entities/product/model.rs");
+        assert_file_exists(&project, "src/entities/product/store.rs");
+        assert_file_exists(&project, "src/entities/product/handlers.rs");
+        assert_file_exists(&project, "src/entities/product/descriptor.rs");
+        assert_file_exists(&project, "src/entities/product/mod.rs");
+    }
+
+    #[test]
+    fn test_add_entity_updates_entities_mod() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "updates_mod");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // The entities/mod.rs should be created with the pub mod declaration
+        assert_file_exists(&project, "src/entities/mod.rs");
+        assert_file_contains(&project, "src/entities/mod.rs", "pub mod product;");
+    }
+
+    #[test]
+    fn test_add_entity_updates_existing_entities_mod() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "existing_mod");
+        // Pre-create entities/mod.rs with some existing content
+        std::fs::write(project.join("src/entities/mod.rs"), "pub mod order;\n").unwrap();
+
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        assert_file_contains(&project, "src/entities/mod.rs", "pub mod order;");
+        assert_file_contains(&project, "src/entities/mod.rs", "pub mod product;");
+    }
+
+    #[test]
+    fn test_add_entity_updates_stores() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "updates_stores");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // stores.rs should have the new store fields
+        assert_file_contains(&project, "src/stores.rs", "products_store:");
+        assert_file_contains(&project, "src/stores.rs", "products_entity:");
+        // In-memory backend should have InMemoryProductStore init
+        assert_file_contains(&project, "src/stores.rs", "InMemoryProductStore");
+    }
+
+    #[test]
+    fn test_add_entity_updates_module_rs() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "updates_module");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // module.rs should register the entity
+        assert_file_contains(&project, "src/module.rs", "\"product\"");
+        assert_file_contains(&project, "src/module.rs", "ProductDescriptor");
+    }
+
+    #[test]
+    fn test_add_entity_updates_links_yaml() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "updates_links");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // links.yaml should have the entity entry
+        assert_file_contains(&project, "config/links.yaml", "product");
+        assert_file_contains(&project, "config/links.yaml", "products");
+    }
+
+    #[test]
+    fn test_add_entity_with_fields() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "with_fields");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.fields = Some("sku:String,price:f64".to_string());
+
+        run_in(args, &writer, &project).unwrap();
+
+        // The model should contain the custom fields
+        assert_file_contains(&project, "src/entities/product/model.rs", "sku");
+        assert_file_contains(&project, "src/entities/product/model.rs", "price");
+    }
+
+    #[test]
+    fn test_add_entity_with_optional_fields() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "optional_fields");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.fields = Some("description:Option<String>".to_string());
+
+        run_in(args, &writer, &project).unwrap();
+
+        assert_file_contains(&project, "src/entities/product/model.rs", "description");
+        assert_file_contains(&project, "src/entities/product/model.rs", "Option<String>");
+    }
+
+    #[test]
+    fn test_add_entity_postgres_backend() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "pg_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "postgres".to_string();
+
+        run_in(args, &writer, &project).unwrap();
+
+        // store.rs should use postgres template
+        assert_file_contains(&project, "src/entities/product/store.rs", "Postgres");
+        // stores.rs should have postgres constructor/imports
+        assert_file_contains(&project, "src/stores.rs", "PostgresProductStore");
+        // Migration should be generated
+        assert_dir_exists(&project, "migrations");
+    }
+
+    #[test]
+    fn test_add_entity_lmdb_backend() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "lmdb_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "lmdb".to_string();
+
+        run_in(args, &writer, &project).unwrap();
+
+        // store.rs should use lmdb template
+        assert_file_contains(&project, "src/entities/product/store.rs", "Lmdb");
+        // stores.rs should have lmdb constructor/imports
+        assert_file_contains(&project, "src/stores.rs", "LmdbProductStore");
+    }
+
+    #[test]
+    fn test_add_entity_duplicate_error() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "dup_entity");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        // First time: success
+        let args = default_args("product");
+        run_in(args, &writer, &project).unwrap();
+
+        // Second time: should fail because entity dir already exists
+        let args2 = default_args("product");
+        let result = run_in(args2, &writer, &project);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("already exists"),
+            "Error should mention duplicate: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_entity_outside_project_error() {
+        let tmp = TempDir::new().unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        // Pass a path with no Cargo.toml/this.yaml anywhere
+        let result = run_in(args, &writer, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Not inside a this-rs project"),
+            "Error should mention not in project: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_entity_with_validated_flag() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "validated");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.validated = true;
+
+        run_in(args, &writer, &project).unwrap();
+
+        // The model should use the validated template
+        assert_file_contains(&project, "src/entities/product/model.rs", "validated");
+    }
+
+    #[test]
+    fn test_add_entity_with_custom_indexed_fields() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "indexed");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.indexed = "sku,name".to_string();
+        args.fields = Some("sku:String".to_string());
+
+        run_in(args, &writer, &project).unwrap();
+
+        // The store should contain the indexed fields
+        assert_file_contains(&project, "src/entities/product/store.rs", "sku");
+        assert_file_contains(&project, "src/entities/product/store.rs", "name");
+    }
+
+    #[test]
+    fn test_add_entity_in_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let ws = setup_entity_workspace(&tmp, "ws_entity");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        // Run from workspace root — should resolve to api/ subdirectory
+        let result = run_in(args, &writer, &ws);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+
+        // Entity files should be under api/src/entities/
+        assert_file_exists(&ws, "api/src/entities/product/model.rs");
+        assert_file_exists(&ws, "api/src/entities/product/store.rs");
+        assert_file_exists(&ws, "api/src/entities/product/handlers.rs");
+        assert_file_exists(&ws, "api/src/entities/product/descriptor.rs");
+        assert_file_exists(&ws, "api/src/entities/product/mod.rs");
+        assert_file_contains(&ws, "api/src/entities/mod.rs", "pub mod product;");
+    }
+
+    #[test]
+    fn test_add_entity_model_content() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "model_content");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // Model should contain entity struct and impl_data_entity! macro
+        assert_file_contains(&project, "src/entities/product/model.rs", "Product");
+        assert_file_contains(
+            &project,
+            "src/entities/product/model.rs",
+            "impl_data_entity",
+        );
+    }
+
+    #[test]
+    fn test_add_entity_descriptor_content() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "desc_content");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // Descriptor should reference the entity
+        assert_file_contains(&project, "src/entities/product/descriptor.rs", "Product");
+        assert_file_contains(&project, "src/entities/product/descriptor.rs", "product");
+    }
+
+    #[test]
+    fn test_add_entity_mod_rs_content() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "mod_content");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // Entity mod.rs should re-export submodules
+        assert_file_contains(&project, "src/entities/product/mod.rs", "pub mod model");
+        assert_file_contains(&project, "src/entities/product/mod.rs", "pub mod store");
+        assert_file_contains(&project, "src/entities/product/mod.rs", "pub mod handlers");
+        assert_file_contains(
+            &project,
+            "src/entities/product/mod.rs",
+            "pub mod descriptor",
+        );
+    }
+
+    #[test]
+    fn test_add_entity_mysql_backend() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "mysql_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "mysql".to_string();
+
+        run_in(args, &writer, &project).unwrap();
+
+        assert_file_contains(&project, "src/entities/product/store.rs", "Mysql");
+        assert_file_contains(&project, "src/stores.rs", "MysqlProductStore");
+        // Migration should be generated for mysql
+        assert_dir_exists(&project, "migrations");
+    }
+
+    #[test]
+    fn test_add_entity_mongodb_backend() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "mongo_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "mongodb".to_string();
+
+        run_in(args, &writer, &project).unwrap();
+
+        assert_file_contains(&project, "src/entities/product/store.rs", "Mongo");
+        assert_file_contains(&project, "src/stores.rs", "MongoProductStore");
+    }
+
+    #[test]
+    fn test_add_entity_reserved_fields_skipped() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "reserved_fields");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        // "name" and "id" are reserved, "sku" is custom
+        args.fields = Some("id:Uuid,name:String,sku:String".to_string());
+
+        run_in(args, &writer, &project).unwrap();
+
+        // Only the custom field should appear (reserved fields are filtered out)
+        let model_content =
+            std::fs::read_to_string(project.join("src/entities/product/model.rs")).unwrap();
+        assert!(
+            model_content.contains("sku"),
+            "Custom field 'sku' should be present"
+        );
+    }
+
+    #[test]
+    fn test_add_entity_pascal_case_naming() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "pascal_name");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        // Pass PascalCase name — should be converted to snake_case for dir/files
+        let args = default_args("OrderItem");
+
+        run_in(args, &writer, &project).unwrap();
+
+        // Directory should use snake_case
+        assert_file_exists(&project, "src/entities/order_item/model.rs");
+        // Model should use PascalCase for the struct
+        assert_file_contains(&project, "src/entities/order_item/model.rs", "OrderItem");
+        // entities/mod.rs should use snake_case
+        assert_file_contains(&project, "src/entities/mod.rs", "pub mod order_item;");
+    }
+
+    #[test]
+    fn test_add_entity_stores_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "idempotent");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        // Add first entity
+        let args1 = default_args("product");
+        run_in(args1, &writer, &project).unwrap();
+
+        // Add second entity (different name, should work)
+        let args2 = default_args("order");
+        run_in(args2, &writer, &project).unwrap();
+
+        // Both should appear in stores.rs
+        assert_file_contains(&project, "src/stores.rs", "products_store:");
+        assert_file_contains(&project, "src/stores.rs", "orders_store:");
+        // Both should appear in module.rs
+        assert_file_contains(&project, "src/module.rs", "\"product\"");
+        assert_file_contains(&project, "src/module.rs", "\"order\"");
+    }
+
+    #[test]
+    fn test_add_entity_no_stores_rs() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "no_stores");
+        // Remove stores.rs
+        std::fs::remove_file(project.join("src/stores.rs")).unwrap();
+
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        // Should succeed even without stores.rs (just skips that update)
+        let result = run_in(args, &writer, &project);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+        assert_file_exists(&project, "src/entities/product/model.rs");
+    }
+
+    #[test]
+    fn test_add_entity_no_module_rs() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "no_module");
+        // Remove module.rs
+        std::fs::remove_file(project.join("src/module.rs")).unwrap();
+
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        // Should succeed even without module.rs (just skips that update)
+        let result = run_in(args, &writer, &project);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+        assert_file_exists(&project, "src/entities/product/model.rs");
+    }
+
+    #[test]
+    fn test_add_entity_no_links_yaml() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "no_links");
+        // Remove links.yaml
+        std::fs::remove_file(project.join("config/links.yaml")).unwrap();
+
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("product");
+
+        // Should succeed even without links.yaml (just skips that update)
+        let result = run_in(args, &writer, &project);
+        assert!(result.is_ok(), "Should succeed: {:?}", result.err());
+        assert_file_exists(&project, "src/entities/product/model.rs");
+    }
+
+    // ========================================================================
+    // Existing parse_fields tests (preserved)
+    // ========================================================================
 
     #[test]
     fn test_parse_fields_valid() {
