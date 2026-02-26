@@ -51,3 +51,49 @@ pub fn print_next_steps(steps: &[&str]) {
         println!("  {}", step);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_print_banner() {
+        // Smoke test — should not panic
+        print_banner();
+    }
+
+    #[test]
+    fn test_print_step() {
+        print_step("step");
+    }
+
+    #[test]
+    fn test_print_file_created() {
+        print_file_created("file.rs");
+    }
+
+    #[test]
+    fn test_print_success() {
+        print_success("done");
+    }
+
+    #[test]
+    fn test_print_error() {
+        print_error("oops");
+    }
+
+    #[test]
+    fn test_print_info() {
+        print_info("info");
+    }
+
+    #[test]
+    fn test_print_warn() {
+        print_warn("warning");
+    }
+
+    #[test]
+    fn test_print_next_steps() {
+        print_next_steps(&["step 1", "step 2", "step 3"]);
+    }
+}

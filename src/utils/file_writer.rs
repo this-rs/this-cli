@@ -50,6 +50,7 @@ pub struct DryRunWriter {
     dirs_created: std::cell::RefCell<Vec<PathBuf>>,
 }
 
+#[allow(dead_code)]
 impl DryRunWriter {
     pub fn new() -> Self {
         Self {
@@ -134,5 +135,130 @@ fn print_simple_diff(original: &str, updated: &str) {
         if !original_lines.contains(line) {
             println!("    {} {}", "+".green(), line.green());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // ── RealWriter tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_real_writer_write_file() {
+        let tmp = TempDir::new().unwrap();
+        let writer = RealWriter;
+        let file = tmp.path().join("hello.txt");
+
+        writer.write_file(&file, "hello world").unwrap();
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_real_writer_create_dir_all() {
+        let tmp = TempDir::new().unwrap();
+        let writer = RealWriter;
+        let nested = tmp.path().join("a").join("b").join("c");
+
+        writer.create_dir_all(&nested).unwrap();
+
+        assert!(nested.is_dir());
+    }
+
+    #[test]
+    fn test_real_writer_update_file() {
+        let tmp = TempDir::new().unwrap();
+        let writer = RealWriter;
+        let file = tmp.path().join("data.txt");
+
+        writer.write_file(&file, "version 1").unwrap();
+        writer.update_file(&file, "version 1", "version 2").unwrap();
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "version 2");
+    }
+
+    #[test]
+    fn test_real_writer_is_not_dry_run() {
+        let writer = RealWriter;
+        assert!(!writer.is_dry_run());
+    }
+
+    // ── DryRunWriter tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_dry_run_writer_tracks_files_created() {
+        let writer = DryRunWriter::new();
+        let path = PathBuf::from("/fake/new_file.rs");
+
+        writer.write_file(&path, "content").unwrap();
+
+        assert_eq!(writer.files_created(), vec![path]);
+    }
+
+    #[test]
+    fn test_dry_run_writer_tracks_files_updated() {
+        let writer = DryRunWriter::new();
+        let path = PathBuf::from("/fake/existing.rs");
+
+        writer.update_file(&path, "old", "new").unwrap();
+
+        assert_eq!(writer.files_updated(), vec![path]);
+    }
+
+    #[test]
+    fn test_dry_run_writer_tracks_dirs_created() {
+        let writer = DryRunWriter::new();
+        let path = PathBuf::from("/fake/some/dir");
+
+        writer.create_dir_all(&path).unwrap();
+
+        assert_eq!(writer.dirs_created(), vec![path]);
+    }
+
+    #[test]
+    fn test_dry_run_writer_is_dry_run() {
+        let writer = DryRunWriter::new();
+        assert!(writer.is_dry_run());
+    }
+
+    #[test]
+    fn test_dry_run_writer_does_not_write_real_files() {
+        let tmp = TempDir::new().unwrap();
+        let writer = DryRunWriter::new();
+        let file = tmp.path().join("should_not_exist.txt");
+
+        writer.write_file(&file, "content").unwrap();
+
+        assert!(!file.exists(), "DryRunWriter must not create real files");
+    }
+
+    #[test]
+    fn test_print_summary_no_changes() {
+        let writer = DryRunWriter::new();
+        // Should not panic when there are no operations
+        writer.print_summary();
+    }
+
+    #[test]
+    fn test_print_summary_with_changes() {
+        let writer = DryRunWriter::new();
+        writer.write_file(Path::new("/fake/a.rs"), "a").unwrap();
+        writer.write_file(Path::new("/fake/b.rs"), "b").unwrap();
+        writer
+            .update_file(Path::new("/fake/c.rs"), "old", "new")
+            .unwrap();
+
+        // Should not panic with created + updated files
+        writer.print_summary();
+    }
+
+    #[test]
+    fn test_print_simple_diff() {
+        // Should not panic — just prints to stdout
+        print_simple_diff("line1\nline2\n", "line1\nline2\nline3\n");
     }
 }

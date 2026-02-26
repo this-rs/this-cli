@@ -52,20 +52,18 @@ serde = {{ version = "1", features = ["derive"] }}
     std::fs::write(project.join("Cargo.toml"), cargo_toml).unwrap();
 
     // main.rs
-    let main_rs = format!(
-        r#"use this::prelude::*;
+    let main_rs = r#"use this::prelude::*;
 
 mod domain;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {{
+async fn main() -> anyhow::Result<()> {
     let host = ServerHost::builder()
         .port(3000)
         .build()?;
     host.run().await
-}}
-"#
-    );
+}
+"#;
     std::fs::write(project.join("src/main.rs"), main_rs).unwrap();
 
     // domain/mod.rs
@@ -115,18 +113,14 @@ pub fn setup_test_workspace(tmp: &TempDir, name: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(ws.join("api/config")).unwrap();
 
     // this.yaml
-    let this_yaml = format!(
-        "name: {name}\napi:\n  path: api\n  port: 3000\ntargets: []\n"
-    );
+    let this_yaml = format!("name: {name}\napi:\n  path: api\n  port: 3000\ntargets: []\n");
     std::fs::write(ws.join("this.yaml"), this_yaml).unwrap();
 
     // Workspace Cargo.toml
-    let workspace_cargo = format!(
-        r#"[workspace]
+    let workspace_cargo = r#"[workspace]
 members = ["api"]
 resolver = "2"
-"#
-    );
+"#;
     std::fs::write(ws.join("Cargo.toml"), workspace_cargo).unwrap();
 
     // API Cargo.toml
@@ -147,20 +141,18 @@ serde = {{ version = "1", features = ["derive"] }}
     std::fs::write(ws.join("api/Cargo.toml"), api_cargo).unwrap();
 
     // API main.rs
-    let main_rs = format!(
-        r#"use this::prelude::*;
+    let main_rs = r#"use this::prelude::*;
 
 mod domain;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {{
+async fn main() -> anyhow::Result<()> {
     let host = ServerHost::builder()
         .port(3000)
         .build()?;
     host.run().await
-}}
-"#
-    );
+}
+"#;
     std::fs::write(ws.join("api/src/main.rs"), main_rs).unwrap();
 
     // domain/mod.rs + stores.rs
@@ -203,6 +195,7 @@ pub fn setup_test_workspace_with_webapp(tmp: &TempDir, name: &str) -> std::path:
 }
 
 /// Create a workspace scaffold with websocket support.
+#[allow(dead_code)]
 pub fn setup_test_workspace_with_websocket(tmp: &TempDir, name: &str) -> std::path::PathBuf {
     let ws = setup_test_workspace(tmp, name);
 
@@ -241,6 +234,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Create a workspace scaffold with gRPC support.
+#[allow(dead_code)]
 pub fn setup_test_workspace_with_grpc(tmp: &TempDir, name: &str) -> std::path::PathBuf {
     let ws = setup_test_workspace(tmp, name);
 
@@ -421,13 +415,8 @@ pub fn assert_dir_exists(dir: &Path, relative: &str) {
 /// Panics if the file doesn't exist or doesn't contain the expected string.
 pub fn assert_file_contains(dir: &Path, relative: &str, expected: &str) {
     let path = dir.join(relative);
-    let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!(
-            "Failed to read file {}: {}",
-            path.display(),
-            e
-        )
-    });
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Failed to read file {}: {}", path.display(), e));
     assert!(
         content.contains(expected),
         "File '{}' should contain '{}'\n--- Actual content ---\n{}",
@@ -440,13 +429,8 @@ pub fn assert_file_contains(dir: &Path, relative: &str, expected: &str) {
 /// Assert that a file does NOT contain the given string.
 pub fn assert_file_not_contains(dir: &Path, relative: &str, unexpected: &str) {
     let path = dir.join(relative);
-    let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!(
-            "Failed to read file {}: {}",
-            path.display(),
-            e
-        )
-    });
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Failed to read file {}: {}", path.display(), e));
     assert!(
         !content.contains(unexpected),
         "File '{}' should NOT contain '{}'\n--- Actual content ---\n{}",
