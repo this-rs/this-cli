@@ -34,8 +34,11 @@ async fn main() -> anyhow::Result<()> {
 
     let host = ServerBuilder::new()
         .with_link_service((*link_service).clone())
-{% if websocket %}
-        .with_event_bus(1024)
+{% if events or websocket %}
+        .with_event_bus()
+{% endif %}
+{% if events %}
+        .with_notification_store()
 {% endif %}
         .register_module(module)?
         .build_host()?;
@@ -58,6 +61,10 @@ async fn main() -> anyhow::Result<()> {
 
     let app = ServerBuilder::new()
         .with_link_service((*link_service).clone())
+{% if events %}
+        .with_event_bus()
+        .with_notification_store()
+{% endif %}
         .register_module(module)?
         .build()?;
 {% endif %}
@@ -69,6 +76,10 @@ async fn main() -> anyhow::Result<()> {
 {% if grpc %}
     println!("📡 gRPC available on http://127.0.0.1:{{ port }}");
     println!("📋 Proto export at http://127.0.0.1:{{ port }}/grpc/proto");
+{% endif %}
+{% if events %}
+    println!("📡 SSE stream at http://127.0.0.1:{{ port }}/events/stream");
+    println!("🔔 Notifications at http://127.0.0.1:{{ port }}/notifications");
 {% endif %}
 
 {% if workspace %}

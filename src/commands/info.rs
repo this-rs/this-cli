@@ -62,6 +62,13 @@ pub struct FeatureFlags {
     pub grpc: bool,
 }
 
+/// Event system information
+#[derive(Debug, Serialize)]
+pub struct EventsInfo {
+    pub sinks: Vec<String>,
+    pub flows: Vec<String>,
+}
+
 /// Complete project information — returned by collect_info() for structured (MCP) use
 #[derive(Debug, Serialize)]
 pub struct ProjectInfo {
@@ -70,6 +77,8 @@ pub struct ProjectInfo {
     pub features: FeatureFlags,
     pub entities: Vec<EntityInfo>,
     pub links: Vec<LinkInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<EventsInfo>,
     pub coherence: CoherenceStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceInfo>,
@@ -83,6 +92,7 @@ pub fn collect_info() -> Result<ProjectInfo> {
     let features = detect_this_features(&project_root);
     let entities = scan_entities(&project_root)?;
     let links = parse_links_yaml(&project_root)?;
+    let events = detect_events_info(&project_root);
     let coherence = check_coherence(&project_root, &entities)?;
 
     // Detect workspace context
@@ -94,6 +104,7 @@ pub fn collect_info() -> Result<ProjectInfo> {
         features,
         entities,
         links,
+        events,
         coherence,
         workspace,
     })
@@ -121,6 +132,19 @@ fn detect_workspace_info() -> Option<WorkspaceInfo> {
         api_path: ws_config.api.path,
         api_port: ws_config.api.port,
         targets,
+    })
+}
+
+/// Detect event system info by reading config/events.yaml
+fn detect_events_info(project_root: &Path) -> Option<EventsInfo> {
+    let events_path = project_root.join("config/events.yaml");
+    let content = std::fs::read_to_string(&events_path).ok()?;
+    let config: crate::commands::add_event_flow::EventsConfig =
+        serde_yaml::from_str(&content).ok()?;
+
+    Some(EventsInfo {
+        sinks: config.event_sinks.iter().map(|s| s.name.clone()).collect(),
+        flows: config.event_flows.iter().map(|f| f.name.clone()).collect(),
     })
 }
 
@@ -247,6 +271,28 @@ pub fn run() -> Result<()> {
         }
     }
     println!();
+
+    // Events section
+    if let Some(events) = &info.events {
+        println!(
+            "{} Events: {} sink(s), {} flow(s)",
+            "📡".bold(),
+            events.sinks.len().to_string().cyan(),
+            events.flows.len().to_string().cyan()
+        );
+        if !events.sinks.is_empty() {
+            println!(
+                "   Sinks: {}",
+                events.sinks.join(", ").dimmed()
+            );
+        }
+        if !events.flows.is_empty() {
+            for flow in &events.flows {
+                println!("   {} {}", "•".dimmed(), flow.bold());
+            }
+        }
+        println!();
+    }
 
     // Status section
     println!("{} Status:", "📊".bold());
@@ -1590,6 +1636,7 @@ validation_rules: {}
                 forward_route: "products".to_string(),
                 reverse_route: "order".to_string(),
             }],
+            events: None,
             coherence: CoherenceStatus {
                 module_registered: 1,
                 module_total: 2,
@@ -1620,6 +1667,7 @@ validation_rules: {}
             },
             entities: vec![],
             links: vec![],
+            events: None,
             coherence: CoherenceStatus {
                 module_registered: 0,
                 module_total: 0,
@@ -1669,6 +1717,7 @@ validation_rules: {}
             },
             entities: vec![],
             links: vec![],
+            events: None,
             coherence: CoherenceStatus {
                 module_registered: 0,
                 module_total: 2,

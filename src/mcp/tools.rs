@@ -9,6 +9,8 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         init_project_tool(),
         add_entity_tool(),
         add_link_tool(),
+        add_event_flow_tool(),
+        add_sink_tool(),
         get_project_info_tool(),
         check_project_health_tool(),
         build_project_tool(),
@@ -52,6 +54,10 @@ fn init_project_tool() -> ToolDefinition {
                 "grpc": {
                     "type": "boolean",
                     "description": "If true, enable gRPC support in the generated project (adds grpc feature to this-rs dependency and GrpcExposure in main.rs) (default: false)"
+                },
+                "events": {
+                    "type": "boolean",
+                    "description": "If true, enable event system (EventBus, NotificationStore, SSE streaming, event flows). Generates config/events.yaml and adds .with_event_bus() / .with_notification_store() to main.rs (default: false)"
                 },
                 "cwd": {
                     "type": "string",
@@ -137,6 +143,64 @@ fn add_link_tool() -> ToolDefinition {
                 }
             })),
             required: Some(vec!["source".to_string(), "target".to_string()]),
+        },
+    }
+}
+
+fn add_event_flow_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "add_event_flow".to_string(),
+        description: "Add an event flow pipeline to config/events.yaml. Event flows are declarative pipelines triggered by entity events (created, updated, deleted) that deliver notifications to configured sinks.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "name": {
+                    "type": "string",
+                    "description": "Event flow name (e.g. 'notify-on-create')"
+                },
+                "trigger": {
+                    "type": "string",
+                    "description": "Trigger pattern (e.g. 'entity.created.*', 'entity.updated.order'). Default: 'entity.created.*'"
+                },
+                "sink": {
+                    "type": "string",
+                    "description": "Delivery sink name to use in the final deliver step. Must exist in events.yaml. Default: 'in-app'"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs project with config/events.yaml)"
+                }
+            })),
+            required: Some(vec!["name".to_string()]),
+        },
+    }
+}
+
+fn add_sink_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "add_sink".to_string(),
+        description: "Add an event sink (delivery target) to config/events.yaml. Sinks define where events are delivered: in-app notifications, webhooks, push notifications, websocket broadcasts, or counters.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "name": {
+                    "type": "string",
+                    "description": "Sink name (e.g. 'my-webhook')"
+                },
+                "sink_type": {
+                    "type": "string",
+                    "description": "Sink type: in_app, webhook, push, websocket, counter"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "URL for webhook sinks (required when sink_type is 'webhook')"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs project with config/events.yaml)"
+                }
+            })),
+            required: Some(vec!["name".to_string(), "sink_type".to_string()]),
         },
     }
 }
@@ -307,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_all_tools_count() {
-        assert_eq!(all_tools().len(), 9);
+        assert_eq!(all_tools().len(), 11);
     }
 
     #[test]

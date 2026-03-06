@@ -24,6 +24,8 @@ impl ToolHandler {
             "build_project" => handle_build_project(&args),
             "start_dev" => handle_start_dev(&args),
             "add_target" => handle_add_target(&args),
+            "add_event_flow" => handle_add_event_flow(&args),
+            "add_sink" => handle_add_sink(&args),
             "generate_client" => handle_generate_client(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
@@ -59,7 +61,10 @@ impl Drop for CwdGuard {
     }
 }
 
-use crate::commands::{AddEntityArgs, AddLinkArgs, AddTargetArgs, BuildArgs, DevArgs, InitArgs};
+use crate::commands::{
+    AddEntityArgs, AddEventFlowArgs, AddLinkArgs, AddSinkArgs, AddTargetArgs, BuildArgs, DevArgs,
+    InitArgs,
+};
 use crate::utils::file_writer::FileWriter;
 
 /// FileWriter that performs real operations AND tracks created/modified files
@@ -153,6 +158,11 @@ fn handle_init_project(args: &Value) -> Result<Value> {
 
     let grpc = args.get("grpc").and_then(|v| v.as_bool()).unwrap_or(false);
 
+    let events = args
+        .get("events")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     let init_args = InitArgs {
         name: name.clone(),
         path: path.clone(),
@@ -162,6 +172,7 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         workspace,
         websocket,
         grpc,
+        events,
     };
 
     crate::commands::init::run(init_args, &writer)?;
@@ -464,6 +475,83 @@ fn handle_add_target(args: &Value) -> Result<Value> {
         "files_created": writer.files_created(),
         "files_modified": writer.files_modified(),
         "next_steps": ["cd front && npm install", "this dev"],
+    }))
+}
+
+fn handle_add_event_flow(args: &Value) -> Result<Value> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: name"))?
+        .to_string();
+
+    let trigger = args
+        .get("trigger")
+        .and_then(|v| v.as_str())
+        .unwrap_or("entity.created.*")
+        .to_string();
+
+    let sink = args
+        .get("sink")
+        .and_then(|v| v.as_str())
+        .unwrap_or("in-app")
+        .to_string();
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+
+    let flow_args = AddEventFlowArgs {
+        name: name.clone(),
+        trigger: trigger.clone(),
+        sink: sink.clone(),
+    };
+
+    crate::commands::add_event_flow::run(flow_args, &writer)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "flow_name": name,
+        "trigger": trigger,
+        "sink": sink,
+        "files_modified": writer.files_modified(),
+    }))
+}
+
+fn handle_add_sink(args: &Value) -> Result<Value> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: name"))?
+        .to_string();
+
+    let sink_type = args
+        .get("sink_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: sink_type"))?
+        .to_string();
+
+    let url = args
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+
+    let sink_args = AddSinkArgs {
+        name: name.clone(),
+        sink_type: sink_type.clone(),
+        url: url.clone(),
+    };
+
+    crate::commands::add_sink::run(sink_args, &writer)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "sink_name": name,
+        "sink_type": sink_type,
+        "url": url,
+        "files_modified": writer.files_modified(),
     }))
 }
 

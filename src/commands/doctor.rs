@@ -112,6 +112,7 @@ fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
     results.extend(check_links(project_root));
     results.extend(check_websocket(project_root));
     results.extend(check_grpc(project_root));
+    results.extend(check_events(project_root));
     results
 }
 
@@ -743,6 +744,96 @@ fn check_grpc(project_root: &Path) -> Vec<DiagnosticResult> {
             "grpc feature enabled in Cargo.toml but GrpcExposure not found in main.rs",
         )]
     }
+}
+
+/// Check events.yaml consistency:
+/// - If events.yaml exists, parse it
+/// - Check that flows reference existing sinks
+/// - Check for empty sinks/flows
+fn check_events(project_root: &Path) -> Vec<DiagnosticResult> {
+    let events_path = project_root.join("config/events.yaml");
+
+    if !events_path.exists() {
+        // No events.yaml — check if main.rs uses event_bus (would mean missing config)
+        let main_path = project_root.join("src/main.rs");
+        if let Ok(main_content) = std::fs::read_to_string(&main_path)
+            && main_content.contains("with_event_bus") {
+                return vec![DiagnosticResult::warn(
+                    "Events",
+                    "main.rs uses with_event_bus() but config/events.yaml not found",
+                )];
+            }
+        return vec![];
+    }
+
+    let mut results = Vec::new();
+
+    let content = match std::fs::read_to_string(&events_path) {
+        Ok(c) => c,
+        Err(_) => {
+            results.push(DiagnosticResult::error(
+                "Events",
+                "config/events.yaml exists but cannot be read",
+            ));
+            return results;
+        }
+    };
+
+    let config: crate::commands::add_event_flow::EventsConfig = match serde_yaml::from_str(&content)
+    {
+        Ok(c) => c,
+        Err(_) => {
+            results.push(DiagnosticResult::error(
+                "Events",
+                "config/events.yaml has invalid YAML syntax",
+            ));
+            return results;
+        }
+    };
+
+    // Check sinks
+    if config.event_sinks.is_empty() {
+        results.push(DiagnosticResult::warn(
+            "Events",
+            "No event sinks configured in events.yaml",
+        ));
+    }
+
+    // Build sink name set for flow validation
+    let sink_names: std::collections::HashSet<&str> =
+        config.event_sinks.iter().map(|s| s.name.as_str()).collect();
+
+    // Check flows reference valid sinks
+    let mut flow_issues = Vec::new();
+    for flow in &config.event_flows {
+        for step in &flow.steps {
+            if step.step_type == "deliver"
+                && let Some(ref sink) = step.sink
+                    && !sink_names.contains(sink.as_str()) {
+                        flow_issues.push(format!(
+                            "Flow '{}' references unknown sink '{}'",
+                            flow.name, sink
+                        ));
+                    }
+        }
+    }
+
+    if flow_issues.is_empty() {
+        results.push(DiagnosticResult::pass(
+            "Events",
+            &format!(
+                "{} sink(s), {} flow(s) configured — all references valid",
+                config.event_sinks.len(),
+                config.event_flows.len()
+            ),
+        ));
+    } else {
+        for issue in &flow_issues {
+            results.push(DiagnosticResult::warn("Events", issue));
+        }
+    }
+
+    results
 }
 
 #[cfg(test)]

@@ -105,12 +105,14 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 11);
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"init_project"));
     assert!(tool_names.contains(&"add_entity"));
     assert!(tool_names.contains(&"add_link"));
+    assert!(tool_names.contains(&"add_event_flow"));
+    assert!(tool_names.contains(&"add_sink"));
     assert!(tool_names.contains(&"get_project_info"));
     assert!(tool_names.contains(&"check_project_health"));
     assert!(tool_names.contains(&"build_project"));

@@ -40,6 +40,8 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
             AddCommands::Entity(args) => commands::add_entity::run(args, writer),
             AddCommands::Link(args) => commands::add_link::run(args, writer),
             AddCommands::Target(args) => commands::add_target::run(args, writer),
+            AddCommands::EventFlow(args) => commands::add_event_flow::run(args, writer),
+            AddCommands::Sink(args) => commands::add_sink::run(args, writer),
         },
         Commands::Info => commands::info::run(),
         Commands::Generate(generate) => match generate.command {
