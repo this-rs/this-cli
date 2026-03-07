@@ -63,11 +63,14 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
     if args.grpc {
         context.insert("grpc", &true);
     }
+    if args.events {
+        context.insert("events", &true);
+    }
     if let Some(ref this_path) = args.this_path {
         context.insert("this_path", this_path);
     }
 
-    let files: &[(&str, &str)] = &[
+    let mut files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
         ("project/main.rs", "src/main.rs"),
         ("project/module.rs", "src/module.rs"),
@@ -76,7 +79,11 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
         ("project/links.yaml", "config/links.yaml"),
     ];
 
-    for (template_name, output_path) in files {
+    if args.events {
+        files.push(("project/events.yaml", "config/events.yaml"));
+    }
+
+    for (template_name, output_path) in &files {
         let rendered = engine
             .render(template_name, &context)
             .with_context(|| format!("Failed to render template: {}", template_name))?;
@@ -92,12 +99,17 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
 
     if !writer.is_dry_run() {
         output::print_success(&format!("Project '{}' created successfully!", &args.name));
-        output::print_next_steps(&[
-            &format!("cd {}", &args.name),
-            "cargo run",
-            &format!("# Server will start on http://127.0.0.1:{}", &args.port),
-            "# Add entities with: this add entity <name>",
-        ]);
+        let mut next_steps = vec![
+            format!("cd {}", &args.name),
+            "cargo run".to_string(),
+            format!("# Server will start on http://127.0.0.1:{}", &args.port),
+            "# Add entities with: this add entity <name>".to_string(),
+        ];
+        if args.events {
+            next_steps.push("# Configure event flows in config/events.yaml".to_string());
+        }
+        let next_steps_refs: Vec<&str> = next_steps.iter().map(|s| s.as_str()).collect();
+        output::print_next_steps(&next_steps_refs);
     }
 
     Ok(())
@@ -157,11 +169,14 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     if args.grpc {
         api_context.insert("grpc", &true);
     }
+    if args.events {
+        api_context.insert("events", &true);
+    }
     if let Some(ref this_path) = args.this_path {
         api_context.insert("this_path", this_path);
     }
 
-    let api_files: &[(&str, &str)] = &[
+    let mut api_files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
         ("project/main.rs", "src/main.rs"),
         ("project/embedded_frontend.rs", "src/embedded_frontend.rs"),
@@ -171,7 +186,11 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
         ("project/links.yaml", "config/links.yaml"),
     ];
 
-    for (template_name, output_path) in api_files {
+    if args.events {
+        api_files.push(("project/events.yaml", "config/events.yaml"));
+    }
+
+    for (template_name, output_path) in &api_files {
         let rendered = engine
             .render(template_name, &api_context)
             .with_context(|| format!("Failed to render template: {}", template_name))?;
@@ -195,13 +214,18 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
 
     if !writer.is_dry_run() {
         output::print_success(&format!("Workspace '{}' created successfully!", &args.name));
-        output::print_next_steps(&[
-            &format!("cd {}", &args.name),
-            "cargo run --manifest-path api/Cargo.toml",
-            &format!("# Server will start on http://127.0.0.1:{}", &args.port),
-            "# Add entities with: this add entity <name>",
-            "# Add targets later with: this add target webapp --framework react",
-        ]);
+        let mut next_steps = vec![
+            format!("cd {}", &args.name),
+            "cargo run --manifest-path api/Cargo.toml".to_string(),
+            format!("# Server will start on http://127.0.0.1:{}", &args.port),
+            "# Add entities with: this add entity <name>".to_string(),
+            "# Add targets later with: this add target webapp --framework react".to_string(),
+        ];
+        if args.events {
+            next_steps.push("# Configure event flows in api/config/events.yaml".to_string());
+        }
+        let next_steps_refs: Vec<&str> = next_steps.iter().map(|s| s.as_str()).collect();
+        output::print_next_steps(&next_steps_refs);
     }
 
     Ok(())
@@ -266,6 +290,7 @@ mod tests {
             workspace: false,
             websocket: false,
             grpc: false,
+            events: false,
         }
     }
 
@@ -280,6 +305,7 @@ mod tests {
             workspace: true,
             websocket: false,
             grpc: false,
+            events: false,
         }
     }
 
@@ -568,6 +594,55 @@ mod tests {
     // ========================================================================
     // Combined features
     // ========================================================================
+
+    // ========================================================================
+    // Events support
+    // ========================================================================
+
+    #[test]
+    fn test_init_with_events() {
+        let tmp = TempDir::new().unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = classic_args("events-project");
+        args.events = true;
+
+        run_in(args, &writer, tmp.path()).unwrap();
+
+        let project = tmp.path().join("events-project");
+        assert_file_exists(&project, "config/events.yaml");
+        assert_file_contains(&project, "config/events.yaml", "event_sinks");
+        assert_file_contains(&project, "config/events.yaml", "event_flows");
+        assert_file_contains(&project, "src/main.rs", "with_event_bus");
+        assert_file_contains(&project, "src/main.rs", "with_notification_store");
+    }
+
+    #[test]
+    fn test_init_without_events_no_events_yaml() {
+        let tmp = TempDir::new().unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = classic_args("no-events-project");
+
+        run_in(args, &writer, tmp.path()).unwrap();
+
+        let project = tmp.path().join("no-events-project");
+        assert_file_not_exists(&project, "config/events.yaml");
+    }
+
+    #[test]
+    fn test_init_workspace_with_events() {
+        let tmp = TempDir::new().unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = workspace_args("ws-events");
+        args.events = true;
+
+        run_in(args, &writer, tmp.path()).unwrap();
+
+        let ws = tmp.path().join("ws-events");
+        assert_file_exists(&ws, "api/config/events.yaml");
+        assert_file_contains(&ws, "api/config/events.yaml", "event_sinks");
+        assert_file_contains(&ws, "api/src/main.rs", "with_event_bus");
+        assert_file_contains(&ws, "api/src/main.rs", "with_notification_store");
+    }
 
     #[test]
     fn test_init_with_websocket_and_grpc() {

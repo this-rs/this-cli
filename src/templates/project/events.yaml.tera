@@ -1,0 +1,20 @@
+# Event System Configuration for {{ project_name }}
+# Documentation: https://this-rs.github.io/website/#events
+
+# Delivery sinks — where events are sent
+event_sinks:
+  - name: in-app
+    type: in_app
+
+# Event flows — declarative pipelines triggered by entity events
+# Available triggers: entity.created.<type>, entity.updated.<type>, entity.deleted.<type>
+# Available operators: filter, map, batch, deduplicate, rate_limit, fan_out, resolve, deliver
+event_flows: []
+  # Example flow:
+  # - name: notify-on-create
+  #   trigger: "entity.created.*"
+  #   steps:
+  #     - type: filter
+  #       condition: "data.status == 'active'"
+  #     - type: deliver
+  #       sink: in-app

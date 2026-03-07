@@ -15,6 +15,7 @@ const TPL_PROJECT_MODULE_RS: &str = include_str!("project/module.rs.tera");
 const TPL_PROJECT_ENTITIES_MOD_RS: &str = include_str!("project/entities_mod.rs.tera");
 const TPL_PROJECT_STORES_RS: &str = include_str!("project/stores.rs.tera");
 const TPL_PROJECT_LINKS_YAML: &str = include_str!("project/links.yaml.tera");
+const TPL_PROJECT_EVENTS_YAML: &str = include_str!("project/events.yaml.tera");
 const TPL_PROJECT_EMBEDDED_FRONTEND_RS: &str = include_str!("project/embedded_frontend.rs.tera");
 
 // ============================================================================
@@ -88,6 +89,7 @@ impl TemplateEngine {
             ("project/entities_mod.rs", TPL_PROJECT_ENTITIES_MOD_RS),
             ("project/stores.rs", TPL_PROJECT_STORES_RS),
             ("project/links.yaml", TPL_PROJECT_LINKS_YAML),
+            ("project/events.yaml", TPL_PROJECT_EVENTS_YAML),
             (
                 "project/embedded_frontend.rs",
                 TPL_PROJECT_EMBEDDED_FRONTEND_RS,

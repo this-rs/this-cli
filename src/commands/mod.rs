@@ -1,5 +1,7 @@
 pub mod add_entity;
+pub mod add_event_flow;
 pub mod add_link;
+pub mod add_sink;
 pub mod add_target;
 pub mod build;
 pub mod completions;
@@ -78,6 +80,12 @@ pub enum AddCommands {
 
     /// Add a deployment target to the workspace (webapp, desktop, mobile)
     Target(AddTargetArgs),
+
+    /// Add an event flow pipeline to config/events.yaml
+    EventFlow(AddEventFlowArgs),
+
+    /// Add an event sink (delivery target) to config/events.yaml
+    Sink(AddSinkArgs),
 }
 
 /// Arguments for `this init <name>`
@@ -113,6 +121,10 @@ pub struct InitArgs {
     /// Enable gRPC support (adds grpc feature and GrpcExposure in main.rs)
     #[arg(long)]
     pub grpc: bool,
+
+    /// Enable event system (EventBus, NotificationStore, SSE streaming, event flows)
+    #[arg(long)]
+    pub events: bool,
 }
 
 /// Arguments for `this add entity <name>`
@@ -185,6 +197,36 @@ pub struct AddTargetArgs {
     /// Custom name for the target directory
     #[arg(long)]
     pub name: Option<String>,
+}
+
+/// Arguments for `this add event-flow <name>`
+#[derive(Parser)]
+pub struct AddEventFlowArgs {
+    /// Event flow name (e.g. "notify-on-create")
+    pub name: String,
+
+    /// Trigger pattern (e.g. "entity.created.*", "entity.updated.order")
+    #[arg(long, default_value = "entity.created.*")]
+    pub trigger: String,
+
+    /// Delivery sink name to use in the final deliver step
+    #[arg(long, default_value = "in-app")]
+    pub sink: String,
+}
+
+/// Arguments for `this add sink <name>`
+#[derive(Parser)]
+pub struct AddSinkArgs {
+    /// Sink name (e.g. "my-webhook")
+    pub name: String,
+
+    /// Sink type: in_app, webhook, push, websocket, counter
+    #[arg(long, value_name = "TYPE")]
+    pub sink_type: String,
+
+    /// URL for webhook sinks
+    #[arg(long)]
+    pub url: Option<String>,
 }
 
 /// Arguments for `this build`
