@@ -281,10 +281,7 @@ pub fn run() -> Result<()> {
             events.flows.len().to_string().cyan()
         );
         if !events.sinks.is_empty() {
-            println!(
-                "   Sinks: {}",
-                events.sinks.join(", ").dimmed()
-            );
+            println!("   Sinks: {}", events.sinks.join(", ").dimmed());
         }
         if !events.flows.is_empty() {
             for flow in &events.flows {

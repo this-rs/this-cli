@@ -41,7 +41,9 @@ pub(crate) fn run_in(
 
     // Webhook requires URL
     if args.sink_type == "webhook" && args.url.is_none() {
-        bail!("Webhook sinks require --url. Example: this add sink my-hook --sink-type webhook --url https://example.com/webhook");
+        bail!(
+            "Webhook sinks require --url. Example: this add sink my-hook --sink-type webhook --url https://example.com/webhook"
+        );
     }
 
     if writer.is_dry_run() {
@@ -62,10 +64,7 @@ pub(crate) fn run_in(
 
     // Check for duplicate sink
     if config.event_sinks.iter().any(|s| s.name == args.name) {
-        bail!(
-            "Sink '{}' already exists in events.yaml",
-            args.name
-        );
+        bail!("Sink '{}' already exists in events.yaml", args.name);
     }
 
     // Add sink
@@ -191,11 +190,7 @@ mod tests {
         let result = run_in(args, &writer, &project);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("--url"),
-            "Error should mention --url: {}",
-            err
-        );
+        assert!(err.contains("--url"), "Error should mention --url: {}", err);
     }
 
     #[test]

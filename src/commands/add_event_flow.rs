@@ -80,10 +80,7 @@ pub(crate) fn run_in(
 
     // Check for duplicate flow
     if config.event_flows.iter().any(|f| f.name == args.name) {
-        bail!(
-            "Event flow '{}' already exists in events.yaml",
-            args.name
-        );
+        bail!("Event flow '{}' already exists in events.yaml", args.name);
     }
 
     // Validate that the target sink exists

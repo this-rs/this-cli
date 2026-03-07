@@ -757,12 +757,13 @@ fn check_events(project_root: &Path) -> Vec<DiagnosticResult> {
         // No events.yaml — check if main.rs uses event_bus (would mean missing config)
         let main_path = project_root.join("src/main.rs");
         if let Ok(main_content) = std::fs::read_to_string(&main_path)
-            && main_content.contains("with_event_bus") {
-                return vec![DiagnosticResult::warn(
-                    "Events",
-                    "main.rs uses with_event_bus() but config/events.yaml not found",
-                )];
-            }
+            && main_content.contains("with_event_bus")
+        {
+            return vec![DiagnosticResult::warn(
+                "Events",
+                "main.rs uses with_event_bus() but config/events.yaml not found",
+            )];
+        }
         return vec![];
     }
 
@@ -809,12 +810,13 @@ fn check_events(project_root: &Path) -> Vec<DiagnosticResult> {
         for step in &flow.steps {
             if step.step_type == "deliver"
                 && let Some(ref sink) = step.sink
-                    && !sink_names.contains(sink.as_str()) {
-                        flow_issues.push(format!(
-                            "Flow '{}' references unknown sink '{}'",
-                            flow.name, sink
-                        ));
-                    }
+                && !sink_names.contains(sink.as_str())
+            {
+                flow_issues.push(format!(
+                    "Flow '{}' references unknown sink '{}'",
+                    flow.name, sink
+                ));
+            }
         }
     }
 
