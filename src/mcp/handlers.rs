@@ -1281,6 +1281,178 @@ impl AppModule {
         );
     }
 
+    // ── Event flow & sink handler tests ─────────────────────────────
+
+    #[test]
+    fn test_handle_add_event_flow_missing_name() {
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "trigger": "entity.created.*",
+            "sink": "in-app"
+        });
+
+        let result = handler.handle("add_event_flow", Some(args));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("name"),
+            "Error should mention 'name', got: {}",
+            err
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_handle_add_event_flow_success() {
+        let tmp = TempDir::new().unwrap();
+        let project_dir = tmp.path().join("flow-project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        scaffold_project(&project_dir);
+
+        // Add events.yaml with a sink
+        std::fs::create_dir_all(project_dir.join("config")).unwrap();
+        std::fs::write(
+            project_dir.join("config/events.yaml"),
+            "event_sinks:\n  - name: in-app\n    type: in_app\nevent_flows: []\n",
+        )
+        .unwrap();
+
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "name": "notify-on-create",
+            "trigger": "entity.created.*",
+            "sink": "in-app",
+            "cwd": project_dir.to_str().unwrap()
+        });
+
+        let result = handler.handle("add_event_flow", Some(args)).unwrap();
+        assert_eq!(result["status"], "success");
+        assert_eq!(result["flow_name"], "notify-on-create");
+        assert_eq!(result["trigger"], "entity.created.*");
+        assert_eq!(result["sink"], "in-app");
+    }
+
+    #[test]
+    #[serial]
+    fn test_handle_add_event_flow_default_trigger_and_sink() {
+        let tmp = TempDir::new().unwrap();
+        let project_dir = tmp.path().join("flow-defaults");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        scaffold_project(&project_dir);
+
+        std::fs::create_dir_all(project_dir.join("config")).unwrap();
+        std::fs::write(
+            project_dir.join("config/events.yaml"),
+            "event_sinks:\n  - name: in-app\n    type: in_app\nevent_flows: []\n",
+        )
+        .unwrap();
+
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "name": "default-flow",
+            "cwd": project_dir.to_str().unwrap()
+        });
+
+        let result = handler.handle("add_event_flow", Some(args)).unwrap();
+        assert_eq!(result["status"], "success");
+        // Defaults: trigger = "entity.created.*", sink = "in-app"
+        assert_eq!(result["trigger"], "entity.created.*");
+        assert_eq!(result["sink"], "in-app");
+    }
+
+    #[test]
+    fn test_handle_add_sink_missing_name() {
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "sink_type": "in_app"
+        });
+
+        let result = handler.handle("add_sink", Some(args));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("name"),
+            "Error should mention 'name', got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_handle_add_sink_missing_sink_type() {
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "name": "my-sink"
+        });
+
+        let result = handler.handle("add_sink", Some(args));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("sink_type"),
+            "Error should mention 'sink_type', got: {}",
+            err
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_handle_add_sink_success() {
+        let tmp = TempDir::new().unwrap();
+        let project_dir = tmp.path().join("sink-project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        scaffold_project(&project_dir);
+
+        std::fs::create_dir_all(project_dir.join("config")).unwrap();
+        std::fs::write(
+            project_dir.join("config/events.yaml"),
+            "event_sinks: []\nevent_flows: []\n",
+        )
+        .unwrap();
+
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "name": "my-webhook",
+            "sink_type": "webhook",
+            "url": "https://example.com/hook",
+            "cwd": project_dir.to_str().unwrap()
+        });
+
+        let result = handler.handle("add_sink", Some(args)).unwrap();
+        assert_eq!(result["status"], "success");
+        assert_eq!(result["sink_name"], "my-webhook");
+        assert_eq!(result["sink_type"], "webhook");
+        assert_eq!(result["url"], "https://example.com/hook");
+    }
+
+    #[test]
+    #[serial]
+    fn test_handle_add_sink_in_app_no_url() {
+        let tmp = TempDir::new().unwrap();
+        let project_dir = tmp.path().join("sink-nourl");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        scaffold_project(&project_dir);
+
+        std::fs::create_dir_all(project_dir.join("config")).unwrap();
+        std::fs::write(
+            project_dir.join("config/events.yaml"),
+            "event_sinks: []\nevent_flows: []\n",
+        )
+        .unwrap();
+
+        let handler = ToolHandler::new();
+        let args = serde_json::json!({
+            "name": "notif",
+            "sink_type": "in_app",
+            "cwd": project_dir.to_str().unwrap()
+        });
+
+        let result = handler.handle("add_sink", Some(args)).unwrap();
+        assert_eq!(result["status"], "success");
+        assert_eq!(result["sink_name"], "notif");
+        assert_eq!(result["sink_type"], "in_app");
+        assert!(result["url"].is_null());
+    }
+
     #[test]
     #[serial]
     fn test_handle_add_entity_with_validation() {

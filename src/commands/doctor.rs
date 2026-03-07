@@ -1884,6 +1884,164 @@ this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
     }
 
     // ================================================================
+    // check_events tests
+    // ================================================================
+
+    #[test]
+    fn test_check_events_no_config_no_event_bus() {
+        let dir = tempfile::tempdir().unwrap();
+        // No events.yaml, no main.rs → should return empty
+        let results = check_events(dir.path());
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_check_events_no_config_with_event_bus() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/main.rs"),
+            "fn main() {\n    server.with_event_bus();\n}\n",
+        )
+        .unwrap();
+
+        let results = check_events(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Warn));
+        assert!(results[0].message.contains("with_event_bus"));
+        assert!(results[0].message.contains("events.yaml not found"));
+    }
+
+    #[test]
+    fn test_check_events_invalid_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            "this is: [not: valid: yaml: {{{",
+        )
+        .unwrap();
+
+        let results = check_events(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Error));
+        assert!(results[0].message.contains("invalid YAML"));
+    }
+
+    #[test]
+    fn test_check_events_empty_sinks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            "event_sinks: []\nevent_flows: []\n",
+        )
+        .unwrap();
+
+        let results = check_events(dir.path());
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Warn)
+                    && r.message.contains("No event sinks"))
+        );
+    }
+
+    #[test]
+    fn test_check_events_valid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            r#"event_sinks:
+  - name: in-app
+    type: in_app
+event_flows:
+  - name: notify
+    trigger: "entity.created.*"
+    steps:
+      - type: deliver
+        sink: in-app
+"#,
+        )
+        .unwrap();
+
+        let results = check_events(dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].level, DiagnosticLevel::Pass));
+        assert!(results[0].message.contains("1 sink(s)"));
+        assert!(results[0].message.contains("1 flow(s)"));
+        assert!(results[0].message.contains("all references valid"));
+    }
+
+    #[test]
+    fn test_check_events_unknown_sink_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            r#"event_sinks:
+  - name: in-app
+    type: in_app
+event_flows:
+  - name: bad-flow
+    trigger: "entity.created.*"
+    steps:
+      - type: deliver
+        sink: nonexistent-sink
+"#,
+        )
+        .unwrap();
+
+        let results = check_events(dir.path());
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Warn)
+                    && r.message.contains("unknown sink")
+                    && r.message.contains("nonexistent-sink"))
+        );
+    }
+
+    #[test]
+    fn test_check_events_multiple_flows_mixed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            r#"event_sinks:
+  - name: in-app
+    type: in_app
+  - name: webhook
+    type: webhook
+    url: https://example.com
+event_flows:
+  - name: good-flow
+    trigger: "entity.created.*"
+    steps:
+      - type: deliver
+        sink: in-app
+  - name: bad-flow
+    trigger: "entity.updated.*"
+    steps:
+      - type: deliver
+        sink: missing-sink
+"#,
+        )
+        .unwrap();
+
+        let results = check_events(dir.path());
+        // Should warn about missing-sink, not about the good flow
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Warn)
+                    && r.message.contains("bad-flow")
+                    && r.message.contains("missing-sink"))
+        );
+    }
+
+    // ================================================================
     // Full project with websocket and grpc features
     // ================================================================
 

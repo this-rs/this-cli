@@ -1734,4 +1734,151 @@ validation_rules: {}
         assert!(info.coherence.module_registered < info.coherence.module_total);
         assert!(info.coherence.stores_configured < info.coherence.stores_total);
     }
+
+    // ================================================================
+    // detect_events_info tests
+    // ================================================================
+
+    #[test]
+    fn test_detect_events_info_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = detect_events_info(dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_detect_events_info_invalid_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            "this is: [not valid yaml {{{",
+        )
+        .unwrap();
+
+        let result = detect_events_info(dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_detect_events_info_empty_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            "event_sinks: []\nevent_flows: []\n",
+        )
+        .unwrap();
+
+        let result = detect_events_info(dir.path());
+        assert!(result.is_some());
+        let events = result.unwrap();
+        assert!(events.sinks.is_empty());
+        assert!(events.flows.is_empty());
+    }
+
+    #[test]
+    fn test_detect_events_info_with_sinks_and_flows() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config/events.yaml"),
+            r#"event_sinks:
+  - name: in-app
+    type: in_app
+  - name: webhook
+    type: webhook
+    url: https://example.com
+event_flows:
+  - name: notify-on-create
+    trigger: "entity.created.*"
+    steps:
+      - type: deliver
+        sink: in-app
+  - name: audit-log
+    trigger: "entity.updated.*"
+    steps:
+      - type: deliver
+        sink: webhook
+"#,
+        )
+        .unwrap();
+
+        let result = detect_events_info(dir.path());
+        assert!(result.is_some());
+        let events = result.unwrap();
+        assert_eq!(events.sinks.len(), 2);
+        assert_eq!(events.sinks[0], "in-app");
+        assert_eq!(events.sinks[1], "webhook");
+        assert_eq!(events.flows.len(), 2);
+        assert_eq!(events.flows[0], "notify-on-create");
+        assert_eq!(events.flows[1], "audit-log");
+    }
+
+    #[test]
+    fn test_project_info_with_events() {
+        // Test that ProjectInfo correctly includes events field
+        let info = ProjectInfo {
+            project_name: "events-project".to_string(),
+            this_version: "v0.0.8".to_string(),
+            features: FeatureFlags {
+                graphql: false,
+                websocket: false,
+                grpc: false,
+            },
+            entities: vec![],
+            links: vec![],
+            events: Some(EventsInfo {
+                sinks: vec!["in-app".to_string(), "push".to_string()],
+                flows: vec!["notify".to_string()],
+            }),
+            coherence: CoherenceStatus {
+                module_registered: 0,
+                module_total: 0,
+                stores_configured: 0,
+                stores_total: 0,
+                links_valid: true,
+                links_issues: vec![],
+            },
+            workspace: None,
+        };
+
+        assert!(info.events.is_some());
+        let events = info.events.as_ref().unwrap();
+        assert_eq!(events.sinks.len(), 2);
+        assert_eq!(events.flows.len(), 1);
+
+        // Test serialization includes events
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(json.get("events").is_some());
+    }
+
+    #[test]
+    fn test_project_info_without_events_serialization() {
+        let info = ProjectInfo {
+            project_name: "no-events".to_string(),
+            this_version: "v0.0.8".to_string(),
+            features: FeatureFlags {
+                graphql: false,
+                websocket: false,
+                grpc: false,
+            },
+            entities: vec![],
+            links: vec![],
+            events: None,
+            coherence: CoherenceStatus {
+                module_registered: 0,
+                module_total: 0,
+                stores_configured: 0,
+                stores_total: 0,
+                links_valid: true,
+                links_issues: vec![],
+            },
+            workspace: None,
+        };
+
+        // events: None should be skipped in serialization (skip_serializing_if)
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(json.get("events").is_none());
+    }
 }
