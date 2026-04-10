@@ -35,10 +35,10 @@ async fn main() -> anyhow::Result<()> {
     let host = ServerBuilder::new()
         .with_link_service((*link_service).clone())
 {% if events or websocket %}
-        .with_event_bus()
+        .with_default_event_bus()
 {% endif %}
 {% if events %}
-        .with_notification_store()
+        .with_default_notification_store()
 {% endif %}
 {% if auth %}
         .with_auth_config_file(concat!(env!("CARGO_MANIFEST_DIR"), "/config/auth.yaml"))?
@@ -65,8 +65,8 @@ async fn main() -> anyhow::Result<()> {
     let app = ServerBuilder::new()
         .with_link_service((*link_service).clone())
 {% if events %}
-        .with_event_bus()
-        .with_notification_store()
+        .with_default_event_bus()
+        .with_default_notification_store()
 {% endif %}
         .register_module(module)?
         .build()?;

@@ -757,11 +757,11 @@ fn check_events(project_root: &Path) -> Vec<DiagnosticResult> {
         // No events.yaml — check if main.rs uses event_bus (would mean missing config)
         let main_path = project_root.join("src/main.rs");
         if let Ok(main_content) = std::fs::read_to_string(&main_path)
-            && main_content.contains("with_event_bus")
+            && (main_content.contains("with_default_event_bus") || main_content.contains("with_event_bus"))
         {
             return vec![DiagnosticResult::warn(
                 "Events",
-                "main.rs uses with_event_bus() but config/events.yaml not found",
+                "main.rs uses event bus but config/events.yaml not found",
             )];
         }
         return vec![];
@@ -1901,14 +1901,14 @@ this = { package = "this-rs", version = "0.0.6", features = ["websocket"] }
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(
             dir.path().join("src/main.rs"),
-            "fn main() {\n    server.with_event_bus();\n}\n",
+            "fn main() {\n    server.with_default_event_bus();\n}\n",
         )
         .unwrap();
 
         let results = check_events(dir.path());
         assert_eq!(results.len(), 1);
         assert!(matches!(results[0].level, DiagnosticLevel::Warn));
-        assert!(results[0].message.contains("with_event_bus"));
+        assert!(results[0].message.contains("event bus"));
         assert!(results[0].message.contains("events.yaml not found"));
     }
 

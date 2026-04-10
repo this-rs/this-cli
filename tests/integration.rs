@@ -1575,7 +1575,7 @@ fn test_init_websocket_main_rs() {
         "main.rs should use build_host() for WebSocket mode"
     );
     assert!(
-        main_rs.contains("with_event_bus"),
+        main_rs.contains("with_default_event_bus"),
         "main.rs should configure EventBus for WebSocket"
     );
     assert!(
@@ -1772,7 +1772,7 @@ fn test_init_grpc_main_rs() {
         "main.rs should use build_host() for gRPC mode"
     );
     assert!(
-        !main_rs.contains("with_event_bus"),
+        !main_rs.contains("with_default_event_bus"),
         "main.rs should NOT configure EventBus for gRPC-only mode"
     );
     assert!(
@@ -1812,7 +1812,7 @@ fn test_init_grpc_websocket_combined() {
         "main.rs should contain WebSocketExposure"
     );
     assert!(
-        main_rs.contains("with_event_bus"),
+        main_rs.contains("with_default_event_bus"),
         "main.rs should configure EventBus when WebSocket is active"
     );
 }
@@ -2001,8 +2001,8 @@ fn test_init_auth_generates_auth_yaml() {
         "auth.yaml should contain provider: wami"
     );
     assert!(
-        auth_yaml.contains("mode: embedded"),
-        "auth.yaml should contain mode: embedded"
+        auth_yaml.contains("mode: bootstrap"),
+        "auth.yaml should contain mode: bootstrap"
     );
     assert!(
         auth_yaml.contains("erasure_cascade: true"),
@@ -2125,11 +2125,11 @@ fn test_init_cognitive_implies_events() {
 
     let main_rs = std::fs::read_to_string(tmp.path().join("cog-events/src/main.rs")).unwrap();
     assert!(
-        main_rs.contains("with_event_bus"),
+        main_rs.contains("with_default_event_bus"),
         "main.rs should configure EventBus (--cognitive implies --events)"
     );
     assert!(
-        main_rs.contains("with_notification_store"),
+        main_rs.contains("with_default_notification_store"),
         "main.rs should configure NotificationStore (--cognitive implies --events)"
     );
     assert!(
@@ -2261,7 +2261,7 @@ fn test_init_auth_cognitive_combined() {
         "main.rs should mention cognitive signals"
     );
     assert!(
-        main_rs.contains("with_event_bus"),
+        main_rs.contains("with_default_event_bus"),
         "main.rs should configure EventBus"
     );
 }
@@ -2381,7 +2381,7 @@ fn test_init_all_features_combined() {
         main_rs.contains("Cognitive signals active"),
         "should have cognitive"
     );
-    assert!(main_rs.contains("with_event_bus"), "should have EventBus");
+    assert!(main_rs.contains("with_default_event_bus"), "should have EventBus");
     assert!(main_rs.contains("build_host"), "should use build_host()");
 
     // Config files

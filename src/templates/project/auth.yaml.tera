@@ -1,46 +1,53 @@
 # Authentication & Authorization for {{ project_name }}
 # Documentation: https://this-rs.github.io/website/#auth
+#
+# Loaded by ServerBuilder::with_auth_config_file()
 
-auth:
-  # Provider: wami (WAMI STS), oidc (external OIDC), none (disabled)
-  provider: wami
+# Provider: wami (WAMI STS), oidc (external OIDC), none (disabled)
+provider: wami
 
-  # Mode: sts (separate token service), embedded (built-in STS endpoints)
-  mode: embedded
+# Default policy for entity endpoints: public, authenticated, admin_only
+default_policy: authenticated
 
-  # Default policy for entity endpoints: public, authenticated, admin_only
-  default_policy: authenticated
+# WAMI-specific configuration
+wami:
+  # bootstrap mode: auto-generates Ed25519 key pair at startup (dev-friendly)
+  # Switch to 'embedded' with explicit keys for production
+  mode: bootstrap
+  # public_key: "MCowBQYDK2VwAyEA..."  # Required in embedded/sts mode
+  token_ttl_secs: 900
+  refresh_ttl_secs: 3600
 
-  # Per-entity policy overrides (optional)
-  # entities:
-  #   order:
-  #     read: public
-  #     write: "role:editor"
-  #   user:
-  #     read: authenticated
-  #     write: admin_only
+# Per-entity policy overrides (optional)
+# entities:
+#   order:
+#     read: public
+#     write: "role:editor"
+#   user:
+#     read: authenticated
+#     write: admin_only
 
-  # Multi-tenant configuration
-  tenant:
-    enabled: true
-    # JWT claim to extract tenant_id from
-    claim_field: tenant_id
-    # Auto-create tenant on first request
-    auto_provision: true
+# Multi-tenant configuration
+tenant:
+  enabled: true
+  # JWT claim to extract tenant_id from
+  claim_field: tenant_id
+  # Auto-create tenant on first request
+  auto_provision: true
 
-  # GDPR compliance
-  gdpr:
-    # Enable DELETE /tenants/:tenant_id/data endpoint
-    erasure_cascade: true
-    # Audit sink for erasure events (logs before deletion)
-    # audit_sink: webhook
+# GDPR compliance
+gdpr:
+  # Enable DELETE /tenants/:tenant_id/data endpoint
+  erasure_cascade: true
+  # Audit sink for erasure events (logs before deletion)
+  # audit_sink: webhook
 
-  # Event scoping
-  events:
-    # Events are filtered by tenant_id
-    tenant_isolation: true
+# Event scoping
+events:
+  # Events are filtered by tenant_id
+  tenant_isolation: true
 {% if cognitive %}
-    # Enable cognitive signal bridge (works with any backend)
-    cognitive_bridge: true
-    cognitive_notifications: true
+  # Enable cognitive signal bridge (works with any backend)
+  cognitive_bridge: true
+  cognitive_notifications: true
 {% endif %}

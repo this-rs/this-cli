@@ -57,7 +57,7 @@ fn init_project_tool() -> ToolDefinition {
                 },
                 "events": {
                     "type": "boolean",
-                    "description": "If true, enable event system (EventBus, NotificationStore, SSE streaming, event flows). Generates config/events.yaml and adds .with_event_bus() / .with_notification_store() to main.rs (default: false)"
+                    "description": "If true, enable event system (EventBus, NotificationStore, SSE streaming, event flows). Generates config/events.yaml and adds .with_default_event_bus() / .with_default_notification_store() to main.rs (default: false)"
                 },
                 "cwd": {
                     "type": "string",

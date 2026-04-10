@@ -676,8 +676,8 @@ mod tests {
         assert_file_exists(&project, "config/events.yaml");
         assert_file_contains(&project, "config/events.yaml", "event_sinks");
         assert_file_contains(&project, "config/events.yaml", "event_flows");
-        assert_file_contains(&project, "src/main.rs", "with_event_bus");
-        assert_file_contains(&project, "src/main.rs", "with_notification_store");
+        assert_file_contains(&project, "src/main.rs", "with_default_event_bus");
+        assert_file_contains(&project, "src/main.rs", "with_default_notification_store");
     }
 
     #[test]
@@ -704,8 +704,8 @@ mod tests {
         let ws = tmp.path().join("ws-events");
         assert_file_exists(&ws, "api/config/events.yaml");
         assert_file_contains(&ws, "api/config/events.yaml", "event_sinks");
-        assert_file_contains(&ws, "api/src/main.rs", "with_event_bus");
-        assert_file_contains(&ws, "api/src/main.rs", "with_notification_store");
+        assert_file_contains(&ws, "api/src/main.rs", "with_default_event_bus");
+        assert_file_contains(&ws, "api/src/main.rs", "with_default_notification_store");
     }
 
     #[test]
