@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stores = {{ project_name_snake | pascal_case }}Stores::new_in_memory();
     let module = {{ project_name_snake | pascal_case }}Module::new(stores);
-{% if websocket or grpc %}
+{% if websocket or grpc or auth %}
 
     let host = ServerBuilder::new()
         .with_link_service((*link_service).clone())
@@ -39,6 +39,9 @@ async fn main() -> anyhow::Result<()> {
 {% endif %}
 {% if events %}
         .with_notification_store()
+{% endif %}
+{% if auth %}
+        .with_auth_config_file(concat!(env!("CARGO_MANIFEST_DIR"), "/config/auth.yaml"))?
 {% endif %}
         .register_module(module)?
         .build_host()?;
@@ -69,17 +72,27 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 {% endif %}
 
-    println!("🚀 Server running on http://127.0.0.1:{{ port }}");
+    println!("Server running on http://127.0.0.1:{{ port }}");
+{% if auth %}
+    println!("Auth endpoints:");
+    println!("  POST /auth/token   — Login / credential exchange");
+    println!("  GET  /auth/keys    — Public key (JWKS)");
+    println!("  POST /auth/refresh — Token refresh");
+    println!("  POST /auth/revoke  — Token revocation");
+{% endif %}
 {% if websocket %}
-    println!("🔌 WebSocket available at ws://127.0.0.1:{{ port }}/ws");
+    println!("WebSocket available at ws://127.0.0.1:{{ port }}/ws");
 {% endif %}
 {% if grpc %}
-    println!("📡 gRPC available on http://127.0.0.1:{{ port }}");
-    println!("📋 Proto export at http://127.0.0.1:{{ port }}/grpc/proto");
+    println!("gRPC available on http://127.0.0.1:{{ port }}");
+    println!("Proto export at http://127.0.0.1:{{ port }}/grpc/proto");
 {% endif %}
 {% if events %}
-    println!("📡 SSE stream at http://127.0.0.1:{{ port }}/events/stream");
-    println!("🔔 Notifications at http://127.0.0.1:{{ port }}/notifications");
+    println!("SSE stream at http://127.0.0.1:{{ port }}/events/stream");
+    println!("Notifications at http://127.0.0.1:{{ port }}/notifications");
+{% endif %}
+{% if cognitive %}
+    println!("Cognitive signals active — notifications via configured sinks");
 {% endif %}
 
 {% if workspace %}

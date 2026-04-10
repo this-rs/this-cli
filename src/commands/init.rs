@@ -63,12 +63,36 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
     if args.grpc {
         context.insert("grpc", &true);
     }
-    if args.events {
+    // --cognitive implies --events (signals travel through EventBus)
+    let events = args.events || args.cognitive;
+    if events {
         context.insert("events", &true);
+    }
+    if args.auth {
+        context.insert("auth", &true);
+    }
+    if args.cognitive {
+        context.insert("cognitive", &true);
     }
     if let Some(ref this_path) = args.this_path {
         context.insert("this_path", this_path);
     }
+
+    // Build features list for Cargo.toml
+    let mut features: Vec<&str> = vec![];
+    if args.websocket {
+        features.push("\"websocket\"");
+    }
+    if args.grpc {
+        features.push("\"grpc\"");
+    }
+    if args.auth {
+        features.push("\"wami\"");
+    }
+    if args.cognitive {
+        features.push("\"obrain\"");
+    }
+    context.insert("features_list", &features.join(", "));
 
     let mut files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
@@ -79,8 +103,11 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
         ("project/links.yaml", "config/links.yaml"),
     ];
 
-    if args.events {
+    if events {
         files.push(("project/events.yaml", "config/events.yaml"));
+    }
+    if args.auth {
+        files.push(("project/auth.yaml", "config/auth.yaml"));
     }
 
     for (template_name, output_path) in &files {
@@ -105,8 +132,15 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
             format!("# Server will start on http://127.0.0.1:{}", &args.port),
             "# Add entities with: this add entity <name>".to_string(),
         ];
-        if args.events {
+        if events {
             next_steps.push("# Configure event flows in config/events.yaml".to_string());
+        }
+        if args.auth {
+            next_steps.push("# Auth config in config/auth.yaml (WAMI STS + tenant isolation)".to_string());
+            next_steps.push("# POST /auth/token to get a JWT, then use Bearer <token>".to_string());
+        }
+        if args.cognitive {
+            next_steps.push("# Cognitive signals active — configure thresholds in code".to_string());
         }
         let next_steps_refs: Vec<&str> = next_steps.iter().map(|s| s.as_str()).collect();
         output::print_next_steps(&next_steps_refs);
@@ -169,12 +203,35 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     if args.grpc {
         api_context.insert("grpc", &true);
     }
-    if args.events {
+    let ws_events = args.events || args.cognitive;
+    if ws_events {
         api_context.insert("events", &true);
+    }
+    if args.auth {
+        api_context.insert("auth", &true);
+    }
+    if args.cognitive {
+        api_context.insert("cognitive", &true);
     }
     if let Some(ref this_path) = args.this_path {
         api_context.insert("this_path", this_path);
     }
+
+    // Build features list for workspace Cargo.toml
+    let mut ws_features: Vec<&str> = vec![];
+    if args.websocket {
+        ws_features.push("\"websocket\"");
+    }
+    if args.grpc {
+        ws_features.push("\"grpc\"");
+    }
+    if args.auth {
+        ws_features.push("\"wami\"");
+    }
+    if args.cognitive {
+        ws_features.push("\"obrain\"");
+    }
+    api_context.insert("features_list", &ws_features.join(", "));
 
     let mut api_files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
@@ -186,8 +243,11 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
         ("project/links.yaml", "config/links.yaml"),
     ];
 
-    if args.events {
+    if ws_events {
         api_files.push(("project/events.yaml", "config/events.yaml"));
+    }
+    if args.auth {
+        api_files.push(("project/auth.yaml", "config/auth.yaml"));
     }
 
     for (template_name, output_path) in &api_files {
@@ -291,6 +351,8 @@ mod tests {
             websocket: false,
             grpc: false,
             events: false,
+            auth: false,
+            cognitive: false,
         }
     }
 
@@ -306,6 +368,8 @@ mod tests {
             websocket: false,
             grpc: false,
             events: false,
+            auth: false,
+            cognitive: false,
         }
     }
 

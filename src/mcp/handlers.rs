@@ -173,6 +173,8 @@ fn handle_init_project(args: &Value) -> Result<Value> {
         websocket,
         grpc,
         events,
+        auth: false,
+        cognitive: false,
     };
 
     crate::commands::init::run(init_args, &writer)?;

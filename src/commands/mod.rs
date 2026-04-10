@@ -125,6 +125,15 @@ pub struct InitArgs {
     /// Enable event system (EventBus, NotificationStore, SSE streaming, event flows)
     #[arg(long)]
     pub events: bool,
+
+    /// Enable WAMI authentication (STS endpoints, JWT middleware, tenant isolation, GDPR erasure)
+    #[arg(long)]
+    pub auth: bool,
+
+    /// Enable cognitive signal bridge (anomaly detection, co-change, stigmergy notifications)
+    /// Implies --events. Works with any storage backend.
+    #[arg(long)]
+    pub cognitive: bool,
 }
 
 /// Arguments for `this add entity <name>`
