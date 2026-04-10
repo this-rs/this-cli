@@ -1931,3 +1931,461 @@ fn test_init_grpc_websocket_workspace_combined() {
         "main.rs should contain attach_frontend"
     );
 }
+
+// ============================================================================
+// this init --auth tests
+// ============================================================================
+
+#[test]
+fn test_init_auth_cargo_toml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) =
+        run_this(&["init", "auth-proj", "--auth", "--no-git"], tmp.path());
+
+    assert!(success, "init --auth should succeed: {}", stderr);
+
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("auth-proj/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["wami"]"#),
+        "Cargo.toml should contain wami feature, got:\n{}",
+        cargo_toml
+    );
+}
+
+#[test]
+fn test_init_auth_main_rs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "auth-main", "--auth", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    let main_rs = std::fs::read_to_string(tmp.path().join("auth-main/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("with_auth_config_file"),
+        "main.rs should contain with_auth_config_file"
+    );
+    assert!(
+        main_rs.contains("build_host"),
+        "main.rs should use build_host() for auth mode"
+    );
+    assert!(
+        main_rs.contains("/auth/token"),
+        "main.rs should mention /auth/token endpoint"
+    );
+    assert!(
+        main_rs.contains("/auth/keys"),
+        "main.rs should mention /auth/keys endpoint"
+    );
+    assert!(
+        main_rs.contains("/auth/refresh"),
+        "main.rs should mention /auth/refresh endpoint"
+    );
+}
+
+#[test]
+fn test_init_auth_generates_auth_yaml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "auth-yaml", "--auth", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    let auth_yaml_path = tmp.path().join("auth-yaml/config/auth.yaml");
+    assert!(
+        auth_yaml_path.exists(),
+        "config/auth.yaml should be generated with --auth"
+    );
+
+    let auth_yaml = std::fs::read_to_string(auth_yaml_path).unwrap();
+    assert!(
+        auth_yaml.contains("provider: wami"),
+        "auth.yaml should contain provider: wami"
+    );
+    assert!(
+        auth_yaml.contains("mode: embedded"),
+        "auth.yaml should contain mode: embedded"
+    );
+    assert!(
+        auth_yaml.contains("erasure_cascade: true"),
+        "auth.yaml should contain GDPR erasure_cascade"
+    );
+    assert!(
+        auth_yaml.contains("tenant_isolation: true"),
+        "auth.yaml should contain tenant_isolation"
+    );
+    // Without --cognitive, cognitive sections should not appear
+    assert!(
+        !auth_yaml.contains("cognitive_bridge"),
+        "auth.yaml should NOT contain cognitive_bridge without --cognitive"
+    );
+}
+
+#[test]
+fn test_init_without_auth_no_auth_yaml() {
+    // Regression: without --auth, no auth.yaml should be generated
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "no-auth", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    assert!(
+        !tmp.path().join("no-auth/config/auth.yaml").exists(),
+        "config/auth.yaml should NOT exist without --auth"
+    );
+
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("no-auth/Cargo.toml")).unwrap();
+    assert!(
+        !cargo_toml.contains("wami"),
+        "Cargo.toml should NOT contain wami without --auth"
+    );
+
+    let main_rs = std::fs::read_to_string(tmp.path().join("no-auth/src/main.rs")).unwrap();
+    assert!(
+        !main_rs.contains("with_auth_config_file"),
+        "main.rs should NOT contain auth config without --auth"
+    );
+    assert!(
+        !main_rs.contains("/auth/token"),
+        "main.rs should NOT mention auth endpoints without --auth"
+    );
+}
+
+#[test]
+fn test_init_auth_workspace() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &["init", "auth-ws", "--auth", "--workspace", "--no-git"],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --auth --workspace should succeed: {}",
+        stderr
+    );
+
+    let ws_dir = tmp.path().join("auth-ws");
+
+    // Cargo.toml should have wami feature AND embedded-frontend
+    let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#"features = ["wami"]"#),
+        "Cargo.toml should contain wami feature"
+    );
+    assert!(
+        cargo_toml.contains("embedded-frontend"),
+        "Cargo.toml should still have embedded-frontend feature"
+    );
+
+    // auth.yaml in api/config/
+    assert!(
+        ws_dir.join("api/config/auth.yaml").exists(),
+        "api/config/auth.yaml should exist in workspace"
+    );
+
+    // main.rs should have auth config
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("with_auth_config_file"),
+        "main.rs should contain with_auth_config_file in workspace"
+    );
+}
+
+// ============================================================================
+// this init --cognitive tests
+// ============================================================================
+
+#[test]
+fn test_init_cognitive_cargo_toml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) =
+        run_this(&["init", "cog-proj", "--cognitive", "--no-git"], tmp.path());
+
+    assert!(success, "init --cognitive should succeed: {}", stderr);
+
+    let cargo_toml = std::fs::read_to_string(tmp.path().join("cog-proj/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#""obrain""#),
+        "Cargo.toml should contain obrain feature, got:\n{}",
+        cargo_toml
+    );
+}
+
+#[test]
+fn test_init_cognitive_implies_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) = run_this(&["init", "cog-events", "--cognitive", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    // --cognitive implies --events: events.yaml should be generated
+    assert!(
+        tmp.path().join("cog-events/config/events.yaml").exists(),
+        "config/events.yaml should exist (--cognitive implies --events)"
+    );
+
+    let main_rs = std::fs::read_to_string(tmp.path().join("cog-events/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("with_event_bus"),
+        "main.rs should configure EventBus (--cognitive implies --events)"
+    );
+    assert!(
+        main_rs.contains("with_notification_store"),
+        "main.rs should configure NotificationStore (--cognitive implies --events)"
+    );
+    assert!(
+        main_rs.contains("Cognitive signals active"),
+        "main.rs should mention cognitive signals"
+    );
+    assert!(
+        main_rs.contains("/events/stream"),
+        "main.rs should mention SSE stream endpoint"
+    );
+}
+
+#[test]
+fn test_init_cognitive_without_auth_no_auth_yaml() {
+    // --cognitive alone should not generate auth.yaml
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, _) =
+        run_this(&["init", "cog-no-auth", "--cognitive", "--no-git"], tmp.path());
+
+    assert!(success);
+
+    assert!(
+        !tmp.path().join("cog-no-auth/config/auth.yaml").exists(),
+        "config/auth.yaml should NOT exist with --cognitive alone"
+    );
+}
+
+#[test]
+fn test_init_cognitive_workspace() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &[
+            "init",
+            "cog-ws",
+            "--cognitive",
+            "--workspace",
+            "--no-git",
+        ],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --cognitive --workspace should succeed: {}",
+        stderr
+    );
+
+    let ws_dir = tmp.path().join("cog-ws");
+
+    let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#""obrain""#),
+        "Cargo.toml should contain obrain feature"
+    );
+
+    // events.yaml should exist (cognitive implies events)
+    assert!(
+        ws_dir.join("api/config/events.yaml").exists(),
+        "api/config/events.yaml should exist"
+    );
+
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("Cognitive signals active"),
+        "main.rs should mention cognitive signals in workspace"
+    );
+}
+
+// ============================================================================
+// this init --auth --cognitive combined tests
+// ============================================================================
+
+#[test]
+fn test_init_auth_cognitive_combined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &["init", "full-proj", "--auth", "--cognitive", "--no-git"],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --auth --cognitive should succeed: {}",
+        stderr
+    );
+
+    let proj_dir = tmp.path().join("full-proj");
+
+    // Cargo.toml should have both wami and obrain features
+    let cargo_toml = std::fs::read_to_string(proj_dir.join("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#""wami""#),
+        "Cargo.toml should contain wami feature"
+    );
+    assert!(
+        cargo_toml.contains(r#""obrain""#),
+        "Cargo.toml should contain obrain feature"
+    );
+
+    // auth.yaml should have cognitive sections
+    let auth_yaml = std::fs::read_to_string(proj_dir.join("config/auth.yaml")).unwrap();
+    assert!(
+        auth_yaml.contains("cognitive_bridge: true"),
+        "auth.yaml should contain cognitive_bridge with --auth --cognitive"
+    );
+    assert!(
+        auth_yaml.contains("cognitive_notifications: true"),
+        "auth.yaml should contain cognitive_notifications"
+    );
+
+    // events.yaml should exist (cognitive implies events)
+    assert!(
+        proj_dir.join("config/events.yaml").exists(),
+        "config/events.yaml should exist"
+    );
+
+    // main.rs should have both auth and cognitive
+    let main_rs = std::fs::read_to_string(proj_dir.join("src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("with_auth_config_file"),
+        "main.rs should contain auth config"
+    );
+    assert!(
+        main_rs.contains("/auth/token"),
+        "main.rs should mention auth endpoints"
+    );
+    assert!(
+        main_rs.contains("Cognitive signals active"),
+        "main.rs should mention cognitive signals"
+    );
+    assert!(
+        main_rs.contains("with_event_bus"),
+        "main.rs should configure EventBus"
+    );
+}
+
+#[test]
+fn test_init_auth_cognitive_workspace_combined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &[
+            "init",
+            "full-ws",
+            "--auth",
+            "--cognitive",
+            "--workspace",
+            "--no-git",
+        ],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init --auth --cognitive --workspace should succeed: {}",
+        stderr
+    );
+
+    let ws_dir = tmp.path().join("full-ws");
+
+    // Cargo.toml should have both features AND embedded-frontend
+    let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#""wami""#),
+        "Cargo.toml should contain wami feature"
+    );
+    assert!(
+        cargo_toml.contains(r#""obrain""#),
+        "Cargo.toml should contain obrain feature"
+    );
+    assert!(
+        cargo_toml.contains("embedded-frontend"),
+        "Cargo.toml should still have embedded-frontend feature"
+    );
+
+    // auth.yaml in api/config/ with cognitive sections
+    let auth_yaml =
+        std::fs::read_to_string(ws_dir.join("api/config/auth.yaml")).unwrap();
+    assert!(
+        auth_yaml.contains("cognitive_bridge: true"),
+        "auth.yaml should contain cognitive_bridge"
+    );
+
+    // events.yaml should exist
+    assert!(
+        ws_dir.join("api/config/events.yaml").exists(),
+        "api/config/events.yaml should exist"
+    );
+
+    // main.rs should have auth + cognitive + workspace features
+    let main_rs = std::fs::read_to_string(ws_dir.join("api/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("with_auth_config_file"),
+        "main.rs should contain auth config"
+    );
+    assert!(
+        main_rs.contains("Cognitive signals active"),
+        "main.rs should mention cognitive signals"
+    );
+    assert!(
+        main_rs.contains("attach_frontend"),
+        "main.rs should contain attach_frontend"
+    );
+}
+
+#[test]
+fn test_init_all_features_combined() {
+    // Ultimate combo: --auth --cognitive --websocket --grpc
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &[
+            "init",
+            "mega-proj",
+            "--auth",
+            "--cognitive",
+            "--websocket",
+            "--grpc",
+            "--no-git",
+        ],
+        tmp.path(),
+    );
+
+    assert!(
+        success,
+        "init with all features should succeed: {}",
+        stderr
+    );
+
+    let proj_dir = tmp.path().join("mega-proj");
+
+    // Cargo.toml should have all four features
+    let cargo_toml = std::fs::read_to_string(proj_dir.join("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.contains(r#""websocket""#),
+        "should have websocket"
+    );
+    assert!(cargo_toml.contains(r#""grpc""#), "should have grpc");
+    assert!(cargo_toml.contains(r#""wami""#), "should have wami");
+    assert!(cargo_toml.contains(r#""obrain""#), "should have obrain");
+
+    // main.rs should have everything
+    let main_rs = std::fs::read_to_string(proj_dir.join("src/main.rs")).unwrap();
+    assert!(main_rs.contains("WebSocketExposure"), "should have WS");
+    assert!(main_rs.contains("GrpcExposure"), "should have gRPC");
+    assert!(
+        main_rs.contains("with_auth_config_file"),
+        "should have auth"
+    );
+    assert!(
+        main_rs.contains("Cognitive signals active"),
+        "should have cognitive"
+    );
+    assert!(main_rs.contains("with_event_bus"), "should have EventBus");
+    assert!(main_rs.contains("build_host"), "should use build_host()");
+
+    // Config files
+    assert!(proj_dir.join("config/auth.yaml").exists(), "auth.yaml");
+    assert!(proj_dir.join("config/events.yaml").exists(), "events.yaml");
+    assert!(proj_dir.join("config/links.yaml").exists(), "links.yaml");
+}
