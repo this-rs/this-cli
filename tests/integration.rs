@@ -1939,8 +1939,7 @@ fn test_init_grpc_websocket_workspace_combined() {
 #[test]
 fn test_init_auth_cargo_toml() {
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, stderr) =
-        run_this(&["init", "auth-proj", "--auth", "--no-git"], tmp.path());
+    let (success, _, stderr) = run_this(&["init", "auth-proj", "--auth", "--no-git"], tmp.path());
 
     assert!(success, "init --auth should succeed: {}", stderr);
 
@@ -2113,7 +2112,10 @@ fn test_init_cognitive_cargo_toml() {
 #[test]
 fn test_init_cognitive_implies_events() {
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, _) = run_this(&["init", "cog-events", "--cognitive", "--no-git"], tmp.path());
+    let (success, _, _) = run_this(
+        &["init", "cog-events", "--cognitive", "--no-git"],
+        tmp.path(),
+    );
 
     assert!(success);
 
@@ -2146,8 +2148,10 @@ fn test_init_cognitive_implies_events() {
 fn test_init_cognitive_without_auth_no_auth_yaml() {
     // --cognitive alone should not generate auth.yaml
     let tmp = tempfile::tempdir().unwrap();
-    let (success, _, _) =
-        run_this(&["init", "cog-no-auth", "--cognitive", "--no-git"], tmp.path());
+    let (success, _, _) = run_this(
+        &["init", "cog-no-auth", "--cognitive", "--no-git"],
+        tmp.path(),
+    );
 
     assert!(success);
 
@@ -2161,13 +2165,7 @@ fn test_init_cognitive_without_auth_no_auth_yaml() {
 fn test_init_cognitive_workspace() {
     let tmp = tempfile::tempdir().unwrap();
     let (success, _, stderr) = run_this(
-        &[
-            "init",
-            "cog-ws",
-            "--cognitive",
-            "--workspace",
-            "--no-git",
-        ],
+        &["init", "cog-ws", "--cognitive", "--workspace", "--no-git"],
         tmp.path(),
     );
 
@@ -2305,8 +2303,7 @@ fn test_init_auth_cognitive_workspace_combined() {
     );
 
     // auth.yaml in api/config/ with cognitive sections
-    let auth_yaml =
-        std::fs::read_to_string(ws_dir.join("api/config/auth.yaml")).unwrap();
+    let auth_yaml = std::fs::read_to_string(ws_dir.join("api/config/auth.yaml")).unwrap();
     assert!(
         auth_yaml.contains("cognitive_bridge: true"),
         "auth.yaml should contain cognitive_bridge"
@@ -2351,11 +2348,7 @@ fn test_init_all_features_combined() {
         tmp.path(),
     );
 
-    assert!(
-        success,
-        "init with all features should succeed: {}",
-        stderr
-    );
+    assert!(success, "init with all features should succeed: {}", stderr);
 
     let proj_dir = tmp.path().join("mega-proj");
 
@@ -2381,7 +2374,10 @@ fn test_init_all_features_combined() {
         main_rs.contains("Cognitive signals active"),
         "should have cognitive"
     );
-    assert!(main_rs.contains("with_default_event_bus"), "should have EventBus");
+    assert!(
+        main_rs.contains("with_default_event_bus"),
+        "should have EventBus"
+    );
     assert!(main_rs.contains("build_host"), "should use build_host()");
 
     // Config files

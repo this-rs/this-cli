@@ -136,11 +136,14 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
             next_steps.push("# Configure event flows in config/events.yaml".to_string());
         }
         if args.auth {
-            next_steps.push("# Auth config in config/auth.yaml (WAMI STS + tenant isolation)".to_string());
+            next_steps.push(
+                "# Auth config in config/auth.yaml (WAMI STS + tenant isolation)".to_string(),
+            );
             next_steps.push("# POST /auth/token to get a JWT, then use Bearer <token>".to_string());
         }
         if args.cognitive {
-            next_steps.push("# Cognitive signals active — configure thresholds in code".to_string());
+            next_steps
+                .push("# Cognitive signals active — configure thresholds in code".to_string());
         }
         let next_steps_refs: Vec<&str> = next_steps.iter().map(|s| s.as_str()).collect();
         output::print_next_steps(&next_steps_refs);

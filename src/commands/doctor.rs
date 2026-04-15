@@ -757,7 +757,8 @@ fn check_events(project_root: &Path) -> Vec<DiagnosticResult> {
         // No events.yaml — check if main.rs uses event_bus (would mean missing config)
         let main_path = project_root.join("src/main.rs");
         if let Ok(main_content) = std::fs::read_to_string(&main_path)
-            && (main_content.contains("with_default_event_bus") || main_content.contains("with_event_bus"))
+            && (main_content.contains("with_default_event_bus")
+                || main_content.contains("with_event_bus"))
         {
             return vec![DiagnosticResult::warn(
                 "Events",
