@@ -42,6 +42,14 @@ async fn main() -> anyhow::Result<()> {
 {% endif %}
 {% if auth %}
         .with_auth_config_file(concat!(env!("CARGO_MANIFEST_DIR"), "/config/auth.yaml"))?
+        // Custom auth resolvers — reference as "resolver:name" in YAML config
+        // .with_auth_resolver("is_manager", |ctx, _res| ctx.has_role("manager"))
+        // .with_auth_resolver("is_delegated", move |ctx, resource_id| {
+        //     let Some(user_id) = ctx.user_id() else { return false };
+        //     let Some(_res_id) = resource_id else { return false };
+        //     // Check delegation table / JWT claims...
+        //     true
+        // })
 {% endif %}
         .register_module(module)?
         .build_host()?;

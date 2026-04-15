@@ -5,28 +5,31 @@
 [![Crates.io](https://img.shields.io/crates/v/this-cli.svg)](https://crates.io/crates/this-cli)
 [![License](https://img.shields.io/crates/l/this-cli.svg)](LICENSE-MIT)
 
-A CLI scaffolding tool for [this-rs](https://github.com/triviere/this-rs) projects.
+A CLI scaffolding tool for [this-rs](https://github.com/this-rs/this) projects.
 
-Generate fully compilable this-rs projects and entities from the command line -- no manual wiring required.
+Generate fully compilable this-rs projects and entities from the command line — no manual wiring required.
 
 ## Features
 
-- **Zero-touch scaffolding** -- `this init` + `this add entity` produces code that compiles and runs immediately
-- **WebSocket support** -- `this init --websocket` enables real-time communication via this-rs WebSocket feature
-- **gRPC support** -- `this init --grpc` enables Protocol Buffers via this-rs gRPC feature (EntityService + LinkService + proto export at `/grpc/proto`)
-- **Workspace mode** -- `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
-- **Frontend targets** -- `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy
-- **Native targets** -- Desktop (Tauri 2), iOS & Android (Capacitor 6) with `this add target desktop|ios|android`
-- **Typed API client generation** -- `this generate client` introspects entities and links to produce a TypeScript API client
-- **Embed frontend** -- `this build --embed` produces a single binary with the frontend bundled via rust-embed
-- **Dev server orchestration** -- `this dev` runs API + frontend in parallel with auto-reload and colored output
-- **Docker support** -- `this build --docker` generates a multi-stage Dockerfile
-- **Automatic code registration** -- entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
-- **Project introspection** -- `this info` shows entities, links, workspace context, and coherence status at a glance
-- **Health diagnostics** -- `this doctor` checks project and workspace consistency and reports issues
-- **Dry-run mode** -- preview all file operations before they happen with `--dry-run`
-- **Shell completions** -- autocompletion for bash, zsh, fish, and PowerShell
-- **Idempotent operations** -- running `add entity` twice won't duplicate registrations
+- **Zero-touch scaffolding** — `this init` + `this add entity` produces code that compiles and runs immediately
+- **Multi-protocol** — `--websocket`, `--grpc` flags enable WebSocket and gRPC support
+- **EventBus & SSE** — `--events` flag enables EventBus broadcasting + SSE streaming endpoint
+- **WAMI Auth** — `--auth` flag enables JWT authentication (Ed25519), RBAC policies, custom resolvers, multi-tenant, GDPR erasure
+- **Cognitive Signals** — `--cognitive` flag enables CognitiveNotificationBridge with anomaly detection, co-change tracking, and threshold-based routing
+- **Storage backends** — `--storage <backend>` supports postgres, mongodb, neo4j, scylladb, mysql, lmdb, dynamodb, obrain (default: in-memory)
+- **Workspace mode** — `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
+- **Frontend targets** — `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy
+- **Native targets** — Desktop (Tauri 2), iOS & Android (Capacitor 6) with `this add target desktop|ios|android`
+- **Typed API client generation** — `this generate client` introspects entities and links to produce a TypeScript API client
+- **Embed frontend** — `this build --embed` produces a single binary with the frontend bundled via rust-embed
+- **Dev server orchestration** — `this dev` runs API + frontend in parallel with auto-reload and colored output
+- **Docker support** — `this build --docker` generates a multi-stage Dockerfile
+- **Automatic code registration** — entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
+- **Project introspection** — `this info` shows entities, links, workspace context, and coherence status at a glance
+- **Health diagnostics** — `this doctor` checks project and workspace consistency and reports issues
+- **Dry-run mode** — preview all file operations before they happen with `--dry-run`
+- **Shell completions** — autocompletion for bash, zsh, fish, and PowerShell
+- **Idempotent operations** — running `add entity` twice won't duplicate registrations
 
 ## Installation
 
@@ -122,7 +125,11 @@ this init my-api --port 8080        # Custom server port
 this init my-api --no-git           # Skip git init
 this init my-api --websocket        # Enable WebSocket support
 this init my-api --grpc             # Enable gRPC support
-this init my-api --grpc --websocket # Enable both protocols
+this init my-api --events           # Enable EventBus + SSE streaming
+this init my-api --auth             # Enable WAMI Auth STS (JWT, RBAC, GDPR)
+this init my-api --cognitive        # Enable Cognitive Signals (anomaly, co-change...)
+this init my-api --storage postgres # Use PostgreSQL backend
+this init my-api --grpc --websocket --events --auth --cognitive  # All features
 this init my-app --workspace        # Create workspace layout (this.yaml + api/)
 this --dry-run init my-api          # Preview without creating files
 ```
@@ -254,7 +261,7 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 
 ## Project Status
 
-**Version: 0.0.1** (development)
+**Version: 0.0.4**
 
 ### Implemented
 
@@ -265,20 +272,23 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Automatic `module.rs` / `stores.rs` / `links.yaml` updates
 - Build system (`build`) with 5 modes: default, embed, api-only, front-only, docker
 - Native target builds (`build --target desktop|ios|android|all`)
-- Embedded frontend (`build --embed`) -- single binary with rust-embed + SPA fallback
-- Dev server orchestration (`dev`) -- parallel API + frontend with colored output and Ctrl+C handling
-- Dockerfile generation (`build --docker`) -- multi-stage Node + Rust + Alpine
+- Embedded frontend (`build --embed`) — single binary with rust-embed + SPA fallback
+- Dev server orchestration (`dev`) — parallel API + frontend with colored output and Ctrl+C handling
+- Dockerfile generation (`build --docker`) — multi-stage Node + Rust + Alpine
 - Project introspection (`info`) and diagnostics (`doctor`) with workspace awareness
-- Frontend target scaffolding (`add target webapp`) -- React, Vue, or Svelte SPA with Vite + TypeScript
-- Native target scaffolding -- Desktop (Tauri 2), iOS & Android (Capacitor 6)
-- Typed API client generation (`generate client`) -- TypeScript interfaces and CRUD functions from introspection
+- Frontend target scaffolding (`add target webapp`) — React, Vue, or Svelte SPA with Vite + TypeScript
+- Native target scaffolding — Desktop (Tauri 2), iOS & Android (Capacitor 6)
+- Typed API client generation (`generate client`) — TypeScript interfaces and CRUD functions from introspection
 - MCP server (`this mcp`) for AI agent integration (9 tools)
+- EventBus + SSE support (`--events` flag)
+- WAMI Auth STS (`--auth` flag) — JWT, RBAC, custom resolvers, multi-tenant, GDPR erasure
+- Cognitive Signals (`--cognitive` flag) — anomaly detection, co-change, stigmergy, scars, episodes
+- Storage backend selection (`--storage <backend>`) — 9 backends supported
 - Shell completions, dry-run mode
-- 267 tests (175 unit + 72 integration + 20 MCP), CI with fmt/clippy/cross-platform
+- 267+ tests, CI with fmt/clippy/cross-platform
 
 ### Not yet implemented
 
-- PostgreSQL store generation (waiting on this-rs `postgres` feature)
 - `this remove entity` / `this remove link`
 - OpenAPI generation
 - Custom user templates
@@ -291,4 +301,4 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 
 ## License
 
-This project is part of the [this-rs](https://github.com/triviere/this-rs) workspace.
+This project is part of the [this-rs](https://github.com/this-rs/this) workspace.

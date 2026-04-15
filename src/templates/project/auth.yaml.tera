@@ -19,10 +19,21 @@ wami:
   refresh_ttl_secs: 3600
 
 # Per-entity policy overrides (optional)
+# Built-in policies: public, authenticated, owner, admin_only, service_only
+# Role-based: "role:editor", "owner_or_role:admin"
+# Custom resolvers: "resolver:is_delegated", "owner_or_resolver:is_parent"
+#   → Register resolvers in ServerBuilder: .with_auth_resolver("is_delegated", ...)
+# Statements (composable):
+#   "all:authenticated,resolver:is_group_member"    — AND: all must pass
+#   "any:owner,resolver:is_delegated,role:admin"    — OR:  any must pass
+#   "all:authenticated,not:resolver:is_readonly"    — NOT: deny list
 # entities:
 #   order:
-#     read: public
-#     write: "role:editor"
+#     list: authenticated
+#     get: authenticated
+#     create: "resolver:is_manager"
+#     update: "owner_or_resolver:is_delegated"
+#     delete: admin_only
 #   user:
 #     read: authenticated
 #     write: admin_only
