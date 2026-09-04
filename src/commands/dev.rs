@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,6 +34,150 @@ impl RustWatcher {
     }
 }
 
+/// How `this dev` runs the webapp frontend.
+#[derive(Debug)]
+enum FrontMode {
+    /// vite-rs dev loop inside the API process: the API binary serves the
+    /// built SPA, watches the frontend sources, rebuilds on change and
+    /// exposes `/__dev` (hot reload + AI bridge). No Node dev server.
+    ViteRs {
+        front_path: PathBuf,
+        build_cmd: String,
+        dev_log: PathBuf,
+    },
+    /// Workspace scaffolded against a published this-rs (no `frontend`
+    /// feature): keep the historical Node/Vite dev server child process.
+    Legacy { front_path: PathBuf },
+    /// API only (no webapp target, or `--api-only`).
+    None,
+}
+
+/// Whether the workspace API binary serves the SPA itself (this-rs
+/// `frontend` feature, i.e. this::server::frontend). Probes the generated api
+/// manifest for the inline `"frontend"` feature entry.
+fn supports_framework_frontend(api_path: &Path) -> bool {
+    let Ok(manifest) = std::fs::read_to_string(api_path.join("Cargo.toml")) else {
+        return false;
+    };
+    manifest.contains("\"frontend\"")
+}
+
+/// Bundler command for the webapp: `build:fast` (vite build only) when the
+/// scaffold provides it, else the full `npm run build`.
+fn webapp_build_command(front_path: &Path) -> Result<String> {
+    let pkg = front_path.join("package.json");
+    let content = std::fs::read_to_string(&pkg)
+        .with_context(|| format!("Failed to read {}", pkg.display()))?;
+    if content.contains("\"build:fast\"") {
+        Ok("npm run build:fast".to_string())
+    } else {
+        Ok("npm run build".to_string())
+    }
+}
+
+/// A `Command` running `cmd` through the platform shell (POSIX `sh -c`,
+/// Windows `cmd /C`).
+fn shell_command(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(cmd);
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(cmd);
+        c
+    }
+}
+
+/// Run a bundler command synchronously in `cwd`, failing fast with the tail
+/// of the output so the user sees the real error.
+fn run_frontend_build(cmd: &str, cwd: &Path) -> Result<()> {
+    output::print_step(&format!(
+        "Building frontend ({}) in {}…",
+        cmd,
+        cwd.display()
+    ));
+    let out = shell_command(cmd)
+        .current_dir(cwd)
+        .output()
+        .with_context(|| format!("Failed to execute `{cmd}`"))?;
+    if out.status.success() {
+        output::print_success("Frontend build OK");
+        return Ok(());
+    }
+    let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(&out.stderr));
+    let tail: String = combined
+        .chars()
+        .rev()
+        .take(2500)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let mut msg = format!(
+        "Frontend build failed ({}) — output tail:\n{}",
+        out.status, tail
+    );
+    if !cwd.join("node_modules").exists() {
+        msg.push_str(&format!(
+            "\n\nHint: dependencies are not installed — run `npm install` in {}",
+            cwd.display()
+        ));
+    }
+    bail!("{msg}")
+}
+
+/// Decide how the webapp frontend will run, bailing early when a configured
+/// webapp target is not scaffolded.
+fn frontend_mode(
+    args: &DevArgs,
+    webapp: Option<&config::TargetConfig>,
+    api_path: &Path,
+    workspace_root: &Path,
+) -> Result<FrontMode> {
+    if args.api_only {
+        return Ok(FrontMode::None);
+    }
+    let Some(webapp_target) = webapp else {
+        return Ok(FrontMode::None);
+    };
+    let front_path = workspace_root.join(&webapp_target.path);
+    if !front_path.join("package.json").exists() {
+        bail!(
+            "No package.json found in {}. Is the webapp target scaffolded?\n\
+             Scaffold it with: this add target webapp --framework react",
+            front_path.display()
+        );
+    }
+    if supports_framework_frontend(api_path) {
+        let build_cmd = webapp_build_command(&front_path)?;
+        let dev_log = std::env::temp_dir().join(format!(
+            "{}-frontend-dev.log",
+            api_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("this-rs")
+        ));
+        Ok(FrontMode::ViteRs {
+            front_path,
+            build_cmd,
+            dev_log,
+        })
+    } else {
+        output::print_warn(
+            "The API was scaffolded against a published this-rs without the `frontend` \
+             feature — falling back to the legacy `npm run dev` (Node/Vite) flow.\n\
+             Re-scaffold the workspace with --this-path <local this-rs> to get the \
+             vite-rs dev flow (single process, hot reload, /__dev AI bridge).",
+        );
+        Ok(FrontMode::Legacy { front_path })
+    }
+}
+
 /// Entry point for `this dev`.
 pub fn run(args: DevArgs) -> Result<()> {
     // 1. Find workspace root
@@ -60,8 +204,12 @@ pub fn run(args: DevArgs) -> Result<()> {
         detect_rust_watcher()
     };
 
+    // 5b. Frontend serving mode — vite-rs in-process flow when the API binary
+    // has the this-rs `frontend` feature, legacy Node/Vite otherwise.
+    let front_mode = frontend_mode(&args, webapp, &api_path, &workspace_root)?;
+
     // 6. Print dev banner
-    print_banner(port, &watcher, webapp, args.api_only);
+    print_banner(port, &watcher, &front_mode, args.api_only);
 
     // 6b. Print contextual usage examples (best-effort, never fails)
     print_usage_examples(port);
@@ -74,8 +222,33 @@ pub fn run(args: DevArgs) -> Result<()> {
     })
     .context("Failed to set Ctrl+C handler")?;
 
-    // 8. Spawn API process
+    // 8. Frontend build + API process (vite-rs flow: the API serves the SPA
+    // and rebuilds it on source change — no Node dev server involved).
+    if let FrontMode::ViteRs {
+        ref front_path,
+        ref build_cmd,
+        ..
+    } = front_mode
+    {
+        run_frontend_build(build_cmd, front_path)?;
+    }
+
     let mut api_cmd = build_api_command(&watcher, &api_path, port);
+    if let FrontMode::ViteRs {
+        front_path,
+        build_cmd,
+        dev_log,
+    } = &front_mode
+    {
+        api_cmd
+            .env("SERVE_FRONTEND", "true")
+            .env("FRONTEND_PATH", front_path.join("dist"))
+            .env("THIS_DEV", "1")
+            .env("THIS_WATCH", front_path.join("src"))
+            .env("THIS_REBUILD", build_cmd)
+            .env("THIS_REBUILD_CWD", front_path)
+            .env("THIS_DEV_LOG", dev_log);
+    }
     api_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut api_child = api_cmd
@@ -100,66 +273,53 @@ pub fn run(args: DevArgs) -> Result<()> {
         })
     });
 
-    // 9. Spawn frontend process (if applicable)
+    // 9. Legacy frontend process — only for workspaces scaffolded against a
+    // published this-rs without the `frontend` feature (the vite-rs flow
+    // serves the SPA inside the API process instead, see step 8).
     let mut front_child = None;
     let mut front_stdout_thread = None;
     let mut front_stderr_thread = None;
 
-    if !args.api_only {
-        if let Some(webapp_target) = webapp {
-            let front_path = workspace_root.join(&webapp_target.path);
+    if let FrontMode::Legacy { front_path } = &front_mode {
+        let mut front_cmd = Command::new("npm");
+        front_cmd
+            .args(["run", "dev"])
+            .current_dir(front_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-            if !front_path.join("package.json").exists() {
-                // Kill API before bailing
-                let _ = api_child.kill();
-                bail!(
-                    "No package.json found in {}. Is the webapp target scaffolded?\n\
-                     Scaffold it with: cd {} && npm create vite@latest . -- --template react-ts",
-                    front_path.display(),
-                    front_path.display()
-                );
+        match front_cmd.spawn() {
+            Ok(mut child) => {
+                let out = child.stdout.take();
+                let err = child.stderr.take();
+                let r3 = running.clone();
+                let r4 = running.clone();
+
+                front_stdout_thread = out.map(|o| {
+                    std::thread::spawn(move || {
+                        stream_prefixed(BufReader::new(o), "FRONT", Color::Green, &r3);
+                    })
+                });
+
+                front_stderr_thread = err.map(|e| {
+                    std::thread::spawn(move || {
+                        stream_prefixed(BufReader::new(e), "FRONT", Color::Green, &r4);
+                    })
+                });
+
+                front_child = Some(child);
             }
-
-            let mut front_cmd = Command::new("npm");
-            front_cmd
-                .args(["run", "dev"])
-                .current_dir(&front_path)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-
-            match front_cmd.spawn() {
-                Ok(mut child) => {
-                    let out = child.stdout.take();
-                    let err = child.stderr.take();
-                    let r3 = running.clone();
-                    let r4 = running.clone();
-
-                    front_stdout_thread = out.map(|o| {
-                        std::thread::spawn(move || {
-                            stream_prefixed(BufReader::new(o), "FRONT", Color::Green, &r3);
-                        })
-                    });
-
-                    front_stderr_thread = err.map(|e| {
-                        std::thread::spawn(move || {
-                            stream_prefixed(BufReader::new(e), "FRONT", Color::Green, &r4);
-                        })
-                    });
-
-                    front_child = Some(child);
-                }
-                Err(e) => {
-                    output::print_warn(&format!(
-                        "Failed to start frontend dev server: {}. Continuing with API only.",
-                        e
-                    ));
-                }
+            Err(e) => {
+                output::print_warn(&format!(
+                    "Failed to start frontend dev server: {}. Continuing with API only.",
+                    e
+                ));
             }
-        } else {
-            output::print_info(
-                "No webapp target configured — running API only. Add one with: this add target webapp",
-            );
         }
+    } else if !args.api_only && webapp.is_none() {
+        output::print_info(
+            "No webapp target configured — running API only. Add one with: this add target webapp",
+        );
     }
 
     // 10. Wait loop — check children and Ctrl+C
@@ -292,12 +452,7 @@ fn build_api_command(watcher: &RustWatcher, api_path: &Path, port: u16) -> Comma
 }
 
 /// Print the dev server startup banner.
-fn print_banner(
-    port: u16,
-    watcher: &RustWatcher,
-    webapp: Option<&config::TargetConfig>,
-    api_only: bool,
-) {
+fn print_banner(port: u16, watcher: &RustWatcher, front_mode: &FrontMode, api_only: bool) {
     println!();
     println!("  {}", "🚀 Starting development servers...".bold());
     println!();
@@ -315,12 +470,36 @@ fn print_banner(
     );
 
     // Front line
-    if !api_only && let Some(webapp_target) = webapp {
-        println!(
-            "   {} http://localhost:5173  {}",
-            "Front:".green().bold(),
-            format!("({})", webapp_target.path).dimmed()
-        );
+    if !api_only {
+        match front_mode {
+            FrontMode::ViteRs {
+                front_path,
+                dev_log,
+                ..
+            } => {
+                println!(
+                    "   {} http://127.0.0.1:{}  {}",
+                    "Front:".green().bold(),
+                    port,
+                    format!("(vite-rs dev loop — served by the API process)").dimmed()
+                );
+                println!("        {} {}", "dev log:".dimmed(), dev_log.display());
+                println!(
+                    "        {} curl -s -X POST localhost:{}/__dev/command -H 'content-type: application/json' -d '{{\"code\":\"document.title\"}}'",
+                    "bridge:".dimmed(),
+                    port
+                );
+                let _ = front_path;
+            }
+            FrontMode::Legacy { front_path } => {
+                println!(
+                    "   {} http://localhost:5173  {}",
+                    "Front:".green().bold(),
+                    format!("({}, Node/Vite dev server)", front_path.display()).dimmed()
+                );
+            }
+            FrontMode::None => {}
+        }
     }
 
     println!();
@@ -503,6 +682,159 @@ mod tests {
     fn test_detect_rust_watcher_returns_variant() {
         // Just verify it doesn't panic — result depends on system
         let _watcher = detect_rust_watcher();
+    }
+
+    // ------------------------------------------------------------------------
+    // vite-rs frontend mode helpers
+    // ------------------------------------------------------------------------
+
+    fn webapp_target(path: &str) -> config::TargetConfig {
+        config::TargetConfig {
+            target_type: TargetType::Webapp,
+            framework: Some("react".to_string()),
+            runtime: None,
+            path: path.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_supports_framework_frontend_true() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            r#"[dependencies]
+this = { package = "this-rs", path = "../../this", features = ["frontend", "in-memory"] }
+"#,
+        )
+        .unwrap();
+        assert!(supports_framework_frontend(tmp.path()));
+    }
+
+    #[test]
+    fn test_supports_framework_frontend_false() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            r#"[dependencies]
+this = { package = "this-rs", version = "0.0.9", features = ["in-memory"] }
+"#,
+        )
+        .unwrap();
+        assert!(!supports_framework_frontend(tmp.path()));
+    }
+
+    #[test]
+    fn test_webapp_build_command_prefers_build_fast() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"scripts": {"dev": "vite", "build": "tsc -b && vite build", "build:fast": "vite build"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            webapp_build_command(tmp.path()).unwrap(),
+            "npm run build:fast"
+        );
+    }
+
+    #[test]
+    fn test_webapp_build_command_falls_back_to_build() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"scripts": {"dev": "vite", "build": "tsc -b && vite build"}}"#,
+        )
+        .unwrap();
+        assert_eq!(webapp_build_command(tmp.path()).unwrap(), "npm run build");
+    }
+
+    #[test]
+    fn test_frontend_mode_vite_rs_when_api_supports_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let api = tmp.path().join("api");
+        let front = tmp.path().join("front");
+        std::fs::create_dir_all(&api).unwrap();
+        std::fs::create_dir_all(&front).unwrap();
+        std::fs::write(
+            api.join("Cargo.toml"),
+            r#"this = { package = "this-rs", path = "../../this", features = ["frontend"] }"#,
+        )
+        .unwrap();
+        std::fs::write(front.join("package.json"), "{}").unwrap();
+
+        let args = DevArgs {
+            api_only: false,
+            no_watch: false,
+            port: None,
+        };
+        match frontend_mode(&args, Some(&webapp_target("front")), &api, tmp.path()).unwrap() {
+            FrontMode::ViteRs { front_path, .. } => {
+                assert_eq!(front_path, tmp.path().join("front"))
+            }
+            other => panic!("expected ViteRs mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_frontend_mode_legacy_without_api_frontend_feature() {
+        let tmp = tempfile::tempdir().unwrap();
+        let api = tmp.path().join("api");
+        let front = tmp.path().join("front");
+        std::fs::create_dir_all(&api).unwrap();
+        std::fs::create_dir_all(&front).unwrap();
+        std::fs::write(
+            api.join("Cargo.toml"),
+            r#"this = { package = "this-rs", version = "0.0.9", features = ["in-memory"] }"#,
+        )
+        .unwrap();
+        std::fs::write(front.join("package.json"), "{}").unwrap();
+
+        let args = DevArgs {
+            api_only: false,
+            no_watch: false,
+            port: None,
+        };
+        match frontend_mode(&args, Some(&webapp_target("front")), &api, tmp.path()).unwrap() {
+            FrontMode::Legacy { front_path } => {
+                assert_eq!(front_path, tmp.path().join("front"))
+            }
+            other => panic!("expected Legacy mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_frontend_mode_bails_without_package_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let api = tmp.path().join("api");
+        std::fs::create_dir_all(&api).unwrap();
+        std::fs::write(
+            api.join("Cargo.toml"),
+            r#"this = { features = ["frontend"] }"#,
+        )
+        .unwrap();
+
+        let args = DevArgs {
+            api_only: false,
+            no_watch: false,
+            port: None,
+        };
+        let err = frontend_mode(&args, Some(&webapp_target("front")), &api, tmp.path())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("No package.json"), "{err}");
+    }
+
+    #[test]
+    fn test_frontend_mode_api_only_is_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = DevArgs {
+            api_only: true,
+            no_watch: false,
+            port: None,
+        };
+        let mode =
+            frontend_mode(&args, Some(&webapp_target("front")), tmp.path(), tmp.path()).unwrap();
+        assert!(matches!(mode, FrontMode::None));
     }
 
     #[test]
@@ -1030,30 +1362,48 @@ mod tests {
     #[test]
     fn test_print_banner_no_watcher_no_webapp() {
         // Should not panic
-        print_banner(3000, &RustWatcher::None, None, false);
+        print_banner(3000, &RustWatcher::None, &FrontMode::None, false);
     }
 
     #[test]
     fn test_print_banner_with_watcher_and_webapp() {
-        let webapp = config::TargetConfig {
-            target_type: TargetType::Webapp,
-            path: "front".to_string(),
-            framework: Some("react".to_string()),
-            runtime: None,
-        };
-        print_banner(8080, &RustWatcher::CargoWatch, Some(&webapp), false);
+        print_banner(
+            8080,
+            &RustWatcher::CargoWatch,
+            &FrontMode::Legacy {
+                front_path: "front".into(),
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn test_print_banner_vite_rs_flow() {
+        print_banner(
+            8080,
+            &RustWatcher::CargoWatch,
+            &FrontMode::ViteRs {
+                front_path: "front".into(),
+                build_cmd: "npm run build".into(),
+                dev_log: "/tmp/x.log".into(),
+            },
+            false,
+        );
     }
 
     #[test]
     fn test_print_banner_api_only_ignores_webapp() {
-        let webapp = config::TargetConfig {
-            target_type: TargetType::Webapp,
-            path: "front".to_string(),
-            framework: None,
-            runtime: None,
-        };
-        // With api_only=true, the webapp line should be skipped
-        print_banner(4000, &RustWatcher::Watchexec, Some(&webapp), true);
+        // With api_only=true, the frontend line should be skipped
+        print_banner(
+            4000,
+            &RustWatcher::Watchexec,
+            &FrontMode::ViteRs {
+                front_path: "front".into(),
+                build_cmd: "npm run build".into(),
+                dev_log: "/tmp/x.log".into(),
+            },
+            true,
+        );
     }
 
     #[test]
@@ -1065,7 +1415,7 @@ mod tests {
             RustWatcher::None,
         ];
         for watcher in &watchers {
-            print_banner(3000, watcher, None, false);
+            print_banner(3000, watcher, &FrontMode::None, false);
         }
     }
 }

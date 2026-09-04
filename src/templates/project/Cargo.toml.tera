@@ -16,10 +16,19 @@ axum = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
-{% if workspace %}tower-http = { version = "0.6", features = ["fs"] }
+{% if workspace %}
+{# Local this-rs checkout (this_path): frontend serving lives in the framework
+   (this::server::frontend, vite-rs based) — rust-embed only stores the assets. #}
+{% if this_path %}rust-embed = { version = "8", optional = true }
+
+[features]
+embedded-frontend = ["dep:rust-embed"]
+{% else %}{# Published this-rs (no 'frontend' feature yet): legacy in-project serving. #}
+tower-http = { version = "0.6", features = ["fs"] }
 rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 
 [features]
 embedded-frontend = ["dep:rust-embed", "dep:mime_guess"]
+{% endif %}
 {% endif %}

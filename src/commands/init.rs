@@ -234,6 +234,12 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     if args.cognitive {
         ws_features.push("\"obrain\"");
     }
+    // vite-rs frontend hosting (this::server::frontend) only exists on a local
+    // this-rs checkout — a published this-rs (no `frontend` feature yet) keeps
+    // the legacy in-project serving path in the templates.
+    if args.this_path.is_some() {
+        ws_features.push("\"frontend\"");
+    }
     api_context.insert("features_list", &ws_features.join(", "));
 
     let mut api_files: Vec<(&str, &str)> = vec![
@@ -491,6 +497,30 @@ mod tests {
         // Workspace Cargo.toml should have embedded-frontend feature
         assert_file_contains(&ws, "api/Cargo.toml", "embedded-frontend");
         assert_file_contains(&ws, "api/Cargo.toml", "rust-embed");
+    }
+
+    #[test]
+    fn test_init_workspace_this_path_enables_vite_rs_frontend() {
+        let tmp = TempDir::new().unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = workspace_args("frontend-ws");
+        args.this_path = Some("/local/this-rs/this".to_string());
+
+        run_in(args, &writer, tmp.path()).unwrap();
+
+        let ws = tmp.path().join("frontend-ws");
+        // this-rs `frontend` feature is enabled for the local checkout…
+        assert_file_contains(&ws, "api/Cargo.toml", "features = [\"frontend\"]");
+        // …the generated main.rs attaches the vite-rs frontend router…
+        assert_file_contains(&ws, "api/src/main.rs", "attach_from_env");
+        assert_file_contains(&ws, "api/src/main.rs", "frontend_router");
+        // …and the legacy in-project serving glue is gone.
+        assert_file_not_contains(&ws, "api/src/main.rs", "ServeDir");
+        assert_file_not_contains(&ws, "api/src/main.rs", "serve_embedded");
+        assert_file_not_contains(&ws, "api/Cargo.toml", "tower-http");
+        assert_file_not_contains(&ws, "api/Cargo.toml", "mime_guess");
+        assert_file_contains(&ws, "api/src/embedded_frontend.rs", "frontend_router");
+        assert_file_not_contains(&ws, "api/src/embedded_frontend.rs", "mime_guess");
     }
 
     // ========================================================================

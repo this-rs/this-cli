@@ -1,3 +1,17 @@
+{% if this_path %}{# Local this-rs checkout: the embedded SPA is served with
+   vite-rs rules (ETag/304, MIME, SPA fallback, hashed-asset layouts) through
+   this::server::frontend — this file only stores the assets in the binary. #}
+use rust_embed::RustEmbed;
+
+#[derive(RustEmbed)]
+#[folder = "dist/"]
+struct Assets;
+
+/// Fallback router for the embedded SPA (vite-rs serving semantics).
+pub fn frontend_router() -> axum::Router {
+    this::server::frontend::embedded_router(|path: &str| Assets::get(path).map(|f| f.data))
+}
+{% else %}{# Published this-rs fallback: legacy in-project serving. #}
 use axum::{
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
@@ -39,3 +53,4 @@ fn serve_file(path: &str, data: Cow<'_, [u8]>) -> Response {
     )
         .into_response()
 }
+{% endif %}

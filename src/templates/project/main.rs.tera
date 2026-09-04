@@ -112,6 +112,18 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 {% if workspace %}
+{% if this_path %}{# Local this-rs checkout: frontend hosting is vite-rs based and
+   lives in the framework (this::server::frontend) — see its env contract. #}
+#[cfg(feature = "embedded-frontend")]
+fn attach_frontend(app: axum::Router) -> axum::Router {
+    app.fallback_service(embedded_frontend::frontend_router())
+}
+
+#[cfg(not(feature = "embedded-frontend"))]
+fn attach_frontend(app: axum::Router) -> axum::Router {
+    this::server::frontend::attach_from_env(app)
+}
+{% else %}{# Published this-rs fallback: legacy in-project static serving. #}
 #[cfg(feature = "embedded-frontend")]
 fn attach_frontend(app: axum::Router) -> axum::Router {
     app.fallback(embedded_frontend::serve_embedded)
@@ -127,4 +139,5 @@ fn attach_frontend(app: axum::Router) -> axum::Router {
         app
     }
 }
+{% endif %}
 {% endif %}
