@@ -31,7 +31,7 @@ src/
 │   ├── add_target.rs                # `this add target` — scaffold deployment targets (webapp, desktop, ios, android)
 │   ├── generate.rs                  # `this generate client` — typed API client generation
 │   ├── build.rs                     # `this build` — 6 modes (default, embed, api-only, front-only, docker, --target)
-│   ├── dev.rs                       # `this dev` — parallel API + frontend with watcher detection
+│   ├── dev.rs                       # `this dev` — vite-rs frontend flow (API serves the SPA) or legacy parallel dev
 │   ├── info.rs                      # `this info` — project + workspace introspection
 │   ├── doctor.rs                    # `this doctor` — health + workspace diagnostics
 │   └── completions.rs               # `this completions` — shell autocompletion
@@ -54,7 +54,7 @@ src/
 │   │   ├── stores.rs.tera           # Contains [this:xxx] markers
 │   │   ├── entities_mod.rs.tera
 │   │   ├── links.yaml.tera
-│   │   └── embedded_frontend.rs.tera # rust-embed + SPA fallback module
+│   │   └── embedded_frontend.rs.tera # rust-embed store + SPA fallback; dual-mode (frontend feature)
 │   ├── workspace/                   # Templates for `this init --workspace` + build
 │   │   ├── this.yaml.tera           # Workspace configuration template
 │   │   └── Dockerfile.tera          # Multi-stage Dockerfile (Node + Rust + Alpine)
@@ -134,8 +134,25 @@ main()
               │     └── (default)   → run_api_build + run_front_build (if webapp)
               ├── Dev(args)       → commands::dev::run(args)
               │     ├── detect_rust_watcher() → CargoWatch | Watchexec | Bacon | None
-              │     ├── spawn API process (with watcher)
-              │     ├── spawn frontend process (npm run dev, if applicable)
+              │     ├── detect frontend mode → reads API Cargo.toml for the
+              │     │     this-rs `frontend` feature
+              │     │     ├── enabled  → vite-rs flow (API serves the SPA in-process)
+              │     │     └── disabled → legacy flow (spawn npm run dev)
+              │     ├── vite-rs flow (`frontend` feature enabled):
+              │     │     ├── run webapp bundler once (npm run build:fast if the
+              │     │     │     webapp's package.json defines it, else npm run build)
+              │     │     └── spawn API process (with watcher) + env contract:
+              │     │           SERVE_FRONTEND=true, FRONTEND_PATH=<webapp>/dist,
+              │     │           THIS_DEV=1, THIS_WATCH=<webapp>/src,
+              │     │           THIS_REBUILD=<bundler cmd>,
+              │     │           THIS_REBUILD_CWD=<webapp>,
+              │     │           THIS_DEV_LOG=/tmp/<name>-frontend-dev.log
+              │     │         → the API serves API + SPA on one port (vite-rs hot
+              │     │           reload + /__dev AI bridge); no frontend process
+              │     ├── legacy flow (no `frontend` feature):
+              │     │     ├── spawn API process (with watcher)
+              │     │     └── spawn frontend process (npm run dev, if applicable)
+              │     │           → warning printed; Node/Vite on port 5173
               │     └── wait loop + Ctrl+C graceful shutdown
               ├── Info            → commands::info::run()
               ├── Doctor          → commands::doctor::run()
@@ -212,13 +229,13 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 
 | Template | Output | Purpose |
 |----------|--------|---------|
-| `Cargo.toml.tera` | `Cargo.toml` | Project manifest with this-rs dependency, tokio, serde. Conditional features: `{% if websocket and grpc %}` → `["websocket", "grpc"]`, `{% elif websocket %}` → `["websocket"]`, `{% elif grpc %}` → `["grpc"]` |
-| `main.rs.tera` | `src/main.rs` | Server entry point with `ServerBuilder`, stores, module. `{% if websocket or grpc %}` switches to `build_host()` + `Arc<ServerHost>` + individual exposure merges (`WebSocketExposure`, `GrpcExposure`) |
+| `Cargo.toml.tera` | `Cargo.toml` | Project manifest with this-rs dependency, tokio, serde. Conditional features: `{% if websocket and grpc %}` → `["websocket", "grpc"]`, `{% elif websocket %}` → `["websocket"]`, `{% elif grpc %}` → `["grpc"]`. When scaffolding with `--this-path`, the this-rs dependency points at the local checkout with its `frontend` feature enabled and the generated project drops `tower-http`/`mime_guess` |
+| `main.rs.tera` | `src/main.rs` | Server entry point with `ServerBuilder`, stores, module. `{% if websocket or grpc %}` switches to `build_host()` + `Arc<ServerHost>` + individual exposure merges (`WebSocketExposure`, `GrpcExposure`). Dual-mode frontend wiring: with `--this-path` the template renders `this::server::frontend::attach_from_env(app)` (dev/disk) and an embedded `embedded_frontend::frontend_router()` branch; the legacy published-this-rs variant (no `--this-path`) keeps the `ServeDir` env fallback + `attach_frontend()` cfg branches |
 | `module.rs.tera` | `src/module.rs` | `Module` trait impl with marker comments for auto-registration |
 | `stores.rs.tera` | `src/stores.rs` | Centralized `{Project}Stores` struct with marker comments |
 | `entities_mod.rs.tera` | `src/entities/mod.rs` | Empty entity re-exports |
 | `links.yaml.tera` | `config/links.yaml` | Empty link configuration structure |
-| `embedded_frontend.rs.tera` | `src/embedded_frontend.rs` | rust-embed asset serving + SPA fallback (behind `embedded-frontend` feature) |
+| `embedded_frontend.rs.tera` | `src/embedded_frontend.rs` | Dual-mode rust-embed module: the legacy published-this-rs variant renders rust-embed + mime_guess SPA fallback (behind `embedded-frontend` feature); with `--this-path` it renders a rust-embed store + `frontend_router()` factory, served with vite-rs rules via `this::server::frontend::embedded(loader)` (no `mime_guess`/`tower-http`) |
 
 ### Workspace Templates (2)
 
@@ -231,7 +248,7 @@ Templates are embedded into the binary at compile time via `include_str!` and re
 
 | Template | Output | Purpose |
 |----------|--------|---------|
-| `package.json.tera` | `package.json` | Dependencies for React/Vue/Svelte + Vite + TypeScript |
+| `package.json.tera` | `package.json` | Dependencies for React/Vue/Svelte + Vite + TypeScript; scripts include `dev`, `build` and `build:fast` (fast `vite build` used by the vite-rs dev loop) |
 | `tsconfig.json.tera` | `tsconfig.json` | TypeScript compiler configuration |
 | `vite.config.ts.tera` | `vite.config.ts` | Vite config with API proxy to backend port |
 | `index.html.tera` | `index.html` | HTML entry point for Vite |
@@ -528,6 +545,8 @@ this init my-app --workspace
 └── Run: git init (unless --no-git)
 ```
 
+When `--this-path <local this>` is passed, the same project templates render their `frontend`-feature variants: `Cargo.toml` depends on the local this-rs with `features = ["frontend"]`, `main.rs` wires `this::server::frontend::attach_from_env(app)` (dev/disk) plus an embedded `embedded_frontend::frontend_router()` branch, and `embedded_frontend.rs.tera` renders `api/src/embedded_frontend.rs` as a rust-embed store + `frontend_router()` factory (see [Templates Reference](#templates-reference) and [Embedded Frontend](#embedded-frontend-rust-embed)). Without `--this-path` (published this-rs), the legacy `ServeDir` env fallback + mime_guess embedded serving is generated unchanged.
+
 ### `this add entity <name>`
 
 ```
@@ -738,32 +757,51 @@ this dev [--api-only] [--no-watch] [--port PORT]
 │     ├── Try: bacon --version       → Bacon
 │     └── Fallback                   → None (plain cargo run)
 │
-├── print_banner() → URLs, watcher info, Ctrl+C hint
+├── Detect frontend mode → reads the API Cargo.toml for the this-rs `frontend` feature
+│     ├── enabled  → vite-rs flow (API serves the SPA in-process)
+│     └── disabled → legacy flow (spawn npm run dev)
+│
+├── print_banner() → URLs, watcher info, dev log path, Ctrl+C hint
 ├── Setup Ctrl+C handler (ctrlc crate + AtomicBool)
 │
-├── Spawn API process:
-│     ├── CargoWatch → cargo watch -x run -w src/
-│     ├── Watchexec  → watchexec -r -e rs -- cargo run
-│     ├── Bacon      → bacon run
-│     └── None       → cargo run
-│     └── ENV: PORT=<port>
+├── vite-rs flow (API has the `frontend` feature):
+│     ├── Run webapp bundler once:
+│     │     ├── webapp package.json has "build:fast" → npm run build:fast
+│     │     └── else                                 → npm run build
+│     └── Spawn API process (with watcher):
+│     │     ├── CargoWatch → cargo watch -x run -w src/
+│     │     ├── Watchexec  → watchexec -r -e rs -- cargo run
+│     │     ├── Bacon      → bacon run
+│     │     └── None       → cargo run
+│     │     ENV:   PORT=<port>, SERVE_FRONTEND=true,
+│     │            FRONTEND_PATH=<webapp>/dist, THIS_DEV=1,
+│     │            THIS_WATCH=<webapp>/src, THIS_REBUILD=<bundler cmd>,
+│     │            THIS_REBUILD_CWD=<webapp>,
+│     │            THIS_DEV_LOG=/tmp/<name>-frontend-dev.log
+│     │     → the API serves API + SPA on one port: vite-rs watches the
+│     │       webapp sources, rebuilds via THIS_REBUILD, hot-reloads the
+│     │       browser and exposes the /__dev AI command bridge (no separate
+│     │       frontend process is spawned)
 │
-├── Spawn frontend process (if !api_only && webapp exists):
-│     └── npm run dev (current_dir = webapp.path)
+├── legacy flow (no `frontend` feature; if !api_only && webapp exists):
+│     ├── Spawn API process (watcher + PORT env, as above)
+│     └── Spawn frontend process:
+│     │     └── npm run dev (current_dir = webapp.path)
+│     │       + warning → Node/Vite dev server on port 5173
 │
 ├── Stream output threads:
 │     ├── API stdout/stderr  → "[API]"   (blue)
-│     └── FRONT stdout/stderr→ "[FRONT]" (green)
+│     └── FRONT stdout/stderr→ "[FRONT]" (green, legacy flow only)
 │
 ├── Wait loop:
 │     ├── Check Ctrl+C flag (AtomicBool)
 │     ├── Check API process (try_wait) → break if exited
-│     ├── Check front process (try_wait) → clear if exited
+│     ├── Check front process (try_wait) → clear if exited (legacy only)
 │     └── Sleep 100ms
 │
 └── Cleanup:
       ├── Kill API process
-      ├── Kill frontend process
+      ├── Kill frontend process (legacy only)
       └── Join output threads
 ```
 
@@ -847,9 +885,14 @@ The generated client uses native `fetch()` with no external dependencies.
 
 ## Embedded Frontend (rust-embed)
 
-When `this init --workspace` is used, the generated API project includes support for embedding the frontend as static assets into the binary.
+When `this init --workspace` is used, the generated API project includes support for embedding the frontend as static assets into the binary. There are two scaffolding variants:
 
-### How It Works
+- **`--this-path <local this>` (this-rs `frontend` feature)** — `embedded_frontend.rs` is a rust-embed store plus a `frontend_router()` factory. The in-binary store is still rust-embed, but the serving rules (ETag/304 caching, MIME detection, SPA fallback, hashed-asset layouts) come from vite-rs via `this::server::frontend::embedded(loader)`. No `tower-http`/`mime_guess` scaffolding is generated.
+- **Published this-rs v0.0.9 (no `--this-path`, no `frontend` feature)** — legacy path, unchanged: rust-embed + `mime_guess` embedded serving with a tower-http `ServeDir` env fallback.
+
+vite-rs is a detached crate living outside this repository (`~/projects/vite-rs`) referenced by path (`../../vite-rs`), the same convention as aletheia's miner.
+
+### How It Works (legacy)
 
 The `embedded_frontend.rs.tera` template generates a module that:
 
@@ -858,7 +901,17 @@ The `embedded_frontend.rs.tera` template generates a module that:
 3. Provides an `attach_frontend()` function that adds routes to the Axum router
 4. Implements SPA fallback: any request that doesn't match a static file returns `index.html`
 
+### How It Works (frontend feature)
+
+With `--this-path`, the dual-mode templates render the vite-rs variant instead:
+
+1. `embedded_frontend.rs` defines the rust-embed store and a `frontend_router()` factory (no mime_guess)
+2. `main.rs` (embedded) mounts `embedded_frontend::frontend_router()`; assets are served with vite-rs rules through `this::server::frontend::embedded(loader)`
+3. `main.rs` (dev/disk) calls `this::server::frontend::attach_from_env(app)`; the env contract below decides whether serving is active and whether the vite-rs dev loop runs
+
 ### Generated Code Structure
+
+Legacy published-this-rs scaffolding:
 
 ```rust
 #[cfg(feature = "embedded-frontend")]
@@ -876,9 +929,21 @@ mod embedded_frontend {
 }
 ```
 
+`frontend`-feature scaffolding (`--this-path`):
+
+```rust
+// embedded_frontend.rs — rust-embed store + router factory
+#[derive(rust_embed::Embed)]
+#[folder = "dist/"]
+struct Assets;
+
+// Assets served with vite-rs rules via this::server::frontend::embedded(loader)
+pub fn frontend_router() -> Router { /* ... */ }
+```
+
 ### Feature Flag
 
-The `embedded-frontend` feature is defined in the generated `Cargo.toml`:
+Legacy published-this-rs scaffolding defines the `embedded-frontend` feature in the generated `Cargo.toml`:
 
 ```toml
 [features]
@@ -889,13 +954,37 @@ rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 ```
 
-### Three Serving Modes
+With `--this-path`, no `embedded-frontend` feature or `mime_guess` dependency is generated: the scaffold enables the `frontend` feature on the local this-rs dependency instead, and rust-embed remains the in-binary store.
 
-The generated `main.rs` supports three modes via `#[cfg(feature)]`:
+### Serving Modes
+
+**Legacy published-this-rs scaffolding** — the generated `main.rs` supports three modes via `#[cfg(feature)]`:
 
 1. **Embedded** (`--features embedded-frontend`): Static files served from the binary
 2. **Filesystem** (default, with `dist/` present): Serves from `dist/` directory via tower-http
 3. **API-only** (default, no `dist/`): No frontend serving, API routes only
+
+**`frontend`-feature scaffolding (`--this-path`)**:
+
+1. **Dev/disk** (`attach_from_env(app)`): activated at runtime when `SERVE_FRONTEND=true` (or `THIS_SERVE_FRONTEND=true`); serves `FRONTEND_PATH`/`THIS_FRONTEND_PATH` (default `dist`). `THIS_DEV=1` switches on the vite-rs dev loop (watch, rebuild, hot reload, `/__dev` AI bridge)
+2. **Embedded**: the embedded branch mounts `embedded_frontend::frontend_router()`; `dist/` embedded via rust-embed is served with vite-rs rules (`this::server::frontend::embedded(loader)`)
+3. **API-only**: no serving env set and no embedded branch compiled — API routes only
+
+### Env Contract (frontend feature)
+
+| Env var | Meaning | Default |
+|---------|---------|---------|
+| `SERVE_FRONTEND` / `THIS_SERVE_FRONTEND` | `"true"` activates dev/disk serving | unset (off) |
+| `FRONTEND_PATH` / `THIS_FRONTEND_PATH` | directory served from disk in dev mode | `dist` |
+| `THIS_DEV` | `1` enables the vite-rs dev loop (watch/rebuild/hot reload + `/__dev`) | unset |
+| `THIS_WATCH` | extra source directories to watch (colon/semicolon-separated list) | — |
+| `THIS_REBUILD` | command run to rebuild the frontend on change | `npm run build` |
+| `THIS_REBUILD_CWD` | working directory for `THIS_REBUILD` | — |
+| `THIS_DEV_LOG` | path of the vite-rs dev log | `$TMPDIR/this-rs-dev.log` |
+| `THIS_DEV_COMMANDS` | `false` disables the `/__dev` AI command bridge | enabled |
+| `THIS_POLL_MS` | rebuild poll interval (ms) | `500` |
+
+`this dev` drives this contract for vite-rs workspaces by spawning the API with `SERVE_FRONTEND=true`, `FRONTEND_PATH=<webapp>/dist`, `THIS_DEV=1`, `THIS_WATCH=<webapp>/src`, `THIS_REBUILD=<bundler cmd>`, `THIS_REBUILD_CWD=<webapp>` and `THIS_DEV_LOG=/tmp/<name>-frontend-dev.log`; the API then serves the API and the SPA on one port with vite-rs hot reload and the `/__dev` AI command bridge.
 
 ---
 

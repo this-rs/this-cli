@@ -18,11 +18,11 @@ Generate fully compilable this-rs projects and entities from the command line �
 - **Cognitive Signals** — `--cognitive` flag enables CognitiveNotificationBridge with anomaly detection, co-change tracking, and threshold-based routing
 - **Storage backends** — `--storage <backend>` supports postgres, mongodb, neo4j, scylladb, mysql, lmdb, dynamodb, obrain (default: in-memory)
 - **Workspace mode** — `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
-- **Frontend targets** — `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy
+- **Frontend targets** — `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy; the scaffolded `package.json` also ships a `build:fast` script (fast `vite build`) used by the vite-rs dev loop
 - **Native targets** — Desktop (Tauri 2), iOS & Android (Capacitor 6) with `this add target desktop|ios|android`
 - **Typed API client generation** — `this generate client` introspects entities and links to produce a TypeScript API client
-- **Embed frontend** — `this build --embed` produces a single binary with the frontend bundled via rust-embed
-- **Dev server orchestration** — `this dev` runs API + frontend in parallel with auto-reload and colored output
+- **Embed frontend** — `this build --embed` produces a single binary with the frontend bundled via rust-embed; when the API enables the `frontend` feature, the embedded SPA is served with vite-rs rules (ETag/304, MIME, SPA fallback) via `this::server::frontend::embedded`
+- **Dev server orchestration** — `this dev` runs the API and SPA together: a single-process vite-rs flow (the API serves the SPA on one port with hot reload and a `/__dev` AI command bridge) when the API has the `frontend` feature, or the legacy parallel `npm run dev` (Node/Vite) fallback otherwise
 - **Docker support** — `this build --docker` generates a multi-stage Dockerfile
 - **Automatic code registration** — entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
 - **Project introspection** — `this info` shows entities, links, workspace context, and coherence status at a glance
@@ -30,6 +30,25 @@ Generate fully compilable this-rs projects and entities from the command line �
 - **Dry-run mode** — preview all file operations before they happen with `--dry-run`
 - **Shell completions** — autocompletion for bash, zsh, fish, and PowerShell
 - **Idempotent operations** — running `add entity` twice won't duplicate registrations
+
+### vite-rs frontend flow
+
+When a workspace is scaffolded against a **local this-rs** (`this init --workspace --this-path <local this>`), the API manifest enables the `frontend` feature on this-rs and `this dev` switches to a **single-process vite-rs flow** (vite-rs is a detached crate used by path, `../../vite-rs`):
+
+1. The webapp is bundled once up front — `npm run build:fast` if the webapp's `package.json` defines it, otherwise `npm run build`.
+2. The API process is started with the vite-rs env contract: `SERVE_FRONTEND=true`, `FRONTEND_PATH=<webapp>/dist`, `THIS_DEV=1`, `THIS_WATCH=<webapp>/src`, `THIS_REBUILD=<bundler cmd>`, `THIS_REBUILD_CWD=<webapp>`, `THIS_DEV_LOG=/tmp/<name>-frontend-dev.log`.
+3. The API serves both the API and the SPA on a **single port** (default `3000`) — same origin, so no separate Node server and no Vite proxy are needed in the this-rs flow. vite-rs watches the webapp sources, rebuilds on change, and hot-reloads the browser.
+4. While `THIS_DEV=1`, a `/__dev` AI command bridge is available (disable it with `THIS_DEV_COMMANDS=false`):
+   ```sh
+   # POST a command to the bridge, then poll for its result by id
+   curl -X POST http://127.0.0.1:3000/__dev/command
+   curl 'http://127.0.0.1:3000/__dev/command/result?id=<id>'
+   ```
+5. Dev logs are written to the `THIS_DEV_LOG` path (the CLI sets `/tmp/<name>-frontend-dev.log`; framework default `$TMPDIR/this-rs-dev.log`) and the startup banner prints the single URL plus a curl bridge example.
+
+Workspaces scaffolded **without** `--this-path` (published this-rs v0.0.9, no `frontend` feature) keep the legacy flow: `this dev` falls back to spawning `npm run dev` (Node/Vite on port 5173) alongside the API and prints a warning.
+
+`this build --embed` binaries always bundle `dist/` via rust-embed; with the `frontend` feature the embedded SPA is served with vite-rs rules (ETag/304, MIME, SPA fallback, hashed assets) through `this::server::frontend::embedded(loader)`.
 
 ## Installation
 
@@ -83,7 +102,7 @@ this add target webapp
 # Generate a typed TypeScript API client
 this generate client
 
-# Start development (API + frontend in parallel)
+# Start development (API + SPA together — vite-rs flow or legacy npm run dev)
 this dev
 
 # Build a single binary with embedded frontend
@@ -196,13 +215,13 @@ this build --target all             # Build all configured native targets
 ### this dev
 
 ```sh
-this dev                            # Start API + frontend in parallel
+this dev                            # Start API + frontend (vite-rs flow or legacy fallback)
 this dev --api-only                 # API only (skip frontend)
 this dev --no-watch                 # Run without file watcher (plain cargo run)
 this dev --port 8080                # Custom API port
 ```
 
-Auto-detects `cargo-watch`, `watchexec`, or `bacon` for live reload. Output is prefixed with colored `[API]`/`[FRONT]` labels. Press `Ctrl+C` to stop all servers.
+Auto-detects `cargo-watch`, `watchexec`, or `bacon` for live reload. When the API enables the `frontend` feature, `this dev` runs the vite-rs single-process flow — the API serves the SPA on the same port (hot reload + `/__dev` AI bridge). Otherwise it falls back to spawning `npm run dev` (Node/Vite, port 5173) with a warning. Output is prefixed with colored `[API]`/`[FRONT]` labels. Press `Ctrl+C` to stop all servers.
 
 ### this info
 
@@ -272,8 +291,8 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Automatic `module.rs` / `stores.rs` / `links.yaml` updates
 - Build system (`build`) with 5 modes: default, embed, api-only, front-only, docker
 - Native target builds (`build --target desktop|ios|android|all`)
-- Embedded frontend (`build --embed`) — single binary with rust-embed + SPA fallback
-- Dev server orchestration (`dev`) — parallel API + frontend with colored output and Ctrl+C handling
+- Embedded frontend (`build --embed`) — single binary with rust-embed + SPA fallback; vite-rs serving rules (ETag/304, MIME, SPA fallback) when the `frontend` feature is enabled
+- Dev server orchestration (`dev`) — single-process vite-rs flow (API serves the SPA, hot reload + `/__dev` AI bridge) or the legacy parallel `npm run dev` fallback, with colored output and Ctrl+C handling
 - Dockerfile generation (`build --docker`) — multi-stage Node + Rust + Alpine
 - Project introspection (`info`) and diagnostics (`doctor`) with workspace awareness
 - Frontend target scaffolding (`add target webapp`) — React, Vue, or Svelte SPA with Vite + TypeScript

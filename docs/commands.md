@@ -80,6 +80,7 @@ this init [OPTIONS] <NAME>
 | `--websocket` | false | Enable WebSocket support (adds `websocket` feature to this-rs dependency and `WebSocketExposure` in main.rs) |
 | `--grpc` | false | Enable gRPC support (adds `grpc` feature to this-rs dependency and `GrpcExposure` in main.rs) |
 | `--workspace` | false | Create a workspace layout with `this.yaml` and `api/` subdirectory |
+| `--this-path <PATH>` | (none) | Path to a local this-rs checkout (used with `--workspace`): enables the `frontend` feature on the this-rs dependency and generates the vite-rs frontend wiring |
 
 ### Generated Files (Classic mode)
 
@@ -187,6 +188,8 @@ this --dry-run init my-app --workspace
 - `--grpc` adds `features = ["grpc"]` to the this-rs dependency in `Cargo.toml` and generates `main.rs` with `GrpcExposure`. The gRPC endpoint is available on the same port as REST, and proto definitions are exported at `http://127.0.0.1:<port>/grpc/proto`
 - `--grpc` and `--websocket` can be combined: both features are added (`features = ["websocket", "grpc"]`) and both exposures are merged into the same router
 - Optional features (`--websocket`, `--grpc`) can be combined freely with `--workspace`
+- With `--workspace --this-path <local this>`, the scaffold targets the local this-rs checkout with its `frontend` feature enabled: `main.rs` is generated around `this::server::frontend::attach_from_env(app)` (dev/disk serving) plus an embedded `embedded_frontend::frontend_router()` branch, and `src/embedded_frontend.rs` is generated as a rust-embed store + `frontend_router()` factory. No `tower-http`/`mime_guess` scaffolding is emitted in that case
+- Without `--this-path` (published this-rs v0.0.9), workspace scaffolding is unchanged: the legacy `ServeDir` env fallback in `main.rs` and `mime_guess`-based embedded serving
 
 ---
 
@@ -424,7 +427,7 @@ For `this add target webapp` with default settings:
 ```
 front/
 ├── index.html               # Vite entry point
-├── package.json             # Dependencies (React, TypeScript, Vite)
+├── package.json             # Dependencies (React, TypeScript, Vite); scripts: dev, build, build:fast
 ├── tsconfig.json            # TypeScript configuration
 ├── vite.config.ts           # Vite config with API proxy to backend port
 ├── src/
@@ -550,7 +553,8 @@ this --dry-run add target webapp
 
 - Must be run from inside a this-rs workspace (not a classic project)
 - After adding a webapp target, `this build`, `this build --embed`, `this build --front-only`, `this build --docker`, and `this dev` will automatically use it
-- The generated Vite config includes an API proxy to `http://127.0.0.1:<port>` (from `this.yaml`)
+- The generated Vite config includes an API proxy to `http://127.0.0.1:<port>` (from `this.yaml`) — used by the legacy `npm run dev` flow; in the vite-rs flow the SPA is served same-origin by the API, so no proxy is needed
+- The generated `package.json` includes a `build:fast` script (`vite build`, fast bundling without typecheck) used by the vite-rs dev loop of `this dev`; `npm run build` remains the typechecked production build
 - Desktop and mobile targets require a webapp target as a prerequisite -- the native shell wraps the SPA
 - Both iOS and Android can coexist in the same workspace
 
@@ -690,6 +694,8 @@ Produces a single binary with the frontend bundled inside:
 
 The generated API includes an `embedded_frontend.rs` module that uses [rust-embed](https://crates.io/crates/rust-embed) to serve static files and provides SPA fallback (unknown routes serve `index.html`).
 
+When the API manifest enables this-rs's `frontend` feature (workspaces scaffolded with `this init --workspace --this-path <local this>`), the binary still embeds `dist/` via rust-embed, but the embedded SPA is served with vite-rs rules — ETag/304 caching, MIME detection, SPA fallback, hashed-asset layouts — through `this::server::frontend::embedded(loader)`, instead of `mime_guess`-based serving. The legacy published-this-rs path (no `frontend` feature) is unchanged.
+
 #### `--api-only`
 
 Builds only the API with `cargo build`. Does not require a webapp target.
@@ -809,14 +815,14 @@ this --dry-run build --docker
 - Must be run from inside a this-rs workspace (not a classic project)
 - Binary size is displayed after `--release` and `--embed` builds
 - The `--docker` flag generates the Dockerfile but does not build the Docker image. Run `docker build -t <name> .` afterward.
-- The `embedded-frontend` Cargo feature is defined in the generated `Cargo.toml` and is only enabled during `--embed` and Docker builds
+- The `embedded-frontend` Cargo feature is defined in the generated `Cargo.toml` and is only enabled during `--embed` and Docker builds (legacy scaffolding). Workspaces scaffolded with a local this-rs (`--this-path`) enable the `frontend` feature on the this-rs dependency instead; `--embed` binaries still bundle `dist/` via rust-embed and serve it with vite-rs rules
 - `--target` is mutually exclusive with `--embed`, `--api-only`, `--front-only`, and `--docker` -- if `--target` is specified, it takes priority
 
 ---
 
 ## this dev
 
-Start development servers for the API and frontend in parallel with auto-reload support.
+Start the development environment: the API and the SPA together, with auto-reload. Two frontend flows exist — the vite-rs single-process flow when the API has this-rs's `frontend` feature, and the legacy parallel `npm run dev` (Node/Vite) flow otherwise.
 
 ### Synopsis
 
@@ -835,25 +841,46 @@ this dev [OPTIONS]
 ### How It Works
 
 1. **Workspace detection**: Finds `this.yaml` and loads the workspace configuration
-2. **Watcher detection**: Checks for available Rust watchers (in order of preference):
+2. **Frontend mode detection**: Reads the API manifest to decide how to run the frontend:
+   - this-rs `frontend` feature enabled → **vite-rs flow** (workspaces scaffolded with `this init --workspace --this-path <local this>`)
+   - no `frontend` feature → **legacy flow** (published this-rs v0.0.9 workspaces)
+3. **Watcher detection**: Checks for available Rust watchers (in order of preference):
    - `cargo-watch` -- `cargo watch -x run -w src/`
    - `watchexec` -- `watchexec -r -e rs -- cargo run`
    - `bacon` -- `bacon run`
    - None -- falls back to plain `cargo run`
-3. **API process**: Spawns the API server with the detected watcher and `PORT` env variable
-4. **Frontend process**: If not `--api-only` and a webapp target exists, spawns `npm run dev`
-5. **Output streaming**: Both processes' stdout/stderr are streamed with colored prefixes:
+4. **vite-rs flow** (API has the `frontend` feature):
+   a. Runs the webapp bundler once — `npm run build:fast` if the webapp's `package.json` defines it, otherwise `npm run build`
+   b. Spawns the API server with the detected watcher and env: `PORT`, `SERVE_FRONTEND=true`, `FRONTEND_PATH=<webapp>/dist`, `THIS_DEV=1`, `THIS_WATCH=<webapp>/src`, `THIS_REBUILD=<bundler cmd>`, `THIS_REBUILD_CWD=<webapp>`, `THIS_DEV_LOG=/tmp/<name>-frontend-dev.log`
+   c. The API serves the API and the SPA on the **same port** (default 3000): vite-rs watches the webapp sources, rebuilds via `THIS_REBUILD`, hot-reloads the browser, and exposes the `/__dev` AI command bridge. No separate frontend process is spawned
+5. **Legacy flow** (no `frontend` feature): if not `--api-only` and a webapp target exists, spawns `npm run dev` (Node/Vite) alongside the API, with a warning
+6. **Output streaming**: Process output is streamed with colored prefixes:
    - `[API]` in blue for the API server
-   - `[FRONT]` in green for the frontend
-6. **Graceful shutdown**: `Ctrl+C` stops all processes cleanly
+   - `[FRONT]` in green for the frontend (legacy flow)
+7. **Graceful shutdown**: `Ctrl+C` stops everything cleanly
 
 ### Startup Banner
+
+With the `frontend` feature (vite-rs flow), the banner prints the single URL plus the dev log path and a curl bridge example:
 
 ```
   🚀 Starting development servers...
 
    API:  http://127.0.0.1:3000  ✓ cargo-watch
-   Front: http://localhost:5173  (front)
+   Front: http://127.0.0.1:3000  (vite-rs dev loop — served by the API process)
+        dev log: /tmp/my-app-frontend-dev.log
+        bridge: curl -s -X POST localhost:3000/__dev/command -H 'content-type: application/json' -d '{"code":"document.title"}'
+
+   Press Ctrl+C to stop
+```
+
+Legacy workspaces (no `frontend` feature) keep the two-URL banner:
+
+```
+  🚀 Starting development servers...
+
+   API:   http://127.0.0.1:3000  ✓ cargo-watch
+   Front: http://localhost:5173  (front)  ⚠ npm run dev fallback
 
    Press Ctrl+C to stop
 ```
@@ -887,8 +914,10 @@ this dev --no-watch
 - Must be run from inside a this-rs workspace (not a classic project)
 - Without a webapp target, runs the API only (no error, just an info message)
 - Install a watcher for the best experience: `cargo install cargo-watch`
-- The frontend dev server port (typically 5173 for Vite) is configured in the frontend's own config, not by `this dev`
-- If the frontend process exits unexpectedly, the API keeps running
+- In the vite-rs flow the SPA shares the API's port (default 3000): `this dev` does not configure a separate frontend port and the SPA is served by the API process itself (vite-rs), not by a separate Node/Vite dev server
+- In the legacy flow (no `frontend` feature), the frontend dev server port (typically 5173 for Vite) is configured in the frontend's own config, not by `this dev`
+- In the legacy flow, if the frontend process exits unexpectedly, the API keeps running; in the vite-rs flow the frontend runs in-process, so an API exit stops the whole session
+- The `/__dev` AI command bridge is active while the API runs with `THIS_DEV=1`; set `THIS_DEV_COMMANDS=false` to disable it
 - If the API process exits, the entire dev session stops
 
 ---
