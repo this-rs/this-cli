@@ -3,6 +3,7 @@ pub mod add_event_flow;
 pub mod add_link;
 pub mod add_sink;
 pub mod add_target;
+pub mod adopt_obrain;
 pub mod build;
 pub mod completions;
 pub mod dev;
@@ -34,6 +35,14 @@ pub enum Commands {
 
     /// Add components to an existing this-rs project
     Add(AddCommand),
+
+    /// Adopt this-rs + obrain + IAM in a project that already exists
+    ///
+    /// Prepares the ground without deciding anything: enables the `obrain`
+    /// feature, inserts the wiring where `this init` left a marker (or shows
+    /// the snippet), and prints the adoption order — observe first, then arm.
+    /// See docs/adoption-projet-existant.md.
+    Adopt(AdoptCommand),
 
     /// Show project information and status
     Info,
@@ -86,6 +95,32 @@ pub enum AddCommands {
 
     /// Add an event sink (delivery target) to config/events.yaml
     Sink(AddSinkArgs),
+}
+
+/// `this adopt …` — préparer un projet **existant** à this-rs + obrain + IAM.
+#[derive(clap::Args)]
+pub struct AdoptCommand {
+    #[command(subcommand)]
+    pub command: AdoptCommands,
+}
+
+#[derive(Subcommand)]
+pub enum AdoptCommands {
+    /// Prepare an existing project to use obrain, the canonical identity and IAM
+    Obrain(AdoptObrainArgs),
+}
+
+#[derive(clap::Args)]
+pub struct AdoptObrainArgs {
+    /// Project directory (default: the detected project root)
+    #[arg(long, value_name = "DIR")]
+    pub path: Option<std::path::PathBuf>,
+
+    /// Show the wiring for OBSERVATION mode: denials are computed, logged and
+    /// published, but nothing is blocked — the safe first step on a running
+    /// service
+    #[arg(long)]
+    pub report_only: bool,
 }
 
 /// Arguments for `this init <name>`

@@ -481,7 +481,7 @@ fn print_banner(port: u16, watcher: &RustWatcher, front_mode: &FrontMode, api_on
                     "   {} http://127.0.0.1:{}  {}",
                     "Front:".green().bold(),
                     port,
-                    format!("(vite-rs dev loop — served by the API process)").dimmed()
+                    "(vite-rs dev loop — served by the API process)".dimmed()
                 );
                 println!("        {} {}", "dev log:".dimmed(), dev_log.display());
                 println!(

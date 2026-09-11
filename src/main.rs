@@ -43,6 +43,9 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
             AddCommands::EventFlow(args) => commands::add_event_flow::run(args, writer),
             AddCommands::Sink(args) => commands::add_sink::run(args, writer),
         },
+        Commands::Adopt(adopt) => match adopt.command {
+            commands::AdoptCommands::Obrain(args) => commands::adopt_obrain::run(args, writer),
+        },
         Commands::Info => commands::info::run(),
         Commands::Generate(generate) => match generate.command {
             commands::GenerateCommands::Client(args) => commands::generate::run(args, writer),
