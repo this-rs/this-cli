@@ -41,6 +41,11 @@ async fn main() -> anyhow::Result<()> {
         .with_default_notification_store()
 {% endif %}
 {% if auth %}
+        // L'application des politiques de `config/auth.yaml` est ARMÉE PAR DÉFAUT :
+        // chaque route d'entité est confrontée à la politique de son opération, et
+        // refusée en 403 si elle n'est pas satisfaite. Pour un service réellement
+        // public, la dégradation est explicite et journalisée :
+        //     .without_authorization()
         .with_auth_config_file(concat!(env!("CARGO_MANIFEST_DIR"), "/config/auth.yaml"))?
         // Custom auth resolvers — reference as "resolver:name" in YAML config
         // .with_auth_resolver("is_manager", |ctx, _res| ctx.has_role("manager"))

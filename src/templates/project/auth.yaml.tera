@@ -2,6 +2,24 @@
 # Documentation: https://this-rs.github.io/website/#auth
 #
 # Loaded by ServerBuilder::with_auth_config_file()
+#
+# ⚠️ LES POLITIQUES DE CE FICHIER SONT APPLIQUÉES PAR DÉFAUT.
+#
+# Un `ServerBuilder::new()` construit un hôte où `authorize == true` : chaque
+# requête vers une route d'entité connue est confrontée à la politique déclarée
+# de l'opération, et refusée en 403 si elle ne la satisfait pas. Deux garanties :
+#   • fail-closed — une politique illisible, ou une route personnalisée, ne
+#     laisse jamais passer par accident (une route inconnue s'abstient : c'est
+#     la couche d'authentification globale qui reste juge) ;
+#   • vocabulaire clos — un mot hors vocabulaire (`"admin"` au lieu de
+#     `admin_only`, `"PUBLIC"`, une faute de frappe) est REFUSÉ, jamais replié
+#     sur « authenticated ».
+#
+# La politique par défaut d'une entité est `authenticated` : une entité sans
+# configuration explicite EXIGE donc un contexte authentifié. C'est voulu.
+#
+# Pour un service réellement public (dégradation délibérée, journalisée) :
+#     ServerBuilder::new().without_authorization()
 
 # Provider: wami (WAMI STS), oidc (external OIDC), none (disabled)
 provider: wami
@@ -27,6 +45,12 @@ wami:
 #   "all:authenticated,resolver:is_group_member"    — AND: all must pass
 #   "any:owner,resolver:is_delegated,role:admin"    — OR:  any must pass
 #   "all:authenticated,not:resolver:is_readonly"    — NOT: deny list
+# Décision IAM matérialisée (obrain) : "perm:orders:write"
+#   → tranchée par la décision indexée du couple (principal, portée), dérivé du
+#     contexte : User/Owner → (user_id, tenant_id), Service → (service_name,
+#     tenant_id), Admin → (admin_id, "global"). Un contexte sans principal
+#     (anonyme) est REFUSÉ, et une politique `perm:` non tranchable refuse aussi
+#     sous `not:` — une liste de refus n'est jamais une liste d'admission.
 # entities:
 #   order:
 #     list: authenticated
