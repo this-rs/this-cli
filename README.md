@@ -25,6 +25,7 @@ Generate fully compilable this-rs projects and entities from the command line �
 - **Dev server orchestration** — `this dev` runs the API and SPA together: a single-process vite-rs flow (the API serves the SPA on one port with hot reload and a `/__dev` AI command bridge) when the API has the `frontend` feature, or the legacy parallel `npm run dev` (Node/Vite) fallback otherwise
 - **Docker support** — `this build --docker` generates a multi-stage Dockerfile
 - **Automatic code registration** — entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
+- **Adoption of an existing project** — `this adopt obrain` brings a project that already runs onto this-rs + obrain + IAM without rewriting it: the `obrain` feature is enabled in `Cargo.toml` (formatting and other keys preserved), the store wiring is inserted after the `[this:obrain_store]` marker when one exists — otherwise the snippet is printed, because the tool never guesses where the host is built. It deliberately writes **no** `auth.yaml`: creating one inside a running project could disarm its authentication. The adoption order is observe → arm (`authorization_report_only()`, then enforce), and the guide lives in `docs/adoption-projet-existant.md`
 - **Project introspection** — `this info` shows entities, links, workspace context, and coherence status at a glance
 - **Health diagnostics** — `this doctor` checks project and workspace consistency and reports issues
 - **Dry-run mode** — preview all file operations before they happen with `--dry-run`
@@ -128,8 +129,9 @@ The generated project includes:
 | `this add link <source> <target>` | Configure a relationship between two entities |
 | `this add target <type>` | Add a deployment target (webapp, desktop, ios, android) |
 | `this generate client` | Generate a typed TypeScript API client from project introspection |
+| `this adopt obrain` | Prepare an **existing** project for this-rs + obrain + IAM: enables the `obrain` feature, inserts (or shows) the store wiring, and prints the adoption order — observe first, then arm. It writes no authentication configuration |
 | `this build` | Build the project (API + frontend if configured) |
-| `this dev` | Start development servers (API + frontend in parallel) |
+| `this dev` | Start dev servers (API + SPA together — vite-rs flow or legacy `npm run dev` fallback) |
 | `this info` | Display project summary and coherence status |
 | `this doctor` | Run diagnostic checks on project health |
 | `this completions <shell>` | Generate shell completion scripts |

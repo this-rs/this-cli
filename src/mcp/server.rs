@@ -280,7 +280,8 @@ mod tests {
         assert!(resp.result.is_some());
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 11);
+        // Un outil par commande — `adopt_obrain` compris.
+        assert_eq!(tools.len(), 12);
     }
 
     #[test]

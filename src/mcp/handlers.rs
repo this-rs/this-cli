@@ -27,6 +27,7 @@ impl ToolHandler {
             "add_event_flow" => handle_add_event_flow(&args),
             "add_sink" => handle_add_sink(&args),
             "generate_client" => handle_generate_client(&args),
+            "adopt_obrain" => handle_adopt_obrain(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
     }
@@ -557,6 +558,36 @@ fn handle_add_sink(args: &Value) -> Result<Value> {
     }))
 }
 
+/// Prépare un projet **existant** à obrain + IAM (feature, branchement, guide).
+///
+/// Rend un rapport structuré plutôt qu'un texte : un agent doit pouvoir lire ce
+/// qui a été fait, ce qui restait à faire, et le fragment de code à insérer.
+fn handle_adopt_obrain(args: &Value) -> Result<Value> {
+    let report_only = args
+        .get("report_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+    let root = std::env::current_dir()?;
+
+    let report = crate::commands::adopt_obrain::adopt(&root, &writer, report_only)?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "project": root.display().to_string(),
+        "feature_added": report.feature_added,
+        "manifest_section": report.manifest_section,
+        "wiring_present": report.wiring_present,
+        "wiring_inserted": report.wiring_inserted,
+        "wiring_snippet": report.wiring_snippet,
+        "files_modified": writer.files_modified(),
+        "note": "Aucune configuration d'authentification n'est écrite :                  ajoutez vos politiques vous-même. Adoptez en OBSERVATION                  d'abord (`authorization_report_only()`), puis armez.",
+        "guide": "this-rs/docs/adoption-projet-existant.md",
+    }))
+}
+
 fn handle_generate_client(args: &Value) -> Result<Value> {
     let lang = args
         .get("lang")
@@ -595,6 +626,67 @@ mod tests {
     use super::*;
     use serial_test::serial;
     use tempfile::TempDir;
+
+    // ── adopt_obrain ─────────────────────────────────────────────────
+
+    #[test]
+    #[serial]
+    fn test_adopt_obrain_prepares_a_project_without_writing_auth_config() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"app\"\n\n[dependencies]\nthis-rs = \"0.0.9\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+
+        let args = serde_json::json!({
+            "cwd": tmp.path().to_str().unwrap(),
+            "report_only": true,
+        });
+        let result = handle_adopt_obrain(&args).expect("adoption");
+
+        assert_eq!(result["status"], "success");
+        assert_eq!(
+            result["feature_added"], true,
+            "la feature doit être activée"
+        );
+        assert_eq!(result["manifest_section"], "[dependencies]");
+        let snippet = result["wiring_snippet"]
+            .as_str()
+            .expect("pas de marqueur : le fragment doit être rendu");
+        assert!(
+            snippet.contains("authorization_report_only"),
+            "en --report-only, le fragment doit montrer l'observation d'abord : {snippet}"
+        );
+        assert!(
+            !tmp.path().join("config/auth.yaml").exists(),
+            "l'outil ne doit écrire AUCUNE configuration d'authentification"
+        );
+        let manifest = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("obrain"), "{manifest}");
+    }
+
+    #[test]
+    #[serial]
+    fn test_adopt_obrain_fails_clearly_without_the_dependency() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[dependencies]\nserde = \"1\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+
+        let args = serde_json::json!({ "cwd": tmp.path().to_str().unwrap() });
+        let err = handle_adopt_obrain(&args).expect_err("doit échouer");
+        let message = format!("{err:#}");
+        assert!(message.contains("this-rs"), "{message}");
+        assert!(
+            message.contains("obrain"),
+            "la ligne exacte doit être donnée : {message}"
+        );
+    }
 
     // ── McpFileWriter tests ──────────────────────────────────────────
 

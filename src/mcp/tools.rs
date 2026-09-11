@@ -17,6 +17,7 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         start_dev_tool(),
         add_target_tool(),
         generate_client_tool(),
+        adopt_obrain_tool(),
     ]
 }
 
@@ -365,13 +366,64 @@ fn generate_client_tool() -> ToolDefinition {
     }
 }
 
+fn adopt_obrain_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "adopt_obrain".to_string(),
+        description: "Prepare a project that ALREADY EXISTS for this-rs + obrain + IAM. \
+            Enables the `obrain` feature on the this-rs dependency (TOML edited without \
+            touching formatting or other keys), inserts the store wiring after the \
+            `[this:obrain_store]` marker when present, otherwise returns the snippet to \
+            paste. Prints the adoption order: observe first (`authorization_report_only`), \
+            then arm. Writes NO authentication configuration — it prepares, it does not \
+            decide access policy."
+            .to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "cwd": {
+                    "type": "string",
+                    "description": "Project directory (default: current directory)"
+                },
+                "report_only": {
+                    "type": "boolean",
+                    "description": "Return the wiring for OBSERVATION mode: denials are computed, logged and published, but nothing is blocked (the safe first step on a running service)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_all_tools_count() {
-        assert_eq!(all_tools().len(), 11);
+        // Un outil par commande : `adopt_obrain` est le dernier ajouté.
+        assert_eq!(all_tools().len(), 12);
+    }
+
+    /// L'outil d'adoption expose bien ce qui compte : le répertoire, et le choix
+    /// d'observer d'abord.
+    #[test]
+    fn test_adopt_obrain_tool_exposes_the_observation_switch() {
+        let tool = all_tools()
+            .into_iter()
+            .find(|t| t.name == "adopt_obrain")
+            .expect("l'outil adopt_obrain doit être exposé");
+        let properties = tool.input_schema.properties.expect("propriétés");
+        assert!(properties.get("cwd").is_some(), "convention maison : `cwd`");
+        assert!(
+            properties.get("report_only").is_some(),
+            "l'observation doit être proposée — c'est le premier pas sûr"
+        );
+        assert!(
+            tool.description.contains("NO authentication configuration")
+                || tool.description.contains("NO auth"),
+            "la description doit dire ce que l'outil ne fait pas : {}",
+            tool.description
+        );
     }
 
     #[test]
