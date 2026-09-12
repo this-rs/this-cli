@@ -1,0 +1,71 @@
+# Exposition du service : CORS, domaines servis, délégation de proxy et de DNS.
+#
+# **Rien n'est activé par défaut.** Sans ce fichier, this-rs ne pose aucune
+# couche CORS, n'applique aucune garde de domaine et ne décrit aucun proxy : il
+# n'invente pas les domaines d'un déploiement.
+#
+# Ce fichier est lu par :
+#   ServerBuilder::with_server_config_file("config/server.yaml")
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# CORS : qui a le droit d'appeler depuis un navigateur
+# ─────────────────────────────────────────────────────────────────────────────
+# cors:
+#   enabled: true
+#   origins: ["https://{{ project_name | replace(from="_", to="-") }}.exemple.fr"]
+#   credentials: true          # cookies / Authorization
+#   max_age_secs: 600          # cache du pré-vol
+#
+# Note : `origins: ["*"]` avec `credentials: true` est REFUSÉ — les navigateurs
+# rejettent cette combinaison, et l'accepter ici ferait croire à une
+# configuration qui ne marche pas. Une configuration impossible échoue à la
+# construction, pas au premier appel.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Domaines servis, et locataire qu'ils désignent
+# ─────────────────────────────────────────────────────────────────────────────
+# domains:
+#   allowed: ["{{ project_name | replace(from="_", to="-") }}.exemple.fr"]   # tout autre Host → 421
+#   sites:                                 # les domaines RÉELLEMENT servis (Caddyfile + DNS)
+#     - "{{ project_name | replace(from="_", to="-") }}.exemple.fr"
+#   trust_forwarded_host: true             # À N'ACTIVER QUE derrière un proxy de confiance
+#   tenants:                               # un domaine peut désigner le locataire
+#     "{{ project_name | replace(from="_", to="-") }}.exemple.fr": "00000000-0000-0000-0000-000000000001"
+#   subdomain_base: "multi.exemple.fr"     # <uuid>.multi.exemple.fr → locataire
+#
+# `allowed` est un FILTRE (il accepte des motifs `*.exemple.fr`) ; `sites` est un
+# INVENTAIRE (ce qu'un Caddyfile et une zone DNS énumèrent). Un mappage de
+# locataire n'élargit jamais la liste des hôtes servis : pour servir
+# `<uuid>.multi.exemple.fr`, il faut aussi `*.multi.exemple.fr` dans `allowed`.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Délégation à Caddy (TLS, routage, en-têtes)
+# ─────────────────────────────────────────────────────────────────────────────
+# proxy:
+#   caddy:
+#     enabled: true
+#     upstream: "127.0.0.1:3000"
+#     email: "ops@exemple.fr"              # ACME
+#     tls: acme                            # acme | internal | off
+#     upstreams:                           # un service par domaine, si besoin
+#       "git.exemple.fr": "127.0.0.1:8086"
+#
+# Rendu du fichier : `cargo run --example caddyfile -- config/server.yaml`
+# this-rs DÉCRIT, l'exploitant applique (`caddy validate` puis `caddy reload`).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Délégation DNS (PowerDNS)
+# ─────────────────────────────────────────────────────────────────────────────
+# dns:
+#   api_url: "http://127.0.0.1:8081"
+#   api_key_env: "PDNS_API_KEY"            # le NOM de la variable — jamais la clé
+#   zone: "exemple.fr"
+#   target: "203.0.113.10"                 # la cible des enregistrements dérivés
+#   record_type: A                         # A | AAAA | CNAME
+#   ttl: 300
+#   prune: false                           # supprimer ce qui n'est plus déclaré ?
+#
+# Le framework ne touche QUE les A/AAAA/CNAME des hôtes déclarés, dans la zone
+# déclarée : jamais MX, TXT, NS, SRV. La suppression demande `prune: true`.
+# Plan sans rien écrire : `cargo run --features powerdns --example domain_harness \
+#     -- config/server.yaml --plan-dns`

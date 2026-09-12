@@ -101,6 +101,10 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
         ("project/stores.rs", "src/stores.rs"),
         ("project/entities_mod.rs", "src/entities/mod.rs"),
         ("project/links.yaml", "config/links.yaml"),
+        // **Exposition** : CORS, domaines, délégation Caddy/DNS.
+        // Inerte par défaut (tout est commenté, rien n'est activé), donc toujours
+        // écrit : découvrir les réglages d'exposition vaut mieux que les chercher.
+        ("project/server.yaml", "config/server.yaml"),
     ];
 
     if events {
@@ -132,6 +136,10 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
             format!("# Server will start on http://127.0.0.1:{}", &args.port),
             "# Add entities with: this add entity <name>".to_string(),
         ];
+        // Toujours affiché : le fichier est écrit dans tous les cas, et c'est là
+        // que se règlent CORS, domaines, Caddy et DNS.
+        next_steps
+            .push("# Exposition (CORS, domaines, Caddy, DNS) : config/server.yaml".to_string());
         if events {
             next_steps.push("# Configure event flows in config/events.yaml".to_string());
         }
@@ -250,6 +258,7 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
         ("project/stores.rs", "src/stores.rs"),
         ("project/entities_mod.rs", "src/entities/mod.rs"),
         ("project/links.yaml", "config/links.yaml"),
+        ("project/server.yaml", "config/server.yaml"),
     ];
 
     if ws_events {
@@ -868,6 +877,52 @@ mod tests {
             result.is_ok(),
             "Dry run should not error on existing directory: {:?}",
             result.err()
+        );
+    }
+
+    /// **Le gabarit d'exposition est écrit, et il est INERTE.**
+    ///
+    /// Un projet neuf ne doit pas se retrouver avec CORS ouvert, une garde de
+    /// domaine sur des hôtes inventés ou une délégation DNS : tout est commenté,
+    /// et le fichier dit ce qu'il en coûte de l'activer.
+    #[test]
+    fn init_writes_an_inert_exposure_config() {
+        let engine = crate::templates::TemplateEngine::new().expect("moteur");
+        let mut context = tera::Context::new();
+        context.insert("project_name", "demo_expo");
+        context.insert("crate_name", "demo-expo");
+
+        let rendered = engine
+            .render("project/server.yaml", &context)
+            .expect("rendu du gabarit d'exposition");
+
+        // Rien d'ACTIVÉ : aucune de ces clés n'est décommentée.
+        for active in ["enabled: true", "allowed: [", "origins: [", "api_url:"] {
+            assert!(
+                !rendered
+                    .lines()
+                    .any(|l| !l.trim_start().starts_with('#') && l.contains(active)),
+                "`{active}` ne doit pas être actif dans un projet neuf"
+            );
+        }
+        // Mais tout est EXPLIQUÉ, y compris les pièges.
+        for explained in [
+            "CORS",
+            "domaines servis",
+            "Caddy",
+            "PowerDNS",
+            "prune",
+            "credentials",
+            "trust_forwarded_host",
+        ] {
+            assert!(
+                rendered.contains(explained),
+                "le gabarit doit expliquer `{explained}`"
+            );
+        }
+        assert!(
+            rendered.contains("cargo run --example caddyfile"),
+            "et donner la commande pour rendre le Caddyfile"
         );
     }
 }

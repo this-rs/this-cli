@@ -17,6 +17,7 @@ const TPL_PROJECT_STORES_RS: &str = include_str!("project/stores.rs.tera");
 const TPL_PROJECT_LINKS_YAML: &str = include_str!("project/links.yaml.tera");
 const TPL_PROJECT_EVENTS_YAML: &str = include_str!("project/events.yaml.tera");
 const TPL_PROJECT_AUTH_YAML: &str = include_str!("project/auth.yaml.tera");
+const TPL_PROJECT_SERVER_YAML: &str = include_str!("project/server.yaml.tera");
 const TPL_PROJECT_EMBEDDED_FRONTEND_RS: &str = include_str!("project/embedded_frontend.rs.tera");
 
 // ============================================================================
@@ -92,6 +93,7 @@ impl TemplateEngine {
             ("project/links.yaml", TPL_PROJECT_LINKS_YAML),
             ("project/events.yaml", TPL_PROJECT_EVENTS_YAML),
             ("project/auth.yaml", TPL_PROJECT_AUTH_YAML),
+            ("project/server.yaml", TPL_PROJECT_SERVER_YAML),
             (
                 "project/embedded_frontend.rs",
                 TPL_PROJECT_EMBEDDED_FRONTEND_RS,
