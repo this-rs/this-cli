@@ -28,6 +28,8 @@ this add entity customer --fields "email:String:required:email:trim,age:Option<i
 Règles : `required optional positive string_length(a,b) min_value(n) max_value(n) in_list(a|b)
 date_format(f) pattern(re) email url trim uppercase lowercase round_decimals(n) filter(ops) sortable
 read_only immutable`, suffixe facultatif `@create` / `@update` (`required` vaut `@create` par défaut).
+L'argument de `pattern(...)` et de `date_format(...)` est pris tel quel (ni `,` ni `|` ne le coupent) ; une
+règle sur un champ intégré (`name`, `status`) doit en reprendre le type exact.
 
 Les règles de la grammaire de `impl_data_entity_validated!` vont dans la macro ; les autres (email, url,
 pattern, min_value, bornes entières, filtres de requête, sortable…) vont dans `DESCRIBED_EXTRA` et la fonction
@@ -36,7 +38,8 @@ pattern, min_value, bornes entières, filtres de requête, sortable…) vont dan
 ## Commandes
 
 - `this descriptor check [--json] [--strict]` : code de sortie 1 en cas d'erreur (champs redéclarés, politique
-  inconnue, tag réutilisé ou déplacé, `check()` du descripteur) ; `--strict` refuse aussi les avertissements
+  inconnue, tag réutilisé ou déplacé, `check()` du descripteur, entité absente de `Module::descriptor()`
+  ou enregistrée sans son `described()` (le serveur la verrait sans champs ni règles), `fn descriptor()` absente) ; `--strict` refuse aussi les avertissements
   (lock ou JSON en retard).
 - `this descriptor export [--format json|yaml|graphql|proto|json-schema] [--output F|--stdout]`.
 - `this descriptor lock` : nouveaux champs → nouveaux tags (≥ 16), champs supprimés → `reserved`.

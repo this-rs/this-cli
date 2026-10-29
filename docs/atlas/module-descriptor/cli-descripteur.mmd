@@ -2,10 +2,12 @@ flowchart LR
 %% name: module-descriptor-cli
 %% PROUVE (cargo test --bin this, cargo test --test descriptor_cli via gate.sh, branche md/cli) : add_link_preserves_unknown_yaml_keys,
 %%   add_entity_writes_descriptor, descriptor_lock_detects_tag_reuse, doctor_reports_plural_drift, templates_render_from_descriptor,
-%%   generated_descriptor_matches_code, cli_uses_shared_pluralizer, descriptor_check_cli_exit_code ; projet engendre compile contre
+%%   generated_descriptor_matches_code, cli_uses_shared_pluralizer, descriptor_check_cli_exit_code,
+%%   (relecture) descriptor_check_refuses_unregistered_entity, pattern_argument_is_kept_verbatim,
+%%   add_entity_base_field_overlay_keeps_every_rule, test_mcp_descriptor_tool_round_trip ; projet engendre compile contre
 %%   _wt-md/integ et son Module::descriptor() egale module.descriptor.json hors tags (test jetable runtime_descriptor_equals_cli_materialization).
 %% SOURCES LUES : this-cli src/descriptor/*, src/commands/{add_entity,add_link,descriptor,doctor,info}.rs, templates entity/model*.rs.tera,
-%%   project/module.rs.tera ; this-descriptor module.rs (compose), check.rs, compat.rs, field.rs ; this-rs src/entities/macros.rs.
+%%   descriptor::MODULE_DESCRIPTOR_FN (seule copie de fn descriptor()) ; this-descriptor module.rs (compose), check.rs, compat.rs, field.rs ; this-rs src/entities/macros.rs.
 %% NON ETABLI : derive::graphql_sdl / proto_file / json_schema (stubs, flux schema) appeles par export --format ; demarrage
 %%   ServerBuilder::build_host sur un projet engendre ; CI GitHub avec checkout de this-rs/this.
     classDef ok       fill:#2ea04333,stroke:#2ea043,stroke-width:2px
@@ -65,6 +67,7 @@ flowchart LR
     JSON --> CHK
     JSON --> DOC
     JSON --> INFO
+    CHK -->|"chaque model.rs enregistre<br/>via described()"| MOD
 
     OLD["🔴 copies LinksConfig sans flatten<br/>perte de cles links.yaml"]:::refused
     OLD -.->|"remplace par #[serde(flatten)] extra"| IO
