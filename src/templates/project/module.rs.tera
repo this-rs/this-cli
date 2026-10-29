@@ -51,19 +51,4 @@ impl Module for {{ project_name_snake | pascal_case }}Module {
             _ => None,
         }
     }
-{% if descriptor is defined and descriptor %}
-
-    /// Module descriptor: descriptor/module.yaml (identity, links, permissions, errors...)
-    /// composed with the entity macros (fields, types, rules). See `this descriptor check`.
-    fn descriptor(&self) -> Option<this::descriptor::ModuleDescriptor> {
-        let yaml = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/descriptor/module.yaml"));
-        let described: Vec<this::descriptor::EntityDesc> = vec![
-            // [this:described_entities]
-        ];
-        let refs: Vec<&this::descriptor::EntityDesc> = described.iter().collect();
-        let module = this::descriptor::ModuleDescriptor::from_yaml(yaml)
-            .and_then(|m| m.compose(&refs))
-            .unwrap_or_else(|e| panic!("descriptor/module.yaml: {e} {:?}", e.params));
-        Some(module)
-    }
-{% endif %}}
+}

@@ -235,6 +235,9 @@ pub fn check_project(root: &Path) -> Result<Option<Report>> {
     if let Err(issues) = composed.check(&CustomRegistry::default(), CheckProfile::Compiled) {
         r.errors.extend(issues.iter().map(|i| i.to_string()));
     }
+    let (errors, warnings) = registration_issues(root)?;
+    r.errors.extend(errors);
+    r.warnings.extend(warnings);
     match std::fs::read_to_string(root.join(MATERIALIZED)) {
         Ok(old) if old != materialized_json(&composed) => r.warnings.push(format!(
             "{MATERIALIZED} is stale (run `this descriptor export`)"
@@ -245,6 +248,70 @@ pub fn check_project(root: &Path) -> Result<Option<Report>> {
         )),
     }
     Ok(Some(r))
+}
+
+/// Expressions listed after [`DESCRIBED_MARKER`] in `src/module.rs`, up to the closing `]`
+/// of the `vec![...]`; `None` without the marker.
+fn described_list(module_rs: &str) -> Option<&str> {
+    let at = module_rs.find(DESCRIBED_MARKER)?;
+    let rest = &module_rs[at + DESCRIBED_MARKER.len()..];
+    Some(&rest[..rest.find("];").unwrap_or(rest.len())])
+}
+
+/// What the server composes (`Module::descriptor()` in src/module.rs) must be what the
+/// CLI materializes from the models. `ModuleDescriptor::compose` keeps a module.yaml entity
+/// that no `described()` completes as a stub WITHOUT fields: an entity missing from the
+/// list reaches the runtime with no field and no rule, and one registered through the
+/// macro's `descriptor()` while its model has `described()` loses its DESCRIBED_EXTRA rules
+/// (email, min_value, filters...). Both are errors; a hand-written `fn descriptor()` without
+/// the marker cannot be verified (warning).
+pub fn registration_issues(root: &Path) -> Result<(Vec<String>, Vec<String>)> {
+    let (mut errors, mut warnings) = (Vec::new(), Vec::new());
+    let Ok(module_rs) = std::fs::read_to_string(root.join("src/module.rs")) else {
+        warnings.push("src/module.rs not found: Module::descriptor() not verified".into());
+        return Ok((errors, warnings));
+    };
+    if !module_rs.contains("fn descriptor(&self)") {
+        errors.push(format!(
+            "src/module.rs has no fn descriptor(): the server ignores {MODULE_YAML} \
+             (add the body of `this descriptor init`, see docs/module-descriptor.md)"
+        ));
+        return Ok((errors, warnings));
+    }
+    let Some(list) = described_list(&module_rs) else {
+        warnings.push(format!(
+            "src/module.rs: fn descriptor() has no {DESCRIBED_MARKER} marker: the entities it \
+             composes are not verified"
+        ));
+        return Ok((errors, warnings));
+    };
+    for (dir, path) in model_paths(root) {
+        let model = std::fs::read_to_string(&path)?;
+        if code::entity_from_model(&model)
+            .with_context(|| format!("reading {}", path.display()))?
+            .is_none()
+        {
+            continue;
+        }
+        let pascal = crate::utils::naming::to_pascal_case(&dir);
+        let expected = described_expr(&dir, &pascal, &model);
+        if list.contains(&expected) {
+            continue;
+        }
+        if list.contains(&format!("crate::entities::{dir}::")) {
+            errors.push(format!(
+                "src/module.rs: entity '{dir}' is composed without its described() \
+                 (expected `{expected}`): its DESCRIBED_EXTRA rules never reach the server"
+            ));
+        } else {
+            errors.push(format!(
+                "src/module.rs: entity '{dir}' missing from Module::descriptor() \
+                 (add `{expected},` after {DESCRIBED_MARKER}): the server would see it \
+                 without fields nor rules"
+            ));
+        }
+    }
+    Ok((errors, warnings))
 }
 
 /// Materialized descriptor for read-only consumers (`info --json`, introspection):
@@ -263,7 +330,9 @@ pub fn current(root: &Path) -> Result<Option<ModuleDescriptor>> {
 /// Marker of the entity list composed by the generated `Module::descriptor()`.
 pub const DESCRIBED_MARKER: &str = "[this:described_entities]";
 
-/// Same body as `templates/project/module.rs.tera` renders with `descriptor = true`.
+/// Body of `Module::descriptor()` inserted by `this descriptor init` / `this add entity`.
+/// The ONLY copy (module.rs.tera no longer carries a second one: `this init` does not
+/// enable descriptor mode).
 pub const MODULE_DESCRIPTOR_FN: &str = r#"
     /// Module descriptor: descriptor/module.yaml (identity, links, permissions, errors...)
     /// composed with the entity macros (fields, types, rules). See `this descriptor check`.

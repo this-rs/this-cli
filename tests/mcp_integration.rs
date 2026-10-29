@@ -398,6 +398,101 @@ fn test_mcp_check_project_health() {
     assert!(result["summary"]["pass"].is_number());
 }
 
+/// The MCP surface gives the same answers as the CLI: a rule outside the macro grammar is
+/// refused without descriptor mode, accepted once `descriptor init` ran, and the
+/// `descriptor` tool returns the materialized descriptor carrying it.
+#[test]
+fn test_mcp_descriptor_tool_round_trip() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+    let project_cwd = tmpdir
+        .path()
+        .join("desc_test")
+        .to_string_lossy()
+        .to_string();
+    let init = initialize_msg();
+    let call = |id: u64, name: &str, arguments: Value| {
+        json_rpc(
+            "tools/call",
+            Some(json!({"name": name, "arguments": arguments})),
+            id,
+        )
+    };
+    let fields = "email:String:required:email,age:Option<i32>:max_value(150)";
+    let msgs = [
+        call(
+            2,
+            "init_project",
+            json!({"name": "desc_test", "cwd": cwd, "no_git": true}),
+        ),
+        call(
+            3,
+            "add_entity",
+            json!({"name": "customer", "fields": fields, "cwd": &project_cwd}),
+        ),
+        call(
+            4,
+            "descriptor",
+            json!({"action": "init", "cwd": &project_cwd}),
+        ),
+        call(
+            5,
+            "add_entity",
+            json!({"name": "customer", "fields": fields, "cwd": &project_cwd}),
+        ),
+        call(
+            6,
+            "descriptor",
+            json!({"action": "check", "cwd": &project_cwd}),
+        ),
+        call(
+            7,
+            "descriptor",
+            json!({"action": "export", "cwd": &project_cwd}),
+        ),
+    ];
+    let refs: Vec<&str> = std::iter::once(init.as_str())
+        .chain(msgs.iter().map(String::as_str))
+        .collect();
+    let responses = mcp_call(&refs);
+    assert_eq!(responses.len(), 7);
+    let text = |i: usize| {
+        responses[i]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    // Without descriptor mode: refused (nothing would enforce `email`).
+    assert_eq!(responses[2]["result"]["isError"], true, "{}", text(2));
+    assert!(text(2).contains("this descriptor init"), "{}", text(2));
+    assert!(responses[3]["result"]["isError"].is_null(), "{}", text(3));
+    assert!(responses[4]["result"]["isError"].is_null(), "{}", text(4));
+
+    let check: Value = serde_json::from_str(&text(5)).unwrap();
+    assert_eq!(check["status"], "ok", "{check}");
+    assert_eq!(check["report"]["errors"].as_array().unwrap().len(), 0);
+
+    let export: Value = serde_json::from_str(&text(6)).unwrap();
+    assert_eq!(export["status"], "success", "{export}");
+    let customer = export["descriptor"]["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == "customer")
+        .expect("customer in the descriptor")
+        .clone();
+    let email = customer["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "email")
+        .expect("email field")
+        .clone();
+    assert!(email["validators"].to_string().contains("email"), "{email}");
+    assert_eq!(email["proto_tag"], 16, "{email}");
+}
+
 #[test]
 fn test_mcp_unknown_tool_error() {
     let init = initialize_msg();

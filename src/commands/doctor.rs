@@ -968,12 +968,8 @@ fn check_descriptor(project_root: &Path) -> Vec<DiagnosticResult> {
                 ));
             }
         }
-        if !module_rs.contains("fn descriptor(&self)") {
-            out.push(DiagnosticResult::warn(
-                "Descriptor",
-                "src/module.rs has no fn descriptor(): the server ignores descriptor/module.yaml",
-            ));
-        }
+        // `fn descriptor()` present and listing every entity: check_project above
+        // (descriptor::registration_issues).
     }
 
     if !out

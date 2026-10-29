@@ -89,7 +89,11 @@ pub fn rust_type_of(f: &FieldDesc) -> Result<String> {
 /// Split `s` on `sep` outside parentheses and quotes.
 pub fn split_top(s: &str, sep: char) -> Vec<String> {
     let mut out = Vec::new();
-    let mut depth = 0i32;
+    // Parentheses (rule arguments) and angle brackets (`Option<T>`) are counted apart:
+    // inside a rule argument `<` / `>` are plain characters (`pattern(a>b)`), and a stray
+    // one must not swallow the following fields.
+    let mut parens = 0i32;
+    let mut angles = 0i32;
     let mut quote: Option<char> = None;
     let mut cur = String::new();
     for c in s.chars() {
@@ -105,15 +109,23 @@ pub fn split_top(s: &str, sep: char) -> Vec<String> {
                     quote = Some(c);
                     cur.push(c);
                 }
-                '(' | '<' => {
-                    depth += 1;
+                '(' => {
+                    parens += 1;
                     cur.push(c);
                 }
-                ')' | '>' => {
-                    depth -= 1;
+                ')' => {
+                    parens -= 1;
                     cur.push(c);
                 }
-                c if c == sep && depth == 0 => out.push(std::mem::take(&mut cur)),
+                '<' if parens == 0 => {
+                    angles += 1;
+                    cur.push(c);
+                }
+                '>' if parens == 0 => {
+                    angles -= 1;
+                    cur.push(c);
+                }
+                c if c == sep && parens == 0 && angles == 0 => out.push(std::mem::take(&mut cur)),
                 c => cur.push(c),
             },
         }
@@ -155,6 +167,14 @@ pub fn parse_rule_token(token: &str) -> Result<RuleToken> {
             let Some(inner) = body[i + 1..].strip_suffix(')') else {
                 bail!("`{token}`: unbalanced parentheses");
             };
+            let name = body[..i].trim().to_string();
+            // A regex or a date format is ONE argument, taken verbatim: splitting
+            // `pattern(foo|bar)` on `|` kept only `foo`, a silently weaker validator.
+            if RAW_ARG_RULES.contains(&name.as_str()) {
+                let arg = unquote(inner);
+                let args = if arg.is_empty() { vec![] } else { vec![arg] };
+                return finish_token(name, args, on, token);
+            }
             // `in_list(a|b|c)` and `in_list(a, b, c)` are both accepted.
             let sep = if inner.contains('|') { '|' } else { ',' };
             let args = split_top(inner, sep)
@@ -162,10 +182,22 @@ pub fn parse_rule_token(token: &str) -> Result<RuleToken> {
                 .map(|a| unquote(&a))
                 .filter(|a| !a.is_empty())
                 .collect();
-            (body[..i].trim().to_string(), args)
+            (name, args)
         }
         None => (body.to_string(), vec![]),
     };
+    finish_token(name, args, on, token)
+}
+
+/// Rules whose single argument is kept verbatim (no split on `,` or `|`).
+const RAW_ARG_RULES: [&str; 3] = ["pattern", "regex", "date_format"];
+
+fn finish_token(
+    name: String,
+    args: Vec<String>,
+    on: Option<Applies>,
+    token: &str,
+) -> Result<RuleToken> {
     if name.is_empty() {
         bail!("empty rule in `{token}`");
     }
@@ -734,6 +766,34 @@ mod tests {
             f[3].validators[0].rule,
             ValidatorSpec::Pattern("^[A-Z]{2}-[0-9]+$".into())
         );
+    }
+
+    /// A regex is one argument: `|`, `,` and `<`/`>` inside it never split it, and never
+    /// swallow the next field.
+    #[test]
+    fn pattern_argument_is_kept_verbatim() {
+        let f = parse_fields(
+            "code:String:pattern(^(foo|bar)$),ref_no:String:pattern(foo|bar),\
+             qty:String:pattern(^[0-9]{1,3}$),cmp:String:pattern(a>b),next:i32",
+        )
+        .unwrap();
+        assert_eq!(f.len(), 5, "{f:?}");
+        let pat = |i: usize| f[i].validators[0].rule.clone();
+        assert_eq!(pat(0), ValidatorSpec::Pattern("^(foo|bar)$".into()));
+        assert_eq!(pat(1), ValidatorSpec::Pattern("foo|bar".into()));
+        assert_eq!(pat(2), ValidatorSpec::Pattern("^[0-9]{1,3}$".into()));
+        assert_eq!(pat(3), ValidatorSpec::Pattern("a>b".into()));
+        assert_eq!(f[4].name, "next");
+        assert_eq!(f[4].ty, FieldType::I32);
+        let d = parse_fields("day:String:date_format(\"%Y-%m-%d\")@create").unwrap();
+        assert_eq!(
+            d[0].validators[0].rule,
+            ValidatorSpec::DateFormat("%Y-%m-%d".into())
+        );
+        assert_eq!(d[0].validators[0].on, Applies::Create);
+        // in_list keeps its two spellings.
+        let l = parse_fields("k:String:in_list(a|b),j:String:in_list(a, b)").unwrap();
+        assert_eq!(l[0].validators[0].rule, l[1].validators[0].rule);
     }
 
     #[test]

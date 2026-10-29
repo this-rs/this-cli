@@ -100,6 +100,21 @@ fn descriptor_check_cli_exit_code() {
     assert!(format!("{out}{err}").contains("tag_reused"));
     std::fs::write(&lock_path, lock).unwrap();
 
+    // Entity missing from Module::descriptor(): the server would compose it without
+    // fields nor rules while module.descriptor.json has them. Exit code 1.
+    let module_path = p.join("src/module.rs");
+    let module_rs = std::fs::read_to_string(&module_path).unwrap();
+    let registered = "crate::entities::customer::model::described(),";
+    assert!(module_rs.contains(registered), "{module_rs}");
+    std::fs::write(&module_path, module_rs.replace(registered, "")).unwrap();
+    let (code, out, err) = run(&["descriptor", "check"], &p);
+    assert_eq!(code, 1, "unregistered entity must fail: {out}{err}");
+    assert!(
+        format!("{out}{err}").contains("missing from Module::descriptor()"),
+        "{out}{err}"
+    );
+    std::fs::write(&module_path, module_rs).unwrap();
+
     // Stale JSON: warning only, unless --strict.
     std::fs::write(p.join("descriptor/module.descriptor.json"), "{}").unwrap();
     let (code, _, _) = run(&["descriptor", "check"], &p);

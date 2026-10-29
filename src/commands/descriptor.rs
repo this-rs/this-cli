@@ -280,14 +280,12 @@ pub fn read_manifest(path: &Path) -> Result<ModuleDescriptor> {
     }
     .map_err(io::contract)
     .with_context(|| format!("{} is not a module descriptor", path.display()))?;
-    // A manifest comes from elsewhere: the stricter profile of stored modules.
-    d.check(
-        &CustomRegistry::default(),
-        CheckProfile::Stored { allow_public: true },
-    )
-    .or_else(|_| d.check(&CustomRegistry::default(), CheckProfile::Compiled))
-    .map_err(|issues| io::contract(this_descriptor::check::issues_to_error(&issues)))
-    .with_context(|| format!("{} does not pass check()", path.display()))?;
+    // The manifest describes a compiled module (its `module.descriptor.json`): the
+    // Compiled profile. (The former `Stored`-then-`Compiled` fallback accepted exactly what
+    // Compiled accepts while claiming the stricter profile.)
+    d.check(&CustomRegistry::default(), CheckProfile::Compiled)
+        .map_err(|issues| io::contract(this_descriptor::check::issues_to_error(&issues)))
+        .with_context(|| format!("{} does not pass check()", path.display()))?;
     Ok(d)
 }
 

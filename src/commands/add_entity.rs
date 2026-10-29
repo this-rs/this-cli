@@ -113,10 +113,27 @@ pub(crate) fn run_in(
         let base = entity
             .field_or_overlay_mut(&o.name)
             .expect("name/status are writable base fields");
+        // The rules were checked against the DECLARED type: it must be the base field's.
+        if o.ty != base.ty || o.optional != base.optional {
+            bail!(
+                "field '{}' is built-in ({}): declare it as '{}:{}' to add rules to it",
+                o.name,
+                base.ty.label(),
+                o.name,
+                from_fields::rust_type_of(base)?
+            );
+        }
+        // Same merge as `described()` / `code::merge_extra`: nothing is dropped.
         base.validators.extend(o.validators);
         base.transforms.extend(o.transforms);
-        base.filterable.extend(o.filterable);
+        for op in o.filterable {
+            if !base.filterable.contains(&op) {
+                base.filterable.push(op);
+            }
+        }
         base.sortable |= o.sortable;
+        base.read_only |= o.read_only;
+        base.immutable |= o.immutable;
     }
     if args.validated && !from_fields::has_rules(&entity.fields) {
         from_fields::apply_legacy_validated_defaults(&mut entity);
@@ -1728,6 +1745,109 @@ impl Module for TestModule {{
         let report = crate::commands::descriptor::check(&project).unwrap();
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    }
+
+    /// The server composes what src/module.rs lists: an entity missing from
+    /// `Module::descriptor()`, or registered without its `described()`, would reach the
+    /// runtime without its fields / extra rules while module.descriptor.json has them.
+    #[test]
+    fn descriptor_check_refuses_unregistered_entity() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "shop");
+        descriptor_init(&project);
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("customer");
+        args.fields = Some("email:String:required:email".into());
+        run_in(args, &writer, &project).unwrap();
+        let module_path = project.join("src/module.rs");
+        let good = std::fs::read_to_string(&module_path).unwrap();
+        let registered = "crate::entities::customer::model::described(),";
+        assert!(good.contains(registered), "{good}");
+        assert!(
+            crate::commands::descriptor::check(&project)
+                .unwrap()
+                .errors
+                .is_empty()
+        );
+
+        // Registered through the macro's descriptor(): DESCRIBED_EXTRA (email) is lost.
+        std::fs::write(
+            &module_path,
+            good.replace(
+                registered,
+                "crate::entities::customer::Customer::descriptor().clone(),",
+            ),
+        )
+        .unwrap();
+        let errors = crate::commands::descriptor::check(&project).unwrap().errors;
+        assert!(
+            errors.iter().any(|e| e.contains("without its described()")),
+            "{errors:?}"
+        );
+
+        // Not registered at all.
+        std::fs::write(&module_path, good.replace(registered, "")).unwrap();
+        let errors = crate::commands::descriptor::check(&project).unwrap().errors;
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("'customer' missing from Module::descriptor()")),
+            "{errors:?}"
+        );
+
+        // No fn descriptor() at all: module.yaml would be ignored by the server.
+        let start = good.find("    /// Module descriptor:").unwrap();
+        let end = good[start..].find("\n    }\n").unwrap() + start + "\n    }\n".len();
+        let without = format!("{}{}", &good[..start], &good[end..]);
+        assert!(!without.contains("fn descriptor(&self)"), "{without}");
+        std::fs::write(&module_path, without).unwrap();
+        let errors = crate::commands::descriptor::check(&project).unwrap().errors;
+        assert!(
+            errors.iter().any(|e| e.contains("has no fn descriptor()")),
+            "{errors:?}"
+        );
+    }
+
+    /// Rules on a built-in field (`name`, `status`) are all kept (read_only/immutable used
+    /// to be dropped), and a type that differs from the built-in one is refused.
+    #[test]
+    fn add_entity_base_field_overlay_keeps_every_rule() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "shop");
+        descriptor_init(&project);
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        let mut args = default_args("badge");
+        args.fields = Some("name:i32:positive,label:String".into());
+        let err = run_in(args, &writer, &project).unwrap_err().to_string();
+        assert!(err.contains("built-in"), "{err}");
+        // Refused before anything is written.
+        assert!(!project.join("src/entities/badge").exists());
+        let y = std::fs::read_to_string(project.join("descriptor/module.yaml")).unwrap();
+        assert!(!y.contains("badge"), "{y}");
+
+        let mut args = default_args("ticket");
+        args.fields = Some("name:String:immutable:filter(eq,ne),title:String".into());
+        run_in(args, &writer, &project).unwrap();
+        let json =
+            std::fs::read_to_string(project.join("descriptor/module.descriptor.json")).unwrap();
+        let d = this_descriptor::ModuleDescriptor::from_json(&json).unwrap();
+        let name = d
+            .entity("ticket")
+            .unwrap()
+            .any_field("name")
+            .unwrap()
+            .clone();
+        assert!(name.immutable, "{name:?}");
+        assert!(name.filterable.contains(&this_descriptor::FilterOp::Ne));
+        let eqs = name
+            .filterable
+            .iter()
+            .filter(|o| **o == this_descriptor::FilterOp::Eq)
+            .count();
+        assert_eq!(eqs, 1, "no duplicate operator: {:?}", name.filterable);
+        let report = crate::commands::descriptor::check(&project).unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
     }
 
     #[test]

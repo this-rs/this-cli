@@ -63,6 +63,7 @@ const TPL_MOBILE_CAPACITOR_GITIGNORE: &str = include_str!("mobile/capacitor-giti
 
 const TPL_ENTITY_MODEL_RS: &str = include_str!("entity/model.rs.tera");
 const TPL_ENTITY_MODEL_VALIDATED_RS: &str = include_str!("entity/model_validated.rs.tera");
+const TPL_ENTITY_DESCRIBED_RS: &str = include_str!("entity/described.rs.tera");
 const TPL_ENTITY_STORE_RS: &str = include_str!("entity/store.rs.tera");
 const TPL_ENTITY_POSTGRES_STORE_RS: &str = include_str!("entity/postgres_store.rs.tera");
 const TPL_ENTITY_MONGODB_STORE_RS: &str = include_str!("entity/mongodb_store.rs.tera");
@@ -120,6 +121,7 @@ impl TemplateEngine {
             ("mobile/capacitor-gitignore", TPL_MOBILE_CAPACITOR_GITIGNORE),
             ("entity/model.rs", TPL_ENTITY_MODEL_RS),
             ("entity/model_validated.rs", TPL_ENTITY_MODEL_VALIDATED_RS),
+            ("entity/described.rs", TPL_ENTITY_DESCRIBED_RS),
             ("entity/store.rs", TPL_ENTITY_STORE_RS),
             ("entity/postgres_store.rs", TPL_ENTITY_POSTGRES_STORE_RS),
             ("entity/mongodb_store.rs", TPL_ENTITY_MONGODB_STORE_RS),
@@ -133,10 +135,10 @@ impl TemplateEngine {
             ("entity/mod.rs", TPL_ENTITY_MOD_RS),
         ]);
 
-        for (name, content) in &templates {
-            tera.add_raw_template(name, content)
-                .with_context(|| format!("Failed to register template: {}", name))?;
-        }
+        // One batch: `entity/model*.rs` include `entity/described.rs`, which must be
+        // registered whatever the HashMap order.
+        tera.add_raw_templates(templates.iter().map(|(n, c)| (*n, *c)))
+            .context("Failed to register templates")?;
 
         // Register custom filters
         tera.register_filter("snake_case", tera_filter_snake_case);
