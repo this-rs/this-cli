@@ -8,6 +8,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 fn this_bin() -> String {
+    // Cargo builds the binary for integration tests and gives its path, whatever
+    // CARGO_TARGET_DIR is (the target/debug guesses below miss a shared target dir).
+    let built = std::path::Path::new(env!("CARGO_BIN_EXE_this"));
+    if built.exists() {
+        return built.to_string_lossy().into_owned();
+    }
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_target = manifest_dir.parent().unwrap().join("target/debug/this");
     if workspace_target.exists() {
@@ -105,7 +111,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 14);
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"init_project"));
@@ -119,6 +125,8 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"start_dev"));
     assert!(tool_names.contains(&"add_target"));
     assert!(tool_names.contains(&"generate_client"));
+    assert!(tool_names.contains(&"descriptor"));
+    assert!(tool_names.contains(&"add_module"));
 
     // Verify each tool has inputSchema
     for tool in tools {
