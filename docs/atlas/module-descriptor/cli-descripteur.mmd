@@ -1,0 +1,70 @@
+flowchart LR
+%% name: module-descriptor-cli
+%% PROUVE (cargo test --bin this, cargo test --test descriptor_cli via gate.sh, branche md/cli) : add_link_preserves_unknown_yaml_keys,
+%%   add_entity_writes_descriptor, descriptor_lock_detects_tag_reuse, doctor_reports_plural_drift, templates_render_from_descriptor,
+%%   generated_descriptor_matches_code, cli_uses_shared_pluralizer, descriptor_check_cli_exit_code ; projet engendre compile contre
+%%   _wt-md/integ et son Module::descriptor() egale module.descriptor.json hors tags (test jetable runtime_descriptor_equals_cli_materialization).
+%% SOURCES LUES : this-cli src/descriptor/*, src/commands/{add_entity,add_link,descriptor,doctor,info}.rs, templates entity/model*.rs.tera,
+%%   project/module.rs.tera ; this-descriptor module.rs (compose), check.rs, compat.rs, field.rs ; this-rs src/entities/macros.rs.
+%% NON ETABLI : derive::graphql_sdl / proto_file / json_schema (stubs, flux schema) appeles par export --format ; demarrage
+%%   ServerBuilder::build_host sur un projet engendre ; CI GitHub avec checkout de this-rs/this.
+    classDef ok       fill:#2ea04333,stroke:#2ea043,stroke-width:2px
+    classDef todo     fill:#f0a02033,stroke:#d98a00,stroke-width:2px
+    classDef refused  fill:#e5484d33,stroke:#e5484d,stroke-width:2px,stroke-dasharray:6 3
+    classDef upstream fill:#8b8fa322,stroke:#8b8fa3,stroke-dasharray:3 3
+    classDef trap     fill:#e5484d1f,stroke:#e5484d,stroke-width:3px
+    classDef entry    fill:#a48bff40,stroke:#a48bff,stroke-width:3px
+
+    F(["this add entity --fields<br/>email:String:required:email"]):::entry
+    L(["this add link / this add module"]):::entry
+
+    subgraph CLI["this-cli, src/descriptor"]
+        direction TB
+        FF["✅ from_fields::parse_fields<br/>FieldDesc"]:::ok
+        MR["✅ ModelRender::from_entity<br/>contexte Tera derive"]:::ok
+        IO["✅ io : edition module.yaml<br/>par serde_yaml::Value"]:::ok
+        CODE["✅ code::entity_from_model<br/>relit macro + DESCRIBED_EXTRA"]:::ok
+        LOCK["✅ lock : tag une fois,<br/>reserve, refuse reuse"]:::ok
+    end
+
+    subgraph PROJ["Projet engendre"]
+        direction TB
+        MODEL["✅ model.rs<br/>impl_data_entity_validated!<br/>+ described()"]:::ok
+        YML[("descriptor/module.yaml")]
+        LK[("descriptor/descriptor.lock")]
+        JSON[("module.descriptor.json<br/>materialise")]
+        MOD["✅ module.rs<br/>fn descriptor() compose"]:::ok
+    end
+
+    COMP["⚪ this-descriptor<br/>ModuleDescriptor::compose, check"]:::upstream
+    RT["⚪ this-rs build_host<br/>DescriptorSet"]:::upstream
+    DER["🟠 derive::proto / sdl<br/>stubs flux schema"]:::todo
+    MAXV["⚠ macro max_value = f64<br/>refuse sur champ entier<br/>borne entiere -> DESCRIBED_EXTRA"]:::trap
+
+    F ==> FF ==> MR ==> MODEL
+    MR -.-> MAXV
+    F --> IO --> YML
+    L --> IO
+    MODEL ==> CODE
+    YML ==> COMP
+    CODE ==> COMP
+    COMP ==> LOCK
+    LOCK --> LK
+    LOCK ==> JSON
+    MODEL --> MOD
+    YML --> MOD
+    MOD ==> RT
+    JSON -.->|"export --format"| DER
+
+    subgraph CMD["Commandes"]
+        direction TB
+        CHK["✅ descriptor check<br/>exit 1 si erreur"]:::ok
+        DOC["✅ doctor : pluriels, politiques,<br/>champs, liens, identite"]:::ok
+        INFO["✅ info --json, MCP<br/>descriptor, add_module"]:::ok
+    end
+    JSON --> CHK
+    JSON --> DOC
+    JSON --> INFO
+
+    OLD["🔴 copies LinksConfig sans flatten<br/>perte de cles links.yaml"]:::refused
+    OLD -.->|"remplace par #[serde(flatten)] extra"| IO
