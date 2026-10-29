@@ -28,6 +28,8 @@ impl ToolHandler {
             "add_sink" => handle_add_sink(&args),
             "generate_client" => handle_generate_client(&args),
             "adopt_obrain" => handle_adopt_obrain(&args),
+            "descriptor" => handle_descriptor(&args),
+            "add_module" => handle_add_module(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
     }
@@ -303,6 +305,74 @@ fn handle_add_link(args: &Value) -> Result<Value> {
     Ok(serde_json::json!({
         "status": "success",
         "link": format!("{} -> {}", source, target),
+        "files_modified": writer.files_modified(),
+    }))
+}
+
+fn handle_descriptor(args: &Value) -> Result<Value> {
+    use crate::commands::{DescriptorCommands, DescriptorExportArgs, DescriptorInitArgs};
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("check")
+        .to_string();
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let root = crate::utils::project::detect_project_root()?;
+    let writer = McpFileWriter::new();
+    let run = |cmd| crate::commands::descriptor::run_in(cmd, &writer, &root);
+    match action.as_str() {
+        "check" => {
+            let report = crate::commands::descriptor::check(&root)?;
+            return Ok(serde_json::json!({
+                "status": if report.failed(false) { "error" } else { "ok" },
+                "report": report,
+            }));
+        }
+        "init" => run(DescriptorCommands::Init(DescriptorInitArgs {
+            module_version: args
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        }))?,
+        "export" => run(DescriptorCommands::Export(DescriptorExportArgs {
+            format: "json".into(),
+            output: None,
+            stdout: false,
+        }))?,
+        "lock" => run(DescriptorCommands::Lock)?,
+        other => anyhow::bail!("Unknown descriptor action: {other} (init, check, export, lock)"),
+    }
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": action,
+        "descriptor": crate::descriptor::current(&root)?,
+        "files_created": writer.files_created(),
+        "files_modified": writer.files_modified(),
+    }))
+}
+
+fn handle_add_module(args: &Value) -> Result<Value> {
+    let manifest = args
+        .get("manifest")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: manifest"))?;
+    let module_args = crate::commands::AddModuleArgs {
+        manifest: std::path::PathBuf::from(manifest),
+        version_req: args
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        optional: args
+            .get("optional")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    };
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+    crate::commands::descriptor::add_module(module_args, &writer)?;
+    Ok(serde_json::json!({
+        "status": "success",
+        "files_created": writer.files_created(),
         "files_modified": writer.files_modified(),
     }))
 }

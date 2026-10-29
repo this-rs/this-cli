@@ -215,7 +215,10 @@ event_flows:
         assert_eq!(after["consumers"][0]["seek"], "beginning");
         assert_eq!(after["event_sinks"][0]["config"]["retention_days"], 7);
         assert_eq!(after["event_flows"][0]["description"], "kept");
-        assert_eq!(after["event_flows"][0]["steps"][0]["template"]["title"], "x");
+        assert_eq!(
+            after["event_flows"][0]["steps"][0]["template"]["title"],
+            "x"
+        );
         assert_eq!(after["event_flows"][1]["name"], "notify-on-create");
     }
 

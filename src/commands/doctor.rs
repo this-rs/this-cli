@@ -113,6 +113,12 @@ fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
     results.extend(check_websocket(project_root));
     results.extend(check_grpc(project_root));
     results.extend(check_events(project_root));
+    results.extend(check_policies(project_root));
+    results.extend(check_plurals(
+        project_root,
+        crate::descriptor::enabled(project_root),
+    ));
+    results.extend(check_descriptor(project_root));
     results
 }
 
@@ -676,6 +682,318 @@ fn check_links(project_root: &Path) -> Vec<DiagnosticResult> {
     results
 }
 
+// ---------------------------------------------------------------------------
+// Module descriptor checks
+// ---------------------------------------------------------------------------
+
+/// Policy strings of links.yaml (`entities[].auth.*`, `links[].auth.*`), with their path.
+fn links_yaml_policies(config: &super::add_link::LinksConfig) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let auth_pairs = |a: &super::add_link::EntityAuth| {
+        let mut v = vec![
+            ("list".to_string(), a.list.clone()),
+            ("get".to_string(), a.get.clone()),
+            ("create".to_string(), a.create.clone()),
+            ("update".to_string(), a.update.clone()),
+            ("delete".to_string(), a.delete.clone()),
+        ];
+        v.extend(
+            a.extra
+                .iter()
+                .filter_map(|(k, val)| val.as_str().map(|s| (k.clone(), s.to_string()))),
+        );
+        v
+    };
+    for e in &config.entities {
+        for (op, p) in auth_pairs(&e.auth) {
+            out.push((format!("entities.{}.auth.{op}", e.singular), p));
+        }
+    }
+    for l in &config.links {
+        if let Some(a) = &l.auth {
+            let pairs = [
+                ("list", &a.list),
+                ("get", &a.get),
+                ("create", &a.create),
+                ("update", &a.update),
+                ("delete", &a.delete),
+            ];
+            for (op, p) in pairs {
+                out.push((format!("links.{}.auth.{op}", l.link_type), p.clone()));
+            }
+            for (k, v) in &a.extra {
+                if let Some(s) = v.as_str() {
+                    out.push((format!("links.{}.auth.{k}", l.link_type), s.to_string()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Unknown policies in links.yaml: the runtime parser falls back to `authenticated`
+/// (fail-open) where the descriptor AST refuses them. Reported in every project.
+fn check_policies(project_root: &Path) -> Vec<DiagnosticResult> {
+    let Ok(content) = std::fs::read_to_string(project_root.join("config/links.yaml")) else {
+        return vec![];
+    };
+    let Ok(config) = serde_yaml::from_str::<super::add_link::LinksConfig>(&content) else {
+        return vec![];
+    };
+    links_yaml_policies(&config)
+        .into_iter()
+        .filter_map(|(path, p)| {
+            this_descriptor::PolicyExpr::parse(&p).err().map(|e| {
+                DiagnosticResult::error("Policies", &format!("{path}: unknown policy '{p}' ({e})"))
+            })
+        })
+        .collect()
+}
+
+/// Plural of each entity as declared in each place that redeclares it.
+fn plural_sources(project_root: &Path) -> Vec<(String, Vec<(String, String)>)> {
+    let mut by_entity: std::collections::BTreeMap<String, Vec<(String, String)>> =
+        Default::default();
+    for (dir, _) in crate::descriptor::model_paths(project_root) {
+        let desc_rs = project_root
+            .join("src/entities")
+            .join(&dir)
+            .join("descriptor.rs");
+        if let Ok((plural, _)) = crate::codegen::introspect::parse_descriptor(&desc_rs)
+            && !plural.is_empty()
+        {
+            by_entity
+                .entry(dir.clone())
+                .or_default()
+                .push((format!("src/entities/{dir}/descriptor.rs"), plural));
+        }
+    }
+    if let Ok(content) = std::fs::read_to_string(project_root.join("config/links.yaml"))
+        && let Ok(config) = serde_yaml::from_str::<super::add_link::LinksConfig>(&content)
+    {
+        for e in config.entities {
+            by_entity
+                .entry(e.singular.clone())
+                .or_default()
+                .push(("config/links.yaml".into(), e.plural));
+        }
+    }
+    if let Ok(Some((_, source))) = crate::descriptor::read_source(project_root) {
+        for e in source.entities {
+            // `plural` is filled by normalize(): only an explicit one is a declaration.
+            if e.plural != this_descriptor::naming::Pluralizer::pluralize(&e.name) {
+                by_entity
+                    .entry(e.name.clone())
+                    .or_default()
+                    .push((crate::descriptor::MODULE_YAML.into(), e.plural));
+            }
+        }
+    }
+    by_entity.into_iter().collect()
+}
+
+/// Plural drift: every redeclared plural must equal the runtime one,
+/// `Pluralizer::pluralize(name)` (used by the macro, `Entity::resource_name()` and the
+/// descriptor). In descriptor mode the server refuses to start on a drift
+/// (`this.module.plural_mismatch`): error; otherwise a warning.
+fn check_plurals(project_root: &Path, descriptor_mode: bool) -> Vec<DiagnosticResult> {
+    let mut out = Vec::new();
+    for (entity, sources) in plural_sources(project_root) {
+        let expected = this_descriptor::naming::Pluralizer::pluralize(&entity);
+        for (place, plural) in sources {
+            if plural != expected {
+                let msg = format!(
+                    "plural drift for '{entity}': {place} says '{plural}', the runtime uses '{expected}'"
+                );
+                out.push(if descriptor_mode {
+                    DiagnosticResult::error("Plurals", &msg)
+                } else {
+                    DiagnosticResult::warn("Plurals", &msg)
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Descriptor mode only (descriptor/module.yaml exists).
+fn check_descriptor(project_root: &Path) -> Vec<DiagnosticResult> {
+    use crate::descriptor;
+    if !descriptor::enabled(project_root) {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    match descriptor::check_project(project_root) {
+        Ok(Some(r)) => {
+            out.extend(
+                r.errors
+                    .iter()
+                    .map(|e| DiagnosticResult::error("Descriptor", e)),
+            );
+            out.extend(
+                r.warnings
+                    .iter()
+                    .map(|w| DiagnosticResult::warn("Descriptor", w)),
+            );
+        }
+        Ok(None) => {}
+        Err(e) => out.push(DiagnosticResult::error("Descriptor", &format!("{e:#}"))),
+    }
+    let current = match descriptor::current(project_root) {
+        Ok(Some(d)) => d,
+        Ok(None) => return out,
+        Err(e) => {
+            out.push(DiagnosticResult::error("Descriptor", &format!("{e:#}")));
+            return out;
+        }
+    };
+
+    // Field drift: committed module.descriptor.json vs code.
+    if let Ok(text) = std::fs::read_to_string(project_root.join(descriptor::MATERIALIZED)) {
+        match this_descriptor::ModuleDescriptor::from_json(&text) {
+            Ok(saved) => {
+                for e in &current.entities {
+                    let Some(s) = saved.entity(&e.name) else {
+                        out.push(DiagnosticResult::warn(
+                            "Fields",
+                            &format!("'{}' missing from {}", e.name, descriptor::MATERIALIZED),
+                        ));
+                        continue;
+                    };
+                    let (a, b) = (
+                        descriptor::code::canonical(e),
+                        descriptor::code::canonical(s),
+                    );
+                    for f in &a.fields {
+                        match b.field(&f.name) {
+                            None => out.push(DiagnosticResult::warn(
+                                "Fields",
+                                &format!(
+                                    "{}.{}: in the code, not in {}",
+                                    e.name,
+                                    f.name,
+                                    descriptor::MATERIALIZED
+                                ),
+                            )),
+                            Some(g) if g != f => out.push(DiagnosticResult::warn(
+                                "Fields",
+                                &format!(
+                                    "{}.{}: type or rules differ from {}",
+                                    e.name,
+                                    f.name,
+                                    descriptor::MATERIALIZED
+                                ),
+                            )),
+                            Some(_) => {}
+                        }
+                    }
+                    for g in &b.fields {
+                        if a.field(&g.name).is_none() {
+                            out.push(DiagnosticResult::warn(
+                                "Fields",
+                                &format!(
+                                    "{}.{}: in {}, no longer in the code",
+                                    e.name,
+                                    g.name,
+                                    descriptor::MATERIALIZED
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            Err(e) => out.push(DiagnosticResult::error(
+                "Fields",
+                &format!(
+                    "{}: {:#}",
+                    descriptor::MATERIALIZED,
+                    descriptor::io::contract(e)
+                ),
+            )),
+        }
+    }
+
+    // Links to entities declared nowhere (this module or a copied required manifest).
+    let required: Vec<this_descriptor::ModuleDescriptor> = current
+        .requires
+        .iter()
+        .filter_map(|r| {
+            let p = project_root.join(format!("{}/modules/{}.json", descriptor::DIR, r.name));
+            std::fs::read_to_string(p)
+                .ok()
+                .and_then(|t| this_descriptor::ModuleDescriptor::from_json(&t).ok())
+        })
+        .collect();
+    for l in &current.links {
+        for end in [&l.source, &l.target] {
+            let here = current.entity(end).is_some();
+            let there = required.iter().any(|m| m.entity(end).is_some());
+            if !here && !there {
+                out.push(DiagnosticResult::error(
+                    "Links",
+                    &format!(
+                        "link '{}' ({} -> {}) references '{end}', declared by no module",
+                        l.link_type, l.source, l.target
+                    ),
+                ));
+            }
+        }
+    }
+
+    // Identity: what build_host compares (this.module.identity_mismatch).
+    if let Ok(module_rs) = std::fs::read_to_string(project_root.join("src/module.rs")) {
+        if let Some(c) = regex::Regex::new(r#"fn name\(&self\)\s*->\s*&str\s*\{\s*"([^"]+)""#)
+            .unwrap()
+            .captures(&module_rs)
+        {
+            let name = this_descriptor::naming::to_snake_identifier(&c[1]);
+            if name != current.name {
+                out.push(DiagnosticResult::error(
+                    "Descriptor",
+                    &format!(
+                        "Module::name() '{}' vs descriptor name '{}'",
+                        &c[1], current.name
+                    ),
+                ));
+            }
+        }
+        for e in &current.entities {
+            let needle = format!("\"{}\"", e.name);
+            if !markers::has_line_after_marker(&module_rs, "[this:entity_types]", &needle)
+                && !module_rs.contains(&format!("{needle},"))
+            {
+                out.push(DiagnosticResult::error(
+                    "Descriptor",
+                    &format!("entity '{}' missing from Module::entity_types()", e.name),
+                ));
+            }
+        }
+        if !module_rs.contains("fn descriptor(&self)") {
+            out.push(DiagnosticResult::warn(
+                "Descriptor",
+                "src/module.rs has no fn descriptor(): the server ignores descriptor/module.yaml",
+            ));
+        }
+    }
+
+    if !out
+        .iter()
+        .any(|r| !matches!(r.level, DiagnosticLevel::Pass))
+    {
+        out.push(DiagnosticResult::pass(
+            "Descriptor",
+            &format!(
+                "{} v{} ({} entities, {} links)",
+                current.name,
+                current.version,
+                current.entities.len(),
+                current.links.len()
+            ),
+        ));
+    }
+    out
+}
+
 /// Check WebSocket configuration coherence:
 /// If the websocket feature is enabled in Cargo.toml, main.rs should use WebSocketExposure.
 fn check_websocket(project_root: &Path) -> Vec<DiagnosticResult> {
@@ -842,6 +1160,141 @@ fn check_events(project_root: &Path) -> Vec<DiagnosticResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Module descriptor checks ────────────────────────────────────
+
+    fn descriptor_project(module_yaml: Option<&str>) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::create_dir_all(p.join("src/entities/knife")).unwrap();
+        std::fs::create_dir_all(p.join("config")).unwrap();
+        std::fs::write(
+            p.join("src/entities/knife/model.rs"),
+            "use this::prelude::*;\n\nimpl_data_entity!(\n    Knife,\n    \"knife\",\n    [\"name\"],\n    {\n        blade: String,\n    }\n);\n",
+        )
+        .unwrap();
+        std::fs::write(
+            p.join("src/entities/knife/descriptor.rs"),
+            "impl EntityDescriptor for KnifeDescriptor {\n    fn plural(&self) -> &str {\n        \"knifes\"\n    }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            p.join("config/links.yaml"),
+            "entities:\n  - singular: knife\n    plural: knifes\n    auth:\n      list: publik\n      get: authenticated\n      create: role:admin\n      update: authenticated\n      delete: authenticated\nlinks: []\n",
+        )
+        .unwrap();
+        std::fs::write(
+            p.join("src/module.rs"),
+            "impl Module for ShopModule {\n    fn name(&self) -> &str {\n        \"shop\"\n    }\n    fn entity_types(&self) -> Vec<&str> {\n        vec![\n            // [this:entity_types]\n            \"knife\",\n        ]\n    }\n    fn descriptor(&self) -> Option<ModuleDescriptor> {\n        None\n    }\n}\n",
+        )
+        .unwrap();
+        if let Some(y) = module_yaml {
+            std::fs::create_dir_all(p.join("descriptor")).unwrap();
+            std::fs::write(p.join("descriptor/module.yaml"), y).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn doctor_reports_plural_drift() {
+        // Without descriptor: a warning per place that disagrees with the runtime plural.
+        let dir = descriptor_project(None);
+        let r = check_plurals(dir.path(), false);
+        assert_eq!(r.len(), 2, "{r:?}");
+        assert!(r.iter().all(|d| matches!(d.level, DiagnosticLevel::Warn)));
+        assert!(r.iter().all(|d| d.message.contains("'knives'")), "{r:?}");
+        assert!(r.iter().any(|d| d.message.contains("config/links.yaml")));
+        assert!(r.iter().any(|d| d.message.contains("descriptor.rs")));
+        // In descriptor mode the server would refuse to start: errors.
+        let r = check_plurals(dir.path(), true);
+        assert!(r.iter().all(|d| matches!(d.level, DiagnosticLevel::Error)));
+        // An explicit wrong plural in module.yaml is a drift too.
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\n    plural: knifes\n",
+        ));
+        let r = check_plurals(dir.path(), true);
+        assert!(
+            r.iter()
+                .any(|d| d.message.contains("descriptor/module.yaml")),
+            "{r:?}"
+        );
+        // Same plural everywhere: nothing to report.
+        let ok = descriptor_project(None);
+        std::fs::write(
+            ok.path().join("config/links.yaml"),
+            "entities:\n  - singular: knife\n    plural: knives\nlinks: []\n",
+        )
+        .unwrap();
+        std::fs::write(
+            ok.path().join("src/entities/knife/descriptor.rs"),
+            "fn plural(&self) -> &str {\n        \"knives\"\n    }\n",
+        )
+        .unwrap();
+        assert!(check_plurals(ok.path(), true).is_empty());
+    }
+
+    #[test]
+    fn doctor_reports_unknown_policy() {
+        let dir = descriptor_project(None);
+        let r = check_policies(dir.path());
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(matches!(r[0].level, DiagnosticLevel::Error));
+        assert!(r[0].message.contains("entities.knife.auth.list"));
+        assert!(r[0].message.contains("publik"));
+    }
+
+    #[test]
+    fn doctor_reports_link_to_undeclared_entity() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\nlinks:\n  - link_type: owned_by\n    source: knife\n    target: ghost\n",
+        ));
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.iter().any(|d| matches!(d.level, DiagnosticLevel::Error)
+                && d.category == "Links"
+                && d.message.contains("'ghost'")),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_field_drift_and_identity() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: other\nversion: 1.0.0\nentities:\n  - name: knife\n",
+        ));
+        // Materialized JSON written when `blade` was the only field; the code then gained
+        // `edge`.
+        let mut saved = crate::descriptor::current(dir.path()).unwrap().unwrap();
+        saved.name = "other".into();
+        std::fs::write(
+            dir.path().join("descriptor/module.descriptor.json"),
+            crate::descriptor::materialized_json(&saved),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/entities/knife/model.rs"),
+            "impl_data_entity!(Knife, \"knife\", [\"name\"], { blade: String, edge: f64, });\n",
+        )
+        .unwrap();
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.iter()
+                .any(|d| d.category == "Fields" && d.message.contains("knife.edge")),
+            "{r:?}"
+        );
+        assert!(
+            r.iter().any(|d| matches!(d.level, DiagnosticLevel::Error)
+                && d.message
+                    .contains("Module::name() 'shop' vs descriptor name 'other'")),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_without_descriptor_adds_no_descriptor_diagnostic() {
+        let dir = descriptor_project(None);
+        assert!(check_descriptor(dir.path()).is_empty());
+    }
 
     #[test]
     fn test_check_cargo_toml_with_this() {

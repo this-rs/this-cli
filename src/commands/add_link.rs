@@ -236,6 +236,30 @@ pub(crate) fn run_in(
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
     writer.update_file(&links_path, &yaml_content, &new_yaml)?;
 
+    // Descriptor mode: the link is owned by descriptor/module.yaml (links.yaml keeps the
+    // runtime routing until it is derived from the descriptor).
+    if crate::descriptor::enabled(&project_root) {
+        let yaml_path = project_root.join(crate::descriptor::MODULE_YAML);
+        let text = std::fs::read_to_string(&yaml_path)?;
+        let mut link = this_descriptor::LinkDesc::new(&link_type, &source, &target);
+        link.forward_route = forward.clone();
+        link.reverse_route = reverse.clone();
+        link.description = config.links.last().and_then(|l| l.description.clone());
+        if let Some(new_text) = crate::descriptor::io::add_link(&text, &link)? {
+            writer.update_file(&yaml_path, &text, &new_text)?;
+            let m = crate::descriptor::refresh(&project_root, &new_text, &[], writer)?;
+            for end in [&source, &target] {
+                if m.descriptor.entity(end).is_none() {
+                    output::print_warn(&format!(
+                        "'{end}' is not an entity of this module: add it (this add entity {end}) \
+                         or require the module that declares it (this add module <manifest>)"
+                    ));
+                }
+            }
+            output::print_info(&format!("Added link to {}", crate::descriptor::MODULE_YAML));
+        }
+    }
+
     output::print_info(&format!("Link type: {}", link_type));
     output::print_info(&format!(
         "Forward route: {} (on /{}/{{id}}/{})",

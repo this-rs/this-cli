@@ -1,5 +1,8 @@
 use this::prelude::*;
 
+{# Rendered from the entity descriptor: `model` = ModelRender::from_entity(EntityDesc)
+   (src/descriptor/from_fields.rs). Each rule line is the macro spelling of a
+   ValidatorRule / TransformRule; an `always` rule appears in create AND update. #}
 impl_data_entity_validated!(
     {{ entity_pascal }},
     "{{ entity_name }}",
@@ -9,27 +12,50 @@ impl_data_entity_validated!(
 {% endfor %}    },
     validate: {
         create: {
-{% for field in fields %}{% if not field.is_optional %}{% if field.rust_type == "String" %}            {{ field.name }}: [required],
-{% elif field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [required positive],
-{% elif field.rust_type == "i32" or field.rust_type == "i64" or field.rust_type == "u32" or field.rust_type == "u64" %}            {{ field.name }}: [required],
-{% else %}            {{ field.name }}: [required],
-{% endif %}{% endif %}{% endfor %}            status: [required in_list("active", "inactive")],
-        },
+{% if model is defined %}{% for line in model.validate.create %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
         update: {
-{% for field in fields %}{% if not field.is_optional %}{% if field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [optional positive],
-{% else %}            {{ field.name }}: [optional],
-{% endif %}{% endif %}{% endfor %}            status: [optional in_list("active", "inactive")],
-        },
+{% if model is defined %}{% for line in model.validate.update %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
     },
     filters: {
         create: {
-{% for field in fields %}{% if field.rust_type == "String" %}            {{ field.name }}: [trim],
-{% elif field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [round_decimals(2)],
-{% endif %}{% endfor %}            status: [trim lowercase],
-        },
+{% if model is defined %}{% for line in model.filters.create %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
         update: {
-{% for field in fields %}{% if field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [round_decimals(2)],
-{% endif %}{% endfor %}            status: [trim lowercase],
-        },
+{% if model is defined %}{% for line in model.filters.update %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
     }
 );
+{% if described is defined and described %}
+/// Rules the macro grammar cannot carry (email, url, pattern, min_value, query filters,
+/// read_only...), declared by `this add entity --fields`. JSON array of partial
+/// `FieldDesc`; read back by `this descriptor export` / `this doctor`.
+const DESCRIBED_EXTRA: &str = r{{ model.extra_hashes }}"{% if model.extra_json %}{{ model.extra_json }}{% else %}[]{% endif %}"{{ model.extra_hashes }};
+
+/// Descriptor of `{{ entity_pascal }}`: the macro's (types, plural, rules of its grammar)
+/// plus `DESCRIBED_EXTRA`. Composed with `descriptor/module.yaml` by
+/// `Module::descriptor()` (src/module.rs).
+pub fn described() -> this::descriptor::EntityDesc {
+    let mut e = {{ entity_pascal }}::descriptor().clone();
+    let extra: Vec<this::descriptor::FieldDesc> =
+        serde_json::from_str(DESCRIBED_EXTRA).expect("DESCRIBED_EXTRA is valid JSON");
+    for x in extra {
+        let f = e
+            .field_or_overlay_mut(&x.name)
+            .unwrap_or_else(|| panic!("DESCRIBED_EXTRA: `{}` is not a field of {{ entity_name }}", x.name));
+        f.validators.extend(x.validators);
+        f.transforms.extend(x.transforms);
+        for op in x.filterable {
+            if !f.filterable.contains(&op) {
+                f.filterable.push(op);
+            }
+        }
+        f.sortable |= x.sortable;
+        f.read_only |= x.read_only;
+        f.immutable |= x.immutable;
+    }
+    e.normalize();
+    e
+}
+{% endif %}

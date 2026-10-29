@@ -4,11 +4,13 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
 use super::AddEntityArgs;
+use crate::descriptor::{self, from_fields};
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::{markers, naming, output, project};
 
-/// Parsed field definition
+/// Parsed field definition (legacy view, kept for the parse tests)
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Field {
     pub name: String,
@@ -16,55 +18,22 @@ pub struct Field {
     pub is_optional: bool,
 }
 
-/// Parse a fields string like "sku:String,price:f64,description:Option<String>"
+/// Parse a fields string like "sku:String,price:f64,description:Option<String>".
+///
+/// Legacy view of [`from_fields::parse_fields`] (which also reads rules such as
+/// `email:String:required:email` into `FieldDesc`s).
+#[cfg(test)]
 pub fn parse_fields(input: &str) -> Result<Vec<Field>> {
-    let mut fields = Vec::new();
-
-    for pair in input.split(',') {
-        let pair = pair.trim();
-        if pair.is_empty() {
-            continue;
-        }
-
-        let parts: Vec<&str> = pair.splitn(2, ':').collect();
-        if parts.len() != 2 {
-            bail!(
-                "Invalid field format: '{}'. Expected 'name:Type' (e.g. 'sku:String')",
-                pair
-            );
-        }
-
-        let name = parts[0].trim().to_string();
-        let rust_type = parts[1].trim().to_string();
-
-        // Validate supported types
-        let base_type = rust_type
-            .strip_prefix("Option<")
-            .and_then(|s| s.strip_suffix('>'))
-            .unwrap_or(&rust_type);
-
-        let supported_types = [
-            "String", "f64", "f32", "i32", "i64", "u32", "u64", "bool", "Uuid",
-        ];
-
-        if !supported_types.contains(&base_type) {
-            bail!(
-                "Unsupported field type: '{}'. Supported types: {}",
-                base_type,
-                supported_types.join(", ")
-            );
-        }
-
-        let is_optional = rust_type.starts_with("Option<");
-
-        fields.push(Field {
-            name,
-            rust_type,
-            is_optional,
-        });
-    }
-
-    Ok(fields)
+    from_fields::parse_fields(input)?
+        .iter()
+        .map(|f| {
+            Ok(Field {
+                name: f.name.clone(),
+                rust_type: from_fields::rust_type_of(f)?,
+                is_optional: f.optional,
+            })
+        })
+        .collect()
 }
 
 pub fn run(args: AddEntityArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -99,7 +68,9 @@ pub(crate) fn run_in(
         println!();
     }
 
-    // Parse fields and filter out reserved fields (already provided by impl_data_entity! macro)
+    // Parse fields (with their rules) and filter out reserved fields (already provided by
+    // impl_data_entity! macro). Rules declared on `name` / `status` become overlays of the
+    // base field instead of being dropped.
     let reserved_fields = [
         "id",
         "entity_type",
@@ -110,23 +81,6 @@ pub(crate) fn run_in(
         "deleted_at",
     ];
 
-    let fields = match &args.fields {
-        Some(f) => {
-            let parsed = parse_fields(f)?;
-            let (reserved, custom): (Vec<_>, Vec<_>) = parsed
-                .into_iter()
-                .partition(|f| reserved_fields.contains(&f.name.as_str()));
-            for field in &reserved {
-                output::print_warn(&format!(
-                    "Field '{}' is built-in (provided by impl_data_entity! macro) — skipping",
-                    field.name
-                ));
-            }
-            custom
-        }
-        None => vec![],
-    };
-
     // Parse indexed fields
     let indexed_fields: Vec<String> = args
         .indexed
@@ -135,12 +89,56 @@ pub(crate) fn run_in(
         .filter(|s| !s.is_empty())
         .collect();
 
+    // The entity descriptor: the ONE source the templates are rendered from.
+    let mut entity = this_descriptor::EntityDesc::new(entity_name.clone());
+    entity.indexed = indexed_fields.clone();
+    let mut overlays = Vec::new();
+    if let Some(f) = &args.fields {
+        for field in from_fields::parse_fields(f)? {
+            if !reserved_fields.contains(&field.name.as_str()) {
+                entity.fields.push(field);
+            } else if from_fields::has_rules(std::slice::from_ref(&field))
+                && matches!(field.name.as_str(), "name" | "status")
+            {
+                overlays.push(field);
+            } else {
+                output::print_warn(&format!(
+                    "Field '{}' is built-in (provided by impl_data_entity! macro) — skipping",
+                    field.name
+                ));
+            }
+        }
+    }
+    for o in overlays {
+        let base = entity
+            .field_or_overlay_mut(&o.name)
+            .expect("name/status are writable base fields");
+        base.validators.extend(o.validators);
+        base.transforms.extend(o.transforms);
+        base.filterable.extend(o.filterable);
+        base.sortable |= o.sortable;
+    }
+    if args.validated && !from_fields::has_rules(&entity.fields) {
+        from_fields::apply_legacy_validated_defaults(&mut entity);
+    }
+    let model = from_fields::ModelRender::from_entity(&entity)?;
+    let descriptor_mode = descriptor::enabled(&project_root);
+    if !model.extra_json.is_empty() && !descriptor_mode {
+        // Fail-closed: without a descriptor nothing would enforce these rules.
+        bail!(
+            "rules outside the impl_data_entity_validated! grammar (email, url, pattern, \
+             min_value, filter, sortable, read_only, immutable) need a module descriptor: \
+             run `this descriptor init` first"
+        );
+    }
+    let fields = model.fields.clone();
+
     output::print_step(&format!("Adding entity '{}' to project...", entity_name));
 
     // Create entity directory
     writer.create_dir_all(&entity_dir)?;
 
-    // Prepare template context
+    // Prepare template context (derived from `entity`, see ModelRender::from_entity)
     let engine = TemplateEngine::new()?;
     let mut context = tera::Context::new();
     context.insert("entity_name", &entity_name);
@@ -148,11 +146,14 @@ pub(crate) fn run_in(
     context.insert("entity_plural", &entity_plural);
     context.insert("fields", &fields);
     context.insert("indexed_fields", &indexed_fields);
-    context.insert("validated", &args.validated);
+    context.insert("validated", &(args.validated || model.validated));
     context.insert("backend", &args.backend);
+    context.insert("entity", &entity);
+    context.insert("model", &model);
+    context.insert("described", &descriptor_mode);
 
     // Generate entity files
-    let template_name = if args.validated {
+    let template_name = if args.validated || model.validated {
         "entity/model_validated.rs"
     } else {
         "entity/model.rs"
@@ -176,10 +177,14 @@ pub(crate) fn run_in(
         ("entity/mod.rs", "mod.rs"),
     ];
 
+    let mut model_rendered = String::new();
     for (tpl, filename) in entity_files {
         let rendered = engine
             .render(tpl, &context)
             .with_context(|| format!("Failed to render template: {}", tpl))?;
+        if *filename == "model.rs" {
+            model_rendered = rendered.clone();
+        }
         let file_path = entity_dir.join(filename);
         writer.write_file(&file_path, &rendered)?;
         if !writer.is_dry_run() {
@@ -247,6 +252,12 @@ pub(crate) fn run_in(
 
     // Update config/links.yaml (add entity config)
     update_links_yaml(&project_root, &entity_name, &entity_plural, writer)?;
+
+    // Module descriptor (only when descriptor/module.yaml exists): own the entity in
+    // module.yaml, register `described()` in Module::descriptor(), re-materialize.
+    if descriptor_mode {
+        update_descriptor(&project_root, &entity_name, &model_rendered, writer)?;
+    }
 
     if !writer.is_dry_run() {
         output::print_success(&format!("Entity '{}' created!", entity_name));
@@ -808,6 +819,59 @@ fn update_module_rs(
         ));
     }
 
+    Ok(())
+}
+
+/// Descriptor mode: add the entity to `descriptor/module.yaml`, register its `described()`
+/// in `Module::descriptor()` (src/module.rs), and re-materialize `descriptor.lock` +
+/// `module.descriptor.json` (the new model is read from `model_rendered`, so a dry run
+/// shows the same result).
+fn update_descriptor(
+    project_root: &Path,
+    entity_name: &str,
+    model_rendered: &str,
+    writer: &dyn FileWriter,
+) -> Result<()> {
+    let yaml_path = project_root.join(descriptor::MODULE_YAML);
+    let source = std::fs::read_to_string(&yaml_path)
+        .with_context(|| format!("Failed to read {}", yaml_path.display()))?;
+    let source = match descriptor::io::add_entity(&source, entity_name)? {
+        Some(new) => {
+            writer.update_file(&yaml_path, &std::fs::read_to_string(&yaml_path)?, &new)?;
+            new
+        }
+        None => source,
+    };
+
+    let module_path = project_root.join("src/module.rs");
+    if module_path.exists() {
+        let content = std::fs::read_to_string(&module_path)?;
+        let pascal = naming::to_pascal_case(entity_name);
+        let expr = descriptor::described_expr(entity_name, &pascal, model_rendered);
+        let updated = descriptor::with_described(&descriptor::with_module_fn(&content)?, &expr)?;
+        if updated != content {
+            writer.update_file(&module_path, &content, &updated)?;
+        }
+    }
+
+    let m = descriptor::refresh(
+        project_root,
+        &source,
+        &[(entity_name.to_string(), model_rendered.to_string())],
+        writer,
+    )?;
+    if !writer.is_dry_run() {
+        output::print_info(&format!(
+            "Updated {} and {} ({})",
+            descriptor::MODULE_YAML,
+            descriptor::MATERIALIZED,
+            if m.lock_changes.is_empty() {
+                "no new tag".to_string()
+            } else {
+                m.lock_changes.join(", ")
+            }
+        ));
+    }
     Ok(())
 }
 
@@ -1563,6 +1627,161 @@ impl Module for TestModule {{
         let result = run_in(args, &writer, &project);
         assert!(result.is_ok(), "Should succeed: {:?}", result.err());
         assert_file_exists(&project, "src/entities/product/model.rs");
+    }
+
+    // ========================================================================
+    // Module descriptor
+    // ========================================================================
+
+    fn descriptor_init(project: &std::path::Path) {
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        crate::commands::descriptor::run_in(
+            crate::commands::DescriptorCommands::Init(crate::commands::DescriptorInitArgs {
+                module_version: None,
+            }),
+            &writer,
+            project,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn add_entity_writes_descriptor() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "shop");
+        descriptor_init(&project);
+        assert_file_contains(&project, "src/module.rs", "fn descriptor(&self)");
+
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("customer");
+        args.fields = Some(
+            "email:String:required:email:trim,age:Option<i32>:min_value(18):max_value(150),\
+             code:String:filter(eq,starts_with):sortable"
+                .into(),
+        );
+        run_in(args, &writer, &project).unwrap();
+
+        // module.yaml owns the entity (no fields: the macro owns them).
+        let yaml = std::fs::read_to_string(project.join("descriptor/module.yaml")).unwrap();
+        let src = crate::descriptor::io::parse_source(&yaml).unwrap();
+        assert_eq!(src.entities.len(), 1);
+        assert_eq!(src.entities[0].name, "customer");
+        assert!(src.entities[0].fields.is_empty());
+
+        // The materialized descriptor carries fields, rules and locked tags.
+        let json =
+            std::fs::read_to_string(project.join("descriptor/module.descriptor.json")).unwrap();
+        let d = this_descriptor::ModuleDescriptor::from_json(&json).unwrap();
+        assert_eq!(d.name, "shop");
+        let e = d.entity("customer").unwrap();
+        let email = e.field("email").unwrap();
+        assert_eq!(email.proto_tag, Some(16));
+        assert!(
+            email
+                .validators
+                .iter()
+                .any(|r| r.rule == this_descriptor::ValidatorSpec::Email)
+        );
+        assert!(
+            email
+                .validators
+                .iter()
+                .any(|r| r.rule == this_descriptor::ValidatorSpec::Required
+                    && r.on == this_descriptor::Applies::Create)
+        );
+        let age = e.field("age").unwrap();
+        assert!(age.optional);
+        assert_eq!(age.proto_tag, Some(17));
+        assert!(
+            age.validators
+                .iter()
+                .any(|r| r.rule == this_descriptor::ValidatorSpec::MinValue(18.into()))
+        );
+        let code = e.field("code").unwrap();
+        assert!(code.sortable);
+        assert_eq!(code.filterable.len(), 2);
+        d.check(
+            &this_descriptor::CustomRegistry::default(),
+            this_descriptor::CheckProfile::Compiled,
+        )
+        .unwrap();
+
+        // Lock + generated code.
+        assert_file_contains(&project, "descriptor/descriptor.lock", "email: 16");
+        assert_file_contains(
+            &project,
+            "src/entities/customer/model.rs",
+            "DESCRIBED_EXTRA",
+        );
+        assert_file_contains(
+            &project,
+            "src/entities/customer/model.rs",
+            "pub fn described()",
+        );
+        assert_file_contains(
+            &project,
+            "src/module.rs",
+            "crate::entities::customer::model::described(),",
+        );
+
+        // `this descriptor check` agrees with what was written.
+        let report = crate::commands::descriptor::check(&project).unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    }
+
+    #[test]
+    fn add_entity_without_descriptor_behaves_as_before() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "legacy");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.fields = Some("sku:String,price:f64".into());
+        run_in(args, &writer, &project).unwrap();
+        assert!(!project.join("descriptor").exists());
+        assert_file_not_contains(&project, "src/entities/product/model.rs", "described");
+        assert_file_not_contains(&project, "src/module.rs", "fn descriptor(");
+        // Fail-closed: a rule nothing would enforce without a descriptor is refused.
+        let mut args = default_args("customer");
+        args.fields = Some("email:String:email".into());
+        let err = run_in(args, &writer, &project).unwrap_err().to_string();
+        assert!(err.contains("this descriptor init"), "{err}");
+        // Rules of the macro grammar still work without a descriptor.
+        let mut args = default_args("invoice");
+        args.fields = Some("number:String:required:string_length(3,20):trim".into());
+        run_in(args, &writer, &project).unwrap();
+        assert_file_contains(
+            &project,
+            "src/entities/invoice/model.rs",
+            "number: [required string_length(3, 20)],",
+        );
+        assert_file_contains(&project, "src/entities/invoice/model.rs", "number: [trim],");
+    }
+
+    #[test]
+    fn add_entity_validated_flag_renders_legacy_rules() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "legacyrules");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.validated = true;
+        args.fields = Some("sku:String,price:f64,note:Option<String>".into());
+        run_in(args, &writer, &project).unwrap();
+        let model = std::fs::read_to_string(project.join("src/entities/product/model.rs")).unwrap();
+        // Same rules as the former hard-coded model_validated.rs.tera.
+        for line in [
+            "sku: [required],",
+            "price: [required positive],",
+            "status: [required in_list(\"active\", \"inactive\")],",
+            "sku: [optional],",
+            "price: [optional positive],",
+            "status: [optional in_list(\"active\", \"inactive\")],",
+            "price: [round_decimals(2)],",
+            "status: [trim lowercase],",
+        ] {
+            assert!(model.contains(line), "missing `{line}` in:\n{model}");
+        }
+        assert!(!model.contains("note: ["), "optional fields get no rule");
     }
 
     // ========================================================================
