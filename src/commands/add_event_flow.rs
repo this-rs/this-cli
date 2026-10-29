@@ -69,7 +69,7 @@ pub(crate) fn run_in(
 
     output::print_step(&format!(
         "Adding event flow '{}' to config/events.yaml...",
-        &args.name
+        args.name
     ));
 
     // Read and parse existing config
@@ -110,9 +110,9 @@ pub(crate) fn run_in(
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize events.yaml")?;
     writer.update_file(&events_path, &yaml_content, &new_yaml)?;
 
-    output::print_info(&format!("Flow name: {}", &args.name));
-    output::print_info(&format!("Trigger: {}", &args.trigger));
-    output::print_info(&format!("Deliver to: {}", &args.sink));
+    output::print_info(&format!("Flow name: {}", args.name));
+    output::print_info(&format!("Trigger: {}", args.trigger));
+    output::print_info(&format!("Deliver to: {}", args.sink));
 
     output::print_success("Event flow added to config/events.yaml!");
 

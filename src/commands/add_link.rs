@@ -110,7 +110,7 @@ pub(crate) fn run_in(
 
     let source = naming::to_snake_case(&args.source);
     let target = naming::to_snake_case(&args.target);
-    let link_type = args.link_type.unwrap_or_else(|| format!("has_{}", &target));
+    let link_type = args.link_type.unwrap_or_else(|| format!("has_{}", target));
     let forward = args.forward.unwrap_or_else(|| naming::pluralize(&target));
     let reverse = args.reverse.unwrap_or_else(|| source.clone());
 
@@ -121,7 +121,7 @@ pub(crate) fn run_in(
 
     output::print_step(&format!(
         "Adding link '{} -> {}' to config/links.yaml...",
-        &source, &target
+        source, target
     ));
 
     // Read and parse existing config
@@ -154,7 +154,7 @@ pub(crate) fn run_in(
             plural: source_plural.clone(),
             auth: default_entity_auth(),
         });
-        output::print_info(&format!("Added entity config for: {}", &source));
+        output::print_info(&format!("Added entity config for: {}", source));
     }
     if !config.entities.iter().any(|e| e.singular == target) {
         config.entities.push(EntityConfig {
@@ -162,7 +162,7 @@ pub(crate) fn run_in(
             plural: target_plural.clone(),
             auth: default_entity_auth(),
         });
-        output::print_info(&format!("Added entity config for: {}", &target));
+        output::print_info(&format!("Added entity config for: {}", target));
     }
 
     // Add link definition
@@ -207,14 +207,14 @@ pub(crate) fn run_in(
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
     writer.update_file(&links_path, &yaml_content, &new_yaml)?;
 
-    output::print_info(&format!("Link type: {}", &link_type));
+    output::print_info(&format!("Link type: {}", link_type));
     output::print_info(&format!(
         "Forward route: {} (on /{}/{{id}}/{})",
-        &forward, &source_plural, &forward
+        forward, source_plural, forward
     ));
     output::print_info(&format!(
         "Reverse route: {} (on /{}/{{id}}/{})",
-        &reverse, &target_plural, &reverse
+        reverse, target_plural, reverse
     ));
 
     output::print_success("Link added to config/links.yaml!");
@@ -223,15 +223,15 @@ pub(crate) fn run_in(
         "Routes that will be generated:",
         &format!(
             "  GET    /{}/{{id}}/{}        - List {} for a {}",
-            &source_plural, &forward, &target_plural, &source
+            source_plural, forward, target_plural, source
         ),
         &format!(
             "  POST   /{}/{{id}}/{}        - Link a {} to a {}",
-            &source_plural, &forward, &target, &source
+            source_plural, forward, target, source
         ),
         &format!(
             "  GET    /{}/{{id}}/{}         - Get {} for a {}",
-            &target_plural, &reverse, &source, &target
+            target_plural, reverse, source, target
         ),
     ]);
 

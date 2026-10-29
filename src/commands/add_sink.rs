@@ -53,7 +53,7 @@ pub(crate) fn run_in(
 
     output::print_step(&format!(
         "Adding sink '{}' ({}) to config/events.yaml...",
-        &args.name, &args.sink_type
+        args.name, args.sink_type
     ));
 
     // Read and parse existing config
@@ -81,8 +81,8 @@ pub(crate) fn run_in(
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize events.yaml")?;
     writer.update_file(&events_path, &yaml_content, &new_yaml)?;
 
-    output::print_info(&format!("Sink name: {}", &args.name));
-    output::print_info(&format!("Sink type: {}", &args.sink_type));
+    output::print_info(&format!("Sink name: {}", args.name));
+    output::print_info(&format!("Sink type: {}", args.sink_type));
     if let Some(ref url) = args.url {
         output::print_info(&format!("URL: {}", url));
     }
@@ -93,7 +93,7 @@ pub(crate) fn run_in(
         "You can now use this sink in event flows:",
         &format!(
             "  this add event-flow my-flow --trigger \"entity.created.*\" --sink {}",
-            &args.name
+            args.name
         ),
         "Available sink types: in_app, webhook, push, websocket, counter",
     ]);

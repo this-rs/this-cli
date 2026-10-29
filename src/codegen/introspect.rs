@@ -152,7 +152,7 @@ fn parse_entity_model_content(content: &str, path: &Path) -> Result<EntityMeta> 
     let fields = parse_fields(fields_raw);
 
     // Default plural = snake_name + "s" (overridden by descriptor if available)
-    let plural = format!("{}s", &snake_name);
+    let plural = format!("{}s", snake_name);
 
     Ok(EntityMeta {
         pascal_name,

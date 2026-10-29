@@ -42,7 +42,7 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
     }
 
     output::print_banner();
-    output::print_step(&format!("Creating new this-rs project: {}", &args.name));
+    output::print_step(&format!("Creating new this-rs project: {}", args.name));
 
     // Create directory structure
     let dirs = ["", "src", "src/entities", "config"];
@@ -129,11 +129,11 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
     init_git(&args, &project_dir, writer)?;
 
     if !writer.is_dry_run() {
-        output::print_success(&format!("Project '{}' created successfully!", &args.name));
+        output::print_success(&format!("Project '{}' created successfully!", args.name));
         let mut next_steps = vec![
-            format!("cd {}", &args.name),
+            format!("cd {}", args.name),
             "cargo run".to_string(),
-            format!("# Server will start on http://127.0.0.1:{}", &args.port),
+            format!("# Server will start on http://127.0.0.1:{}", args.port),
             "# Add entities with: this add entity <name>".to_string(),
         ];
         // Toujours affiché : le fichier est écrit dans tous les cas, et c'est là
@@ -177,7 +177,7 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     }
 
     output::print_banner();
-    output::print_step(&format!("Creating new this-rs workspace: {}", &args.name));
+    output::print_step(&format!("Creating new this-rs workspace: {}", args.name));
 
     // Create workspace root directory
     writer.create_dir_all(&workspace_dir)?;
@@ -291,11 +291,11 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     init_git(&args, &workspace_dir, writer)?;
 
     if !writer.is_dry_run() {
-        output::print_success(&format!("Workspace '{}' created successfully!", &args.name));
+        output::print_success(&format!("Workspace '{}' created successfully!", args.name));
         let mut next_steps = vec![
-            format!("cd {}", &args.name),
+            format!("cd {}", args.name),
             "cargo run --manifest-path api/Cargo.toml".to_string(),
-            format!("# Server will start on http://127.0.0.1:{}", &args.port),
+            format!("# Server will start on http://127.0.0.1:{}", args.port),
             "# Add entities with: this add entity <name>".to_string(),
             "# Add targets later with: this add target webapp --framework react".to_string(),
         ];

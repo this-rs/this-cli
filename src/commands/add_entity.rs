@@ -89,7 +89,7 @@ pub(crate) fn run_in(
     if entity_dir.exists() && !writer.is_dry_run() {
         bail!(
             "Entity '{}' already exists at {}",
-            &entity_name,
+            entity_name,
             entity_dir.display()
         );
     }
@@ -135,7 +135,7 @@ pub(crate) fn run_in(
         .filter(|s| !s.is_empty())
         .collect();
 
-    output::print_step(&format!("Adding entity '{}' to project...", &entity_name));
+    output::print_step(&format!("Adding entity '{}' to project...", entity_name));
 
     // Create entity directory
     writer.create_dir_all(&entity_dir)?;
@@ -183,7 +183,7 @@ pub(crate) fn run_in(
         let file_path = entity_dir.join(filename);
         writer.write_file(&file_path, &rendered)?;
         if !writer.is_dry_run() {
-            output::print_file_created(&format!("src/entities/{}/{}", &entity_name, filename));
+            output::print_file_created(&format!("src/entities/{}/{}", entity_name, filename));
         }
     }
 
@@ -201,26 +201,26 @@ pub(crate) fn run_in(
 
     // Update src/entities/mod.rs
     let entities_mod_path = project_root.join("src/entities/mod.rs");
-    let mod_declaration = format!("pub mod {};", &entity_name);
+    let mod_declaration = format!("pub mod {};", entity_name);
 
     if entities_mod_path.exists() {
         let content = std::fs::read_to_string(&entities_mod_path)?;
         if !content.contains(&mod_declaration) {
             let new_content = if content.trim().is_empty() {
-                format!("{}\n", &mod_declaration)
+                format!("{}\n", mod_declaration)
             } else {
-                format!("{}\n{}\n", content.trim_end(), &mod_declaration)
+                format!("{}\n{}\n", content.trim_end(), mod_declaration)
             };
             writer.update_file(&entities_mod_path, &content, &new_content)?;
             if !writer.is_dry_run() {
                 output::print_info(&format!(
                     "Updated src/entities/mod.rs (added pub mod {})",
-                    &entity_name
+                    entity_name
                 ));
             }
         }
     } else {
-        writer.write_file(&entities_mod_path, &format!("{}\n", &mod_declaration))?;
+        writer.write_file(&entities_mod_path, &format!("{}\n", mod_declaration))?;
         if !writer.is_dry_run() {
             output::print_info("Created src/entities/mod.rs");
         }
@@ -249,7 +249,7 @@ pub(crate) fn run_in(
     update_links_yaml(&project_root, &entity_name, &entity_plural, writer)?;
 
     if !writer.is_dry_run() {
-        output::print_success(&format!("Entity '{}' created!", &entity_name));
+        output::print_success(&format!("Entity '{}' created!", entity_name));
         println!();
         match args.backend.as_str() {
             "postgres" => {
