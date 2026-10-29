@@ -125,7 +125,10 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        # rustfmt on the tracked files: `cargo fmt` runs `cargo metadata`, which loads the
+        # transitive path dependencies of this-rs/this (obrain, vite-rs) that the runner
+        # does not have. Same check, no dependency resolution.
+        run: git ls-files '*.rs' | xargs rustfmt --edition 2024 --check
 
   clippy:
     name: Clippy
