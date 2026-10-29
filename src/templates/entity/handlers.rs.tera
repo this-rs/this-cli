@@ -12,9 +12,21 @@ pub struct {{ entity_pascal }}State {
     pub entity_creator: Arc<dyn EntityCreator>,
 }
 
-pub async fn list_{{ entity_plural }}(State(state): State<{{ entity_pascal }}State>) -> Json<serde_json::Value> {
+/// `?filter=&sort=&page=&limit=` are read by `ListQuery` (a malformed filter is a 400) and
+/// applied in memory over the store: a REST filter is never silently ignored.
+pub async fn list_{{ entity_plural }}(
+    State(state): State<{{ entity_pascal }}State>,
+    this::core::query::ListQuery(query): this::core::query::ListQuery,
+) -> Json<serde_json::Value> {
     match state.store.list().await {
-        Ok(items) => Json(serde_json::to_value(items).unwrap_or_else(|_| serde_json::json!([]))),
+        Ok(items) => {
+            let rows: Vec<serde_json::Value> = items
+                .into_iter()
+                .filter_map(|i| serde_json::to_value(i).ok())
+                .collect();
+            let (page, _total) = this::descriptor::engine::query::apply_in_memory(&query, rows);
+            Json(serde_json::Value::Array(page))
+        }
         Err(e) => {
             eprintln!("List {{ entity_plural }} error: {:?}", e);
             Json(serde_json::json!({

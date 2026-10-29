@@ -50,7 +50,7 @@ pub fn read_lock(root: &Path) -> Result<DescriptorLock> {
     if !path.is_file() {
         return Ok(DescriptorLock::default());
     }
-    DescriptorLock::parse(&std::fs::read_to_string(&path)?)
+    DescriptorLock::parse(&std::fs::read_to_string(&path)?).map_err(io::contract)
 }
 
 /// `src/entities/<name>/model.rs` of every entity.
@@ -335,16 +335,19 @@ pub const DESCRIBED_MARKER: &str = "[this:described_entities]";
 /// enable descriptor mode).
 pub const MODULE_DESCRIPTOR_FN: &str = r#"
     /// Module descriptor: descriptor/module.yaml (identity, links, permissions, errors...)
-    /// composed with the entity macros (fields, types, rules). See `this descriptor check`.
+    /// composed with the entity macros (fields, types, rules) and descriptor.lock (proto tags).
+    /// See `this descriptor check`.
     fn descriptor(&self) -> Option<this::descriptor::ModuleDescriptor> {
         let yaml = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/descriptor/module.yaml"));
+        // descriptor.lock: the stable proto tags (`/grpc/proto`, `this descriptor export`).
+        let lock = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/descriptor/descriptor.lock"));
         let described: Vec<this::descriptor::EntityDesc> = vec![
             // [this:described_entities]
         ];
         let refs: Vec<&this::descriptor::EntityDesc> = described.iter().collect();
         let module = this::descriptor::ModuleDescriptor::from_yaml(yaml)
-            .and_then(|m| m.compose(&refs))
-            .unwrap_or_else(|e| panic!("descriptor/module.yaml: {e} {:?}", e.params));
+            .and_then(|m| m.compose_locked(&refs, lock))
+            .unwrap_or_else(|e| panic!("descriptor/module.yaml + descriptor.lock: {e} {:?}", e.params));
         Some(module)
     }
 "#;

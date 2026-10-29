@@ -168,3 +168,81 @@ fn add_module_requires_manifest_and_info_json_exports_descriptor() {
     assert_eq!(info["descriptor"]["requires"][0]["name"], "users");
     assert_eq!(info["descriptor"]["links"][0]["target"], "user");
 }
+
+#[test]
+fn descriptor_export_formats_proto_graphql_json_schema() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = new_project(tmp.path());
+    assert_eq!(run(&["descriptor", "init"], &p).0, 0);
+    let (code, out, err) = run(
+        &[
+            "add",
+            "entity",
+            "customer",
+            "--fields",
+            "email:String:required:email,age:Option<i32>:max_value(150)",
+        ],
+        &p,
+    );
+    assert_eq!(code, 0, "{out}{err}");
+
+    // The generated Module::descriptor() applies descriptor.lock (stable proto tags at run time).
+    let module_rs = std::fs::read_to_string(p.join("src/module.rs")).unwrap();
+    assert!(
+        module_rs.contains("compose_locked(&refs, lock)"),
+        "{module_rs}"
+    );
+    assert!(
+        module_rs.contains("descriptor/descriptor.lock"),
+        "{module_rs}"
+    );
+    // The generated list handler reads ListQuery (REST filters are applied).
+    let handlers = std::fs::read_to_string(p.join("src/entities/customer/handlers.rs")).unwrap();
+    assert!(handlers.contains("ListQuery"), "{handlers}");
+
+    // proto: the locked tags (email 16, age 17) appear.
+    let (code, proto, err) = run(
+        &["descriptor", "export", "--format", "proto", "--stdout"],
+        &p,
+    );
+    assert_eq!(code, 0, "{proto}{err}");
+    assert!(proto.contains("syntax = \"proto3\""), "{proto}");
+    assert!(proto.contains("email = 16;"), "{proto}");
+    assert!(proto.contains("age = 17;"), "{proto}");
+
+    // graphql
+    let (code, sdl, err) = run(
+        &["descriptor", "export", "--format", "graphql", "--stdout"],
+        &p,
+    );
+    assert_eq!(code, 0, "{sdl}{err}");
+    assert!(sdl.contains("Customer"), "{sdl}");
+    assert!(sdl.contains("email"), "{sdl}");
+
+    // json-schema: create/update per entity; the integer bound stays an integer.
+    let (code, js, err) = run(
+        &[
+            "descriptor",
+            "export",
+            "--format",
+            "json-schema",
+            "--stdout",
+        ],
+        &p,
+    );
+    assert_eq!(code, 0, "{js}{err}");
+    let v: serde_json::Value = serde_json::from_str(&js).unwrap();
+    assert!(v.get("customer.create").is_some(), "{js}");
+    assert!(v.get("customer.update").is_some(), "{js}");
+    assert_eq!(
+        v["customer.create"]["properties"]["age"]["anyOf"][0]["maximum"], 150,
+        "{js}"
+    );
+
+    // Unknown format: exit code 1.
+    let (code, _, _) = run(
+        &["descriptor", "export", "--format", "nope", "--stdout"],
+        &p,
+    );
+    assert_eq!(code, 1);
+}
