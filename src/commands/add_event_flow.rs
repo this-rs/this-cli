@@ -12,6 +12,9 @@ pub struct EventsConfig {
     pub event_sinks: Vec<EventSink>,
     #[serde(default)]
     pub event_flows: Vec<EventFlow>,
+    /// Keys this copy does not model (`backend`, `consumers`, ...) survive a rewrite.
+    #[serde(flatten)]
+    pub extra: crate::commands::add_link::Extra,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -21,6 +24,9 @@ pub struct EventSink {
     pub sink_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Sink-specific settings (`config`, `headers`, ...).
+    #[serde(flatten)]
+    pub extra: crate::commands::add_link::Extra,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -28,6 +34,8 @@ pub struct EventFlow {
     pub name: String,
     pub trigger: String,
     pub steps: Vec<FlowStep>,
+    #[serde(flatten)]
+    pub extra: crate::commands::add_link::Extra,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -38,6 +46,9 @@ pub struct FlowStep {
     pub condition: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sink: Option<String>,
+    /// Operator-specific step keys (`map`, `template`, `window`, ...).
+    #[serde(flatten)]
+    pub extra: crate::commands::add_link::Extra,
 }
 
 pub fn run(args: AddEventFlowArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -100,7 +111,9 @@ pub(crate) fn run_in(
             step_type: "deliver".to_string(),
             condition: None,
             sink: Some(args.sink.clone()),
+            extra: Default::default(),
         }],
+        extra: Default::default(),
     };
 
     config.event_flows.push(flow);
@@ -165,6 +178,45 @@ mod tests {
     fn read_events_config(project: &std::path::Path) -> EventsConfig {
         let content = std::fs::read_to_string(project.join("config/events.yaml")).unwrap();
         serde_yaml::from_str(&content).unwrap()
+    }
+
+    #[test]
+    fn add_event_flow_preserves_unknown_yaml_keys() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_events_project(&tmp);
+        std::fs::write(
+            project.join("config/events.yaml"),
+            r#"backend: { type: memory, capacity: 64 }
+consumers: [{ name: c1, seek: beginning }]
+event_sinks:
+  - name: in-app
+    type: in_app
+    config: { retention_days: 7 }
+event_flows:
+  - name: existing
+    trigger: entity.updated.*
+    description: kept
+    steps:
+      - type: map
+        template: { title: "x" }
+      - type: deliver
+        sink: in-app
+"#,
+        )
+        .unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        run_in(make_args("notify-on-create"), &writer, &project).unwrap();
+
+        let after: serde_yaml::Value = serde_yaml::from_str(
+            &std::fs::read_to_string(project.join("config/events.yaml")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(after["backend"]["capacity"], 64);
+        assert_eq!(after["consumers"][0]["seek"], "beginning");
+        assert_eq!(after["event_sinks"][0]["config"]["retention_days"], 7);
+        assert_eq!(after["event_flows"][0]["description"], "kept");
+        assert_eq!(after["event_flows"][0]["steps"][0]["template"]["title"], "x");
+        assert_eq!(after["event_flows"][1]["name"], "notify-on-create");
     }
 
     #[test]

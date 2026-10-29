@@ -30,3 +30,7 @@ regex = "1"
 [dev-dependencies]
 tempfile = "3"
 serial_test = "3"
+
+# Standalone workspace root: without it, cargo walks up to the local
+# /Users/.../this-rs/Cargo.toml workspace from a worktree under _wt-md and refuses to build.
+[workspace]

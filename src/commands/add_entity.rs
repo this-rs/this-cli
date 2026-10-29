@@ -838,6 +838,7 @@ fn update_links_yaml(
         singular: entity_name.to_string(),
         plural: entity_plural.to_string(),
         auth: super::add_link::default_entity_auth(),
+        extra: Default::default(),
     });
 
     let new_yaml =

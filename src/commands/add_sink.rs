@@ -72,6 +72,7 @@ pub(crate) fn run_in(
         name: args.name.clone(),
         sink_type: args.sink_type.clone(),
         url: args.url.clone(),
+        extra: Default::default(),
     };
 
     config.event_sinks.push(sink);
