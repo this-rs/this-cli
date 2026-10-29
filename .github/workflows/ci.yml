@@ -29,7 +29,13 @@ jobs:
           path: .deps/this
 
       - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
         run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +72,13 @@ jobs:
           path: .deps/this
 
       - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
         run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -117,7 +129,13 @@ jobs:
           path: .deps/this
 
       - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
         run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -148,7 +166,13 @@ jobs:
           path: .deps/this
 
       - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
         run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -189,7 +213,13 @@ jobs:
           path: .deps/this
 
       - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
         run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
