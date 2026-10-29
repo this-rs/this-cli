@@ -1,5 +1,8 @@
 use this::prelude::*;
 
+{# Rendered from the entity descriptor: `model` = ModelRender::from_entity(EntityDesc)
+   (src/descriptor/from_fields.rs). Each rule line is the macro spelling of a
+   ValidatorRule / TransformRule; an `always` rule appears in create AND update. #}
 impl_data_entity_validated!(
     {{ entity_pascal }},
     "{{ entity_name }}",
@@ -9,27 +12,19 @@ impl_data_entity_validated!(
 {% endfor %}    },
     validate: {
         create: {
-{% for field in fields %}{% if not field.is_optional %}{% if field.rust_type == "String" %}            {{ field.name }}: [required],
-{% elif field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [required positive],
-{% elif field.rust_type == "i32" or field.rust_type == "i64" or field.rust_type == "u32" or field.rust_type == "u64" %}            {{ field.name }}: [required],
-{% else %}            {{ field.name }}: [required],
-{% endif %}{% endif %}{% endfor %}            status: [required in_list("active", "inactive")],
-        },
+{% if model is defined %}{% for line in model.validate.create %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
         update: {
-{% for field in fields %}{% if not field.is_optional %}{% if field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [optional positive],
-{% else %}            {{ field.name }}: [optional],
-{% endif %}{% endif %}{% endfor %}            status: [optional in_list("active", "inactive")],
-        },
+{% if model is defined %}{% for line in model.validate.update %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
     },
     filters: {
         create: {
-{% for field in fields %}{% if field.rust_type == "String" %}            {{ field.name }}: [trim],
-{% elif field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [round_decimals(2)],
-{% endif %}{% endfor %}            status: [trim lowercase],
-        },
+{% if model is defined %}{% for line in model.filters.create %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
         update: {
-{% for field in fields %}{% if field.rust_type == "f64" or field.rust_type == "f32" %}            {{ field.name }}: [round_decimals(2)],
-{% endif %}{% endfor %}            status: [trim lowercase],
-        },
+{% if model is defined %}{% for line in model.filters.update %}            {{ line.field }}: [{{ line.rules }}],
+{% endfor %}{% endif %}        },
     }
 );
+{% include "entity/described.rs" %}

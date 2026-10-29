@@ -110,11 +110,35 @@ pub fn introspect(api_root: &Path) -> Result<ProjectIntrospection> {
         }
     }
 
-    let links = if links_path.exists() {
+    let mut links = if links_path.exists() {
         parse_links_yaml(&links_path)?
     } else {
         Vec::new()
     };
+
+    // Module descriptor first (descriptor/module.yaml composed with the code), regex
+    // results above as the fallback: plural and links come from the descriptor.
+    if let Some(d) = crate::descriptor::current(api_root)? {
+        for em in &mut entities {
+            if let Some(e) = d.entity(&em.snake_name) {
+                em.plural = e.plural.clone();
+            }
+        }
+        for l in &d.links {
+            let known = links.iter().any(|m| {
+                m.link_type == l.link_type && m.source == l.source && m.target == l.target
+            });
+            if !known {
+                links.push(LinkMeta {
+                    link_type: l.link_type.clone(),
+                    source: l.source.clone(),
+                    target: l.target.clone(),
+                    forward_route: l.forward_route.clone(),
+                    reverse_route: l.reverse_route.clone(),
+                });
+            }
+        }
+    }
 
     Ok(ProjectIntrospection { entities, links })
 }
@@ -151,8 +175,9 @@ fn parse_entity_model_content(content: &str, path: &Path) -> Result<EntityMeta> 
     let fields_raw = caps[4].trim();
     let fields = parse_fields(fields_raw);
 
-    // Default plural = snake_name + "s" (overridden by descriptor if available)
-    let plural = format!("{}s", snake_name);
+    // Default plural = the shared pluralizer (the one the macro uses at runtime),
+    // overridden by descriptor.rs / the module descriptor when available.
+    let plural = this_descriptor::naming::Pluralizer::pluralize(&snake_name);
 
     Ok(EntityMeta {
         pascal_name,

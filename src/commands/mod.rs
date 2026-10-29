@@ -6,6 +6,7 @@ pub mod add_target;
 pub mod adopt_obrain;
 pub mod build;
 pub mod completions;
+pub mod descriptor;
 pub mod dev;
 pub mod doctor;
 pub mod generate;
@@ -45,7 +46,14 @@ pub enum Commands {
     Adopt(AdoptCommand),
 
     /// Show project information and status
-    Info,
+    Info(InfoArgs),
+
+    /// Module descriptor: init, check (exit code 1 on error), export, lock
+    ///
+    /// descriptor/module.yaml owns identity, requires, links, errors, i18n and
+    /// permissions; the entity macros own fields and rules; descriptor.lock keeps proto
+    /// tags stable; descriptor/module.descriptor.json is the materialized result.
+    Descriptor(DescriptorCommand),
 
     /// Build the project (API, frontend, or embedded single binary)
     Build(BuildArgs),
@@ -95,6 +103,9 @@ pub enum AddCommands {
 
     /// Add an event sink (delivery target) to config/events.yaml
     Sink(AddSinkArgs),
+
+    /// Require another module from its manifest (descriptor JSON/YAML)
+    Module(AddModuleArgs),
 }
 
 /// `this adopt …` — préparer un projet **existant** à this-rs + obrain + IAM.
@@ -177,8 +188,13 @@ pub struct AddEntityArgs {
     /// Entity name (singular, snake_case, e.g. "product")
     pub name: String,
 
-    /// Entity fields as "field:Type" pairs, comma-separated
+    /// Entity fields as "name:Type[:rule]*", comma-separated
     /// Example: --fields "sku:String,price:f64,description:Option<String>"
+    /// Rules (validators, input transforms, query capabilities), optional @create/@update:
+    /// --fields "email:String:required:email,age:Option<i32>:min_value(0):max_value(150)"
+    /// required optional positive string_length(a,b) min_value(n) max_value(n) in_list(a|b)
+    /// date_format(f) pattern(re) email url trim uppercase lowercase round_decimals(n)
+    /// filter(eq,gt,...) sortable read_only immutable
     #[arg(long)]
     pub fields: Option<String>,
 
@@ -340,4 +356,81 @@ pub struct GenerateClientArgs {
     /// Output file path (default: auto-detected from this.yaml webapp target)
     #[arg(long)]
     pub output: Option<std::path::PathBuf>,
+}
+
+/// Arguments for `this info`
+#[derive(Parser, Default)]
+pub struct InfoArgs {
+    /// Print the project information, materialized module descriptor included, as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser)]
+pub struct DescriptorCommand {
+    #[command(subcommand)]
+    pub command: DescriptorCommands,
+}
+
+#[derive(Subcommand)]
+pub enum DescriptorCommands {
+    /// Enable descriptor mode: create descriptor/module.yaml and Module::descriptor()
+    Init(DescriptorInitArgs),
+
+    /// Verify module.yaml, its composition with the code, the lock (exit code 1 on error)
+    Check(DescriptorCheckArgs),
+
+    /// Write descriptor/module.descriptor.json, or derive another format
+    Export(DescriptorExportArgs),
+
+    /// Bring descriptor.lock up to date (new fields get tags, removed ones are reserved)
+    Lock,
+}
+
+#[derive(Parser)]
+pub struct DescriptorInitArgs {
+    /// Module version (default: Module::version() of src/module.rs, else 1.0.0)
+    #[arg(long = "module-version")]
+    pub module_version: Option<String>,
+}
+
+#[derive(Parser)]
+pub struct DescriptorCheckArgs {
+    /// Machine-readable report
+    #[arg(long)]
+    pub json: bool,
+
+    /// Treat warnings (stale lock or JSON) as errors
+    #[arg(long)]
+    pub strict: bool,
+}
+
+#[derive(Parser)]
+pub struct DescriptorExportArgs {
+    /// json (default: writes descriptor/module.descriptor.json), yaml, graphql, proto, json-schema
+    #[arg(long, default_value = "json")]
+    pub format: String,
+
+    /// Write to this file instead
+    #[arg(long)]
+    pub output: Option<std::path::PathBuf>,
+
+    /// Print to stdout instead of writing
+    #[arg(long)]
+    pub stdout: bool,
+}
+
+/// Arguments for `this add module <manifest>`
+#[derive(Parser)]
+pub struct AddModuleArgs {
+    /// Manifest of the module: its descriptor (module.descriptor.json or YAML)
+    pub manifest: std::path::PathBuf,
+
+    /// Semver requirement (default: ^<manifest version>)
+    #[arg(long = "version-req")]
+    pub version_req: Option<String>,
+
+    /// Optional dependency: loaded when present, never required
+    #[arg(long)]
+    pub optional: bool,
 }

@@ -20,6 +20,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v4
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -68,6 +81,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v4
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -113,6 +139,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v4
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

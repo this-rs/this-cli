@@ -82,6 +82,13 @@ pub struct ProjectInfo {
     pub coherence: CoherenceStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceInfo>,
+    /// Materialized module descriptor (descriptor/module.yaml composed with the code,
+    /// locked tags applied); absent without descriptor/module.yaml.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descriptor: Option<this_descriptor::ModuleDescriptor>,
+    /// Why the descriptor could not be materialized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descriptor_error: Option<String>,
 }
 
 /// Collect project information as a structured object.
@@ -97,6 +104,10 @@ pub fn collect_info() -> Result<ProjectInfo> {
 
     // Detect workspace context
     let workspace = detect_workspace_info();
+    let (descriptor, descriptor_error) = match crate::descriptor::current(&project_root) {
+        Ok(d) => (d, None),
+        Err(e) => (None, Some(format!("{e:#}"))),
+    };
 
     Ok(ProjectInfo {
         project_name,
@@ -107,6 +118,8 @@ pub fn collect_info() -> Result<ProjectInfo> {
         events,
         coherence,
         workspace,
+        descriptor,
+        descriptor_error,
     })
 }
 
@@ -146,6 +159,16 @@ fn detect_events_info(project_root: &Path) -> Option<EventsInfo> {
         sinks: config.event_sinks.iter().map(|s| s.name.clone()).collect(),
         flows: config.event_flows.iter().map(|f| f.name.clone()).collect(),
     })
+}
+
+/// `this info [--json]`.
+pub fn run_with(json: bool) -> Result<()> {
+    if json {
+        let info = collect_info()?;
+        println!("{}", serde_json::to_string_pretty(&info)?);
+        return Ok(());
+    }
+    run()
 }
 
 pub fn run() -> Result<()> {
@@ -1643,6 +1666,8 @@ validation_rules: {}
                 links_issues: vec![],
             },
             workspace: None,
+            descriptor: None,
+            descriptor_error: None,
         };
 
         // Just verify that accessing fields and formatting doesn't panic
@@ -1692,6 +1717,8 @@ validation_rules: {}
                     },
                 ],
             }),
+            descriptor: None,
+            descriptor_error: None,
         };
 
         // Verify workspace info is present and correct
@@ -1727,6 +1754,8 @@ validation_rules: {}
                 ],
             },
             workspace: None,
+            descriptor: None,
+            descriptor_error: None,
         };
 
         assert!(!info.coherence.links_valid);
@@ -1841,6 +1870,8 @@ event_flows:
                 links_issues: vec![],
             },
             workspace: None,
+            descriptor: None,
+            descriptor_error: None,
         };
 
         assert!(info.events.is_some());
@@ -1875,6 +1906,8 @@ event_flows:
                 links_issues: vec![],
             },
             workspace: None,
+            descriptor: None,
+            descriptor_error: None,
         };
 
         // events: None should be skipped in serialization (skip_serializing_if)
