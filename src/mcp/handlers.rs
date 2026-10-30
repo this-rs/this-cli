@@ -1670,3 +1670,88 @@ impl AppModule {
         );
     }
 }
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+    use serial_test::serial;
+    use tempfile::TempDir;
+
+    fn project() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"app\"\n\n[dependencies]\nthis-rs = \"0.0.9\"\n",
+        )
+        .unwrap();
+        let dir = tmp.path().join("src/entities/product");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("model.rs"),
+            "impl_data_entity!(\n    Product,\n    \"product\",\n    [\"name\"],\n    {\n        name: String,\n    }\n);\n",
+        )
+        .unwrap();
+        tmp
+    }
+
+    fn call(tmp: &TempDir, action: &str) -> Result<Value> {
+        handle_descriptor(&serde_json::json!({
+            "action": action,
+            "cwd": tmp.path().to_str().unwrap(),
+            "version": "2.3.4",
+        }))
+    }
+
+    #[test]
+    #[serial]
+    fn test_descriptor_tool_init_export_lock_and_check() {
+        let tmp = project();
+
+        let init = call(&tmp, "init").expect("init");
+        assert_eq!(init["status"], "success");
+        assert_eq!(init["action"], "init");
+        assert_eq!(init["descriptor"]["version"], "2.3.4");
+        assert_eq!(init["descriptor"]["entities"][0]["name"], "product");
+        assert!(
+            tmp.path().join("descriptor/module.yaml").is_file(),
+            "init must write descriptor/module.yaml"
+        );
+
+        let export = call(&tmp, "export").expect("export");
+        assert_eq!(export["status"], "success");
+        assert_eq!(export["action"], "export");
+        assert_eq!(export["descriptor"]["entities"][0]["plural"], "products");
+
+        let lock = call(&tmp, "lock").expect("lock");
+        assert_eq!(lock["status"], "success");
+        assert_eq!(lock["action"], "lock");
+
+        // `check` is the default action.
+        let check = handle_descriptor(&serde_json::json!({
+            "cwd": tmp.path().to_str().unwrap(),
+        }))
+        .expect("check");
+        assert_eq!(check["status"], "ok", "{check}");
+        assert_eq!(check["report"]["descriptor"], true);
+        assert_eq!(check["report"]["errors"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_descriptor_tool_rejects_unknown_action() {
+        let tmp = project();
+        let err = call(&tmp, "frobnicate").expect_err("unknown action");
+        assert_eq!(
+            format!("{err}"),
+            "Unknown descriptor action: frobnicate (init, check, export, lock)"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_descriptor_tool_check_without_descriptor_mode() {
+        let tmp = project();
+        let check = call(&tmp, "check").expect("check");
+        assert_eq!(check["report"]["descriptor"], false, "{check}");
+    }
+}
