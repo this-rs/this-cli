@@ -1,6 +1,6 @@
 [package]
 name = "this-cli"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 authors = ["Riviere Théotime <t@ffs.holdings>"]
 license = "MIT OR Apache-2.0"
@@ -26,7 +26,15 @@ anyhow = "1"
 toml_edit = "0.22"
 ctrlc = "3"
 regex = "1"
+# Shared module descriptor (types, check, pluralizer). version + path: publishable, and
+# the path resolves from a checkout of this-cli next to a checkout of this-rs/this.
+this-descriptor = { version = "0.1", path = "../this/crates/this-descriptor", features = ["yaml", "pattern"] }
+semver = "1"
 
 [dev-dependencies]
 tempfile = "3"
 serial_test = "3"
+
+# Standalone workspace root: without it, cargo walks up to the local
+# /Users/.../this-rs/Cargo.toml workspace from a worktree under _wt-md and refuses to build.
+[workspace]

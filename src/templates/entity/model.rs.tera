@@ -8,3 +8,4 @@ impl_data_entity!(
 {% for field in fields %}        {{ field.name }}: {{ field.rust_type }},
 {% endfor %}    }
 );
+{% include "entity/described.rs" %}

@@ -18,6 +18,8 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         add_target_tool(),
         generate_client_tool(),
         adopt_obrain_tool(),
+        descriptor_tool(),
+        add_module_tool(),
     ]
 }
 
@@ -83,7 +85,7 @@ fn add_entity_tool() -> ToolDefinition {
                 },
                 "fields": {
                     "type": "string",
-                    "description": "Entity fields as 'field:Type' pairs, comma-separated. Example: 'sku:String,price:f64,description:Option<String>'"
+                    "description": "Entity fields as 'name:Type[:rule]*', comma-separated. Example: 'sku:String:trim:string_length(3,20),email:String:required:email,age:Option<i32>:min_value(0):max_value(150)'. Rules: required optional positive string_length(a,b) min_value(n) max_value(n) in_list(a|b) date_format(f) pattern(re) email url trim uppercase lowercase round_decimals(n) filter(eq,gt,...) sortable read_only immutable, optionally suffixed @create or @update. Rules outside the macro grammar (email, url, pattern, min_value, filter, sortable...) need descriptor mode (descriptor tool, action init)."
                 },
                 "validated": {
                     "type": "boolean",
@@ -206,10 +208,65 @@ fn add_sink_tool() -> ToolDefinition {
     }
 }
 
+fn descriptor_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "descriptor".to_string(),
+        description: "Module descriptor of the project (descriptor/module.yaml composed with the entity macros, proto tags from descriptor.lock). action=init enables descriptor mode; check verifies everything and returns errors/warnings (no error = ok); export writes descriptor/module.descriptor.json and returns the descriptor; lock updates descriptor.lock.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "action": {
+                    "type": "string",
+                    "enum": ["init", "check", "export", "lock"],
+                    "description": "What to do (default: check)"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "init only: module version (default: Module::version(), else 1.0.0)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs project root)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
+fn add_module_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "add_module".to_string(),
+        description: "Require another module from its manifest (its descriptor, JSON or YAML): the manifest is checked, copied to descriptor/modules/<name>.json (the module's interface) and added to `requires` in descriptor/module.yaml.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "manifest": {
+                    "type": "string",
+                    "description": "Path of the module descriptor (module.descriptor.json or YAML)"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "Semver requirement (default: ^<manifest version>)"
+                },
+                "optional": {
+                    "type": "boolean",
+                    "description": "Optional dependency: loaded when present, never required"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (must be inside a this-rs project root)"
+                }
+            })),
+            required: Some(vec!["manifest".to_string()]),
+        },
+    }
+}
+
 fn get_project_info_tool() -> ToolDefinition {
     ToolDefinition {
         name: "get_project_info".to_string(),
-        description: "Get detailed information about the current this-rs project: entities with their fields, links between entities, this-rs version, and coherence status.".to_string(),
+        description: "Get detailed information about the current this-rs project: entities with their fields, links between entities, this-rs version, and coherence status, plus the materialized module descriptor (`descriptor`) when descriptor/module.yaml exists.".to_string(),
         input_schema: InputSchema {
             schema_type: "object".to_string(),
             properties: Some(json!({
@@ -401,7 +458,7 @@ mod tests {
     #[test]
     fn test_all_tools_count() {
         // Un outil par commande : `adopt_obrain` est le dernier ajouté.
-        assert_eq!(all_tools().len(), 12);
+        assert_eq!(all_tools().len(), 14);
     }
 
     /// L'outil d'adoption expose bien ce qui compte : le répertoire, et le choix

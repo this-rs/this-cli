@@ -2,6 +2,12 @@ use std::path::Path;
 use std::process::Command;
 
 fn this_bin() -> String {
+    // Cargo builds the binary for integration tests and gives its path, whatever
+    // CARGO_TARGET_DIR is (the target/debug guesses below miss a shared target dir).
+    let built = std::path::Path::new(env!("CARGO_BIN_EXE_this"));
+    if built.exists() {
+        return built.to_string_lossy().into_owned();
+    }
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     // When built in a workspace, the binary is in the workspace target dir
     let workspace_target = manifest_dir.parent().unwrap().join("target/debug/this");

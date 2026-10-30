@@ -26,6 +26,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -49,6 +68,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -88,13 +126,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        # rustfmt on the tracked files: `cargo fmt` runs `cargo metadata`, which loads the
+        # transitive path dependencies of this-rs/this (obrain, vite-rs) that the runner
+        # does not have. Same check, no dependency resolution.
+        run: git ls-files '*.rs' | xargs rustfmt --edition 2024 --check
 
   clippy:
     name: Clippy
@@ -102,6 +162,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -130,6 +209,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
+      # this-rs/this next to this crate. Ref: the integration branch until the module
+      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        if: runner.os != 'Windows'
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Place this-rs/this at ../this (Windows junction)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE/../this" -Target "$env:GITHUB_WORKSPACE/.deps/this"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

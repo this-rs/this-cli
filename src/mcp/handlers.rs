@@ -28,6 +28,8 @@ impl ToolHandler {
             "add_sink" => handle_add_sink(&args),
             "generate_client" => handle_generate_client(&args),
             "adopt_obrain" => handle_adopt_obrain(&args),
+            "descriptor" => handle_descriptor(&args),
+            "add_module" => handle_add_module(&args),
             _ => anyhow::bail!("Unknown tool: {}", name),
         }
     }
@@ -303,6 +305,74 @@ fn handle_add_link(args: &Value) -> Result<Value> {
     Ok(serde_json::json!({
         "status": "success",
         "link": format!("{} -> {}", source, target),
+        "files_modified": writer.files_modified(),
+    }))
+}
+
+fn handle_descriptor(args: &Value) -> Result<Value> {
+    use crate::commands::{DescriptorCommands, DescriptorExportArgs, DescriptorInitArgs};
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("check")
+        .to_string();
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let root = crate::utils::project::detect_project_root()?;
+    let writer = McpFileWriter::new();
+    let run = |cmd| crate::commands::descriptor::run_in(cmd, &writer, &root);
+    match action.as_str() {
+        "check" => {
+            let report = crate::commands::descriptor::check(&root)?;
+            return Ok(serde_json::json!({
+                "status": if report.failed(false) { "error" } else { "ok" },
+                "report": report,
+            }));
+        }
+        "init" => run(DescriptorCommands::Init(DescriptorInitArgs {
+            module_version: args
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        }))?,
+        "export" => run(DescriptorCommands::Export(DescriptorExportArgs {
+            format: "json".into(),
+            output: None,
+            stdout: false,
+        }))?,
+        "lock" => run(DescriptorCommands::Lock)?,
+        other => anyhow::bail!("Unknown descriptor action: {other} (init, check, export, lock)"),
+    }
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": action,
+        "descriptor": crate::descriptor::current(&root)?,
+        "files_created": writer.files_created(),
+        "files_modified": writer.files_modified(),
+    }))
+}
+
+fn handle_add_module(args: &Value) -> Result<Value> {
+    let manifest = args
+        .get("manifest")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: manifest"))?;
+    let module_args = crate::commands::AddModuleArgs {
+        manifest: std::path::PathBuf::from(manifest),
+        version_req: args
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        optional: args
+            .get("optional")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    };
+    let _cwd_guard = CwdGuard::from_args(args)?;
+    let writer = McpFileWriter::new();
+    crate::commands::descriptor::add_module(module_args, &writer)?;
+    Ok(serde_json::json!({
+        "status": "success",
+        "files_created": writer.files_created(),
         "files_modified": writer.files_modified(),
     }))
 }
@@ -1598,5 +1668,90 @@ impl AppModule {
             "Error should mention entity already exists, got: {}",
             err
         );
+    }
+}
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+    use serial_test::serial;
+    use tempfile::TempDir;
+
+    fn project() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"app\"\n\n[dependencies]\nthis-rs = \"0.0.9\"\n",
+        )
+        .unwrap();
+        let dir = tmp.path().join("src/entities/product");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("model.rs"),
+            "impl_data_entity!(\n    Product,\n    \"product\",\n    [\"name\"],\n    {\n        name: String,\n    }\n);\n",
+        )
+        .unwrap();
+        tmp
+    }
+
+    fn call(tmp: &TempDir, action: &str) -> Result<Value> {
+        handle_descriptor(&serde_json::json!({
+            "action": action,
+            "cwd": tmp.path().to_str().unwrap(),
+            "version": "2.3.4",
+        }))
+    }
+
+    #[test]
+    #[serial]
+    fn test_descriptor_tool_init_export_lock_and_check() {
+        let tmp = project();
+
+        let init = call(&tmp, "init").expect("init");
+        assert_eq!(init["status"], "success");
+        assert_eq!(init["action"], "init");
+        assert_eq!(init["descriptor"]["version"], "2.3.4");
+        assert_eq!(init["descriptor"]["entities"][0]["name"], "product");
+        assert!(
+            tmp.path().join("descriptor/module.yaml").is_file(),
+            "init must write descriptor/module.yaml"
+        );
+
+        let export = call(&tmp, "export").expect("export");
+        assert_eq!(export["status"], "success");
+        assert_eq!(export["action"], "export");
+        assert_eq!(export["descriptor"]["entities"][0]["plural"], "products");
+
+        let lock = call(&tmp, "lock").expect("lock");
+        assert_eq!(lock["status"], "success");
+        assert_eq!(lock["action"], "lock");
+
+        // `check` is the default action.
+        let check = handle_descriptor(&serde_json::json!({
+            "cwd": tmp.path().to_str().unwrap(),
+        }))
+        .expect("check");
+        assert_eq!(check["status"], "ok", "{check}");
+        assert_eq!(check["report"]["descriptor"], true);
+        assert_eq!(check["report"]["errors"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_descriptor_tool_rejects_unknown_action() {
+        let tmp = project();
+        let err = call(&tmp, "frobnicate").expect_err("unknown action");
+        assert_eq!(
+            format!("{err}"),
+            "Unknown descriptor action: frobnicate (init, check, export, lock)"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_descriptor_tool_check_without_descriptor_mode() {
+        let tmp = project();
+        let check = call(&tmp, "check").expect("check");
+        assert_eq!(check["report"]["descriptor"], false, "{check}");
     }
 }

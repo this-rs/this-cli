@@ -110,11 +110,35 @@ pub fn introspect(api_root: &Path) -> Result<ProjectIntrospection> {
         }
     }
 
-    let links = if links_path.exists() {
+    let mut links = if links_path.exists() {
         parse_links_yaml(&links_path)?
     } else {
         Vec::new()
     };
+
+    // Module descriptor first (descriptor/module.yaml composed with the code), regex
+    // results above as the fallback: plural and links come from the descriptor.
+    if let Some(d) = crate::descriptor::current(api_root)? {
+        for em in &mut entities {
+            if let Some(e) = d.entity(&em.snake_name) {
+                em.plural = e.plural.clone();
+            }
+        }
+        for l in &d.links {
+            let known = links.iter().any(|m| {
+                m.link_type == l.link_type && m.source == l.source && m.target == l.target
+            });
+            if !known {
+                links.push(LinkMeta {
+                    link_type: l.link_type.clone(),
+                    source: l.source.clone(),
+                    target: l.target.clone(),
+                    forward_route: l.forward_route.clone(),
+                    reverse_route: l.reverse_route.clone(),
+                });
+            }
+        }
+    }
 
     Ok(ProjectIntrospection { entities, links })
 }
@@ -151,8 +175,9 @@ fn parse_entity_model_content(content: &str, path: &Path) -> Result<EntityMeta> 
     let fields_raw = caps[4].trim();
     let fields = parse_fields(fields_raw);
 
-    // Default plural = snake_name + "s" (overridden by descriptor if available)
-    let plural = format!("{}s", snake_name);
+    // Default plural = the shared pluralizer (the one the macro uses at runtime),
+    // overridden by descriptor.rs / the module descriptor when available.
+    let plural = this_descriptor::naming::Pluralizer::pluralize(&snake_name);
 
     Ok(EntityMeta {
         pascal_name,
@@ -662,5 +687,71 @@ impl_data_entity!(
         assert_eq!(fields[0].name, "name");
         assert_eq!(fields[0].rust_type, "String");
         assert_eq!(fields[2].rust_type, "Option<String>");
+    }
+}
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    const MODEL: &str = r#"
+use this::prelude::*;
+
+impl_data_entity!(
+    Product,
+    "product",
+    ["name"],
+    {
+        name: String,
+    }
+);
+"#;
+
+    fn project(module_yaml: &str, links_yaml: Option<&str>) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let dir = root.join("src/entities/product");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("model.rs"), MODEL).unwrap();
+        std::fs::create_dir_all(root.join("descriptor")).unwrap();
+        std::fs::write(root.join("descriptor/module.yaml"), module_yaml).unwrap();
+        if let Some(l) = links_yaml {
+            std::fs::create_dir_all(root.join("config")).unwrap();
+            std::fs::write(root.join("config/links.yaml"), l).unwrap();
+        }
+        tmp
+    }
+
+    #[test]
+    fn test_introspect_descriptor_adds_links_and_keeps_plural() {
+        let tmp = project(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: product\n    plural: products\nlinks:\n  - link_type: has_review\n    source: product\n    target: review\n    forward_route: reviews\n    reverse_route: product\n",
+            None,
+        );
+        let result = introspect(tmp.path()).unwrap();
+        assert_eq!(result.entities.len(), 1);
+        assert_eq!(result.entities[0].plural, "products");
+        assert_eq!(result.links.len(), 1);
+        let l = &result.links[0];
+        assert_eq!(l.link_type, "has_review");
+        assert_eq!(l.source, "product");
+        assert_eq!(l.target, "review");
+        assert_eq!(l.forward_route, "reviews");
+        assert_eq!(l.reverse_route, "product");
+    }
+
+    #[test]
+    fn test_introspect_descriptor_link_already_in_yaml_is_not_duplicated() {
+        let tmp = project(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: product\nlinks:\n  - link_type: has_review\n    source: product\n    target: review\n",
+            Some(
+                "entities:\n  - singular: product\n    plural: products\nlinks:\n  - link_type: has_review\n    source_type: product\n    target_type: review\n    forward_route_name: reviews\n    reverse_route_name: product\nvalidation_rules: {}\n",
+            ),
+        );
+        let result = introspect(tmp.path()).unwrap();
+        assert_eq!(result.links.len(), 1, "{:?}", result.links);
+        assert_eq!(result.links[0].forward_route, "reviews");
+        assert_eq!(result.entities[0].plural, "products");
     }
 }

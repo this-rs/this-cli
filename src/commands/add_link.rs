@@ -5,6 +5,13 @@ use super::AddLinkArgs;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::{naming, output, project};
 
+/// Unknown YAML keys carried through a read-modify-write of a config file.
+///
+/// The CLI only models the keys it edits; the runtime (`this::config::LinksConfig`) has more
+/// and gains new ones over time. Without this catch-all, `this add link` / `this add entity`
+/// silently deleted `events`, `sinks`, `auth`, `required_fields`, ... from links.yaml.
+pub type Extra = std::collections::BTreeMap<String, serde_yaml::Value>;
+
 /// Represents the links.yaml config structure (subset for CLI manipulation)
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct LinksConfig {
@@ -14,6 +21,10 @@ pub struct LinksConfig {
     pub links: Vec<LinkDefinition>,
     #[serde(default)]
     pub validation_rules: std::collections::BTreeMap<String, Vec<ValidationRule>>,
+    /// Every key this copy does not model (`events`, `sinks`, `auth`, future keys) is kept
+    /// verbatim so that rewriting links.yaml never drops it.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -22,6 +33,8 @@ pub struct EntityConfig {
     pub plural: String,
     #[serde(default = "default_entity_auth")]
     pub auth: EntityAuth,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -36,6 +49,9 @@ pub struct EntityAuth {
     pub update: String,
     #[serde(default = "default_auth")]
     pub delete: String,
+    /// `list_links`, `create_link`, `delete_link`, `update_link`, ...
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 fn default_auth() -> String {
@@ -49,6 +65,7 @@ pub fn default_entity_auth() -> EntityAuth {
         create: default_auth(),
         update: default_auth(),
         delete: default_auth(),
+        extra: Default::default(),
     }
 }
 
@@ -63,6 +80,9 @@ pub struct LinkDefinition {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<LinkAuth>,
+    /// `required_fields` and any later key.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -77,12 +97,16 @@ pub struct LinkAuth {
     pub update: String,
     #[serde(default = "default_auth")]
     pub delete: String,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidationRule {
     pub source: String,
     pub targets: Vec<String>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 pub fn run(args: AddLinkArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -153,6 +177,7 @@ pub(crate) fn run_in(
             singular: source.clone(),
             plural: source_plural.clone(),
             auth: default_entity_auth(),
+            extra: Default::default(),
         });
         output::print_info(&format!("Added entity config for: {}", source));
     }
@@ -161,6 +186,7 @@ pub(crate) fn run_in(
             singular: target.clone(),
             plural: target_plural.clone(),
             auth: default_entity_auth(),
+            extra: Default::default(),
         });
         output::print_info(&format!("Added entity config for: {}", target));
     }
@@ -187,7 +213,9 @@ pub(crate) fn run_in(
             create: default_auth(),
             update: default_auth(),
             delete: default_auth(),
+            extra: Default::default(),
         }),
+        extra: Default::default(),
     });
 
     // Add validation rule
@@ -199,6 +227,7 @@ pub(crate) fn run_in(
             .push(ValidationRule {
                 source: source.clone(),
                 targets: vec![target.clone()],
+                extra: Default::default(),
             });
     }
 
@@ -206,6 +235,30 @@ pub(crate) fn run_in(
     let new_yaml =
         serde_yaml::to_string(&config).with_context(|| "Failed to serialize links.yaml")?;
     writer.update_file(&links_path, &yaml_content, &new_yaml)?;
+
+    // Descriptor mode: the link is owned by descriptor/module.yaml (links.yaml keeps the
+    // runtime routing until it is derived from the descriptor).
+    if crate::descriptor::enabled(&project_root) {
+        let yaml_path = project_root.join(crate::descriptor::MODULE_YAML);
+        let text = std::fs::read_to_string(&yaml_path)?;
+        let mut link = this_descriptor::LinkDesc::new(&link_type, &source, &target);
+        link.forward_route = forward.clone();
+        link.reverse_route = reverse.clone();
+        link.description = config.links.last().and_then(|l| l.description.clone());
+        if let Some(new_text) = crate::descriptor::io::add_link(&text, &link)? {
+            writer.update_file(&yaml_path, &text, &new_text)?;
+            let m = crate::descriptor::refresh(&project_root, &new_text, &[], writer)?;
+            for end in [&source, &target] {
+                if m.descriptor.entity(end).is_none() {
+                    output::print_warn(&format!(
+                        "'{end}' is not an entity of this module: add it (this add entity {end}) \
+                         or require the module that declares it (this add module <manifest>)"
+                    ));
+                }
+            }
+            output::print_info(&format!("Added link to {}", crate::descriptor::MODULE_YAML));
+        }
+    }
 
     output::print_info(&format!("Link type: {}", link_type));
     output::print_info(&format!(
@@ -459,6 +512,7 @@ mod tests {
                 singular: "order".to_string(),
                 plural: "orders".to_string(),
                 auth: default_entity_auth(),
+                extra: Default::default(),
             }],
             links: vec![LinkDefinition {
                 link_type: "has_invoice".to_string(),
@@ -473,7 +527,9 @@ mod tests {
                     create: "authenticated".to_string(),
                     update: "authenticated".to_string(),
                     delete: "authenticated".to_string(),
+                    extra: Default::default(),
                 }),
+                extra: Default::default(),
             }],
             validation_rules: {
                 let mut m = std::collections::BTreeMap::new();
@@ -482,10 +538,12 @@ mod tests {
                     vec![ValidationRule {
                         source: "order".to_string(),
                         targets: vec!["invoice".to_string()],
+                        extra: Default::default(),
                     }],
                 );
                 m
             },
+            extra: Default::default(),
         };
 
         let yaml = serde_yaml::to_string(&config).unwrap();
@@ -594,6 +652,84 @@ mod tests {
             "Error should mention missing links.yaml: {}",
             err
         );
+    }
+
+    // ── Unknown keys survive a rewrite (audit 6d11cc02) ─────────────
+
+    /// links.yaml as the runtime (`this::config::LinksConfig`) knows it: keys the CLI
+    /// copy never modelled used to be deleted by `this add link`.
+    const RICH_LINKS_YAML: &str = r#"
+entities:
+  - singular: order
+    plural: orders
+    auth:
+      list: public
+      get: authenticated
+      create: authenticated
+      update: authenticated
+      delete: admin_only
+      list_links: public
+      create_link: role:editor
+    soft_delete: true
+links:
+  - link_type: placed_by
+    source_type: order
+    target_type: user
+    forward_route_name: customers
+    reverse_route_name: orders
+    required_fields: [quantity]
+    auth:
+      list: public
+      get: public
+      create: authenticated
+      update: authenticated
+      delete: authenticated
+      future_op: owner
+validation_rules:
+  placed_by:
+    - source: order
+      targets: [user]
+      strict: true
+events:
+  backend: memory
+sinks:
+  - name: audit
+    type: webhook
+auth:
+  default: authenticated
+"#;
+
+    #[test]
+    fn add_link_preserves_unknown_yaml_keys() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_link_project(&tmp);
+        std::fs::write(project.join("config/links.yaml"), RICH_LINKS_YAML).unwrap();
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+
+        run_in(make_args("order", "invoice"), &writer, &project).unwrap();
+
+        let after: serde_yaml::Value = serde_yaml::from_str(
+            &std::fs::read_to_string(project.join("config/links.yaml")).unwrap(),
+        )
+        .unwrap();
+        // Top level.
+        assert_eq!(after["events"]["backend"], "memory");
+        assert_eq!(after["sinks"][0]["name"], "audit");
+        assert_eq!(after["auth"]["default"], "authenticated");
+        // Entity level and entity auth level.
+        let order = &after["entities"][0];
+        assert_eq!(order["soft_delete"], true);
+        assert_eq!(order["auth"]["list_links"], "public");
+        assert_eq!(order["auth"]["create_link"], "role:editor");
+        // Link level and link auth level.
+        let placed_by = &after["links"][0];
+        assert_eq!(placed_by["required_fields"][0], "quantity");
+        assert_eq!(placed_by["auth"]["future_op"], "owner");
+        // Validation rule level.
+        assert_eq!(after["validation_rules"]["placed_by"][0]["strict"], true);
+        // And the edit itself happened.
+        assert_eq!(after["links"].as_sequence().unwrap().len(), 2);
+        assert_eq!(after["links"][1]["link_type"], "has_invoice");
     }
 
     // ── Snake-case normalization ─────────────────────────────────────

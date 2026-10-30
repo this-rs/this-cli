@@ -27,6 +27,8 @@ Generate fully compilable this-rs projects and entities from the command line �
 - **Automatic code registration** — entities are registered in `module.rs`, `stores.rs`, and `links.yaml` automatically via marker-based insertion
 - **Adoption of an existing project** — `this adopt obrain` brings a project that already runs onto this-rs + obrain + IAM without rewriting it: the `obrain` feature is enabled in `Cargo.toml` (formatting and other keys preserved), the store wiring is inserted after the `[this:obrain_store]` marker when one exists — otherwise the snippet is printed, because the tool never guesses where the host is built. It deliberately writes **no** `auth.yaml`: creating one inside a running project could disarm its authentication. The adoption order is observe → arm (`authorization_report_only()`, then enforce), and the guide lives in `docs/adoption-projet-existant.md`
 - **Exposure, scaffolded and inert** — `this init` writes `config/server.yaml`: the one file where **CORS**, the **served domains** (which refuse any other `Host` in 421), the **tenant a domain designates**, the **Caddyfile delegation** and the **PowerDNS zone** are declared. Everything is commented out: a new project opens no CORS, guards no invented domain, and delegates nothing. The framework it targets applies none of it until you uncomment — and impossible settings (CORS enabled with no origin, `*` with credentials) fail at build time rather than on the first request
+- **Descriptor mode** — `this descriptor init|check|export|lock` declares a module **once** in `descriptor/module.yaml` (fields, validators, typed filters, links, policies, messages) and derives the materialized JSON, JSON Schema, SDL and `.proto` from it; `check` holds the declaration against the code, `lock` freezes the proto tags
+- **Module requirements** — `this add module <manifest>` records a semver `requires` and copies the module's interface, so a host can reason about a module it does not compile
 - **Project introspection** — `this info` shows entities, links, workspace context, and coherence status at a glance
 - **Health diagnostics** — `this doctor` checks project and workspace consistency and reports issues
 - **Dry-run mode** — preview all file operations before they happen with `--dry-run`
@@ -129,6 +131,8 @@ The generated project includes:
 | `this add entity <name>` | Add an entity with model, store, handlers, descriptor |
 | `this add link <source> <target>` | Configure a relationship between two entities |
 | `this add target <type>` | Add a deployment target (webapp, desktop, ios, android) |
+| `this add module <manifest>` | Declare a dependency on another module from its descriptor manifest (`requires` semver + copied interface) |
+| `this descriptor <init\|check\|export\|lock>` | Declare a module once in `descriptor/module.yaml`: create it, check it against the code, export JSON/YAML/SDL/`.proto`/JSON Schema, refresh the proto tag lock |
 | `this generate client` | Generate a typed TypeScript API client from project introspection |
 | `this adopt obrain` | Prepare an **existing** project for this-rs + obrain + IAM: enables the `obrain` feature, inserts (or shows) the store wiring, and prints the adoption order — observe first, then arm. It writes no authentication configuration |
 | `this build` | Build the project (API + frontend if configured) |
@@ -191,6 +195,29 @@ this add target desktop             # Add a Tauri 2 desktop target
 this add target ios                 # Add a Capacitor iOS target
 this add target android             # Add a Capacitor Android target
 ```
+
+### this add module
+
+Declare a dependency on another module from the manifest it exports — the descriptor that module publishes
+(its entities, links, error codes and operations, i.e. its runtime interface):
+
+```sh
+this add module ../billing/module.descriptor.json
+this add module ./vendor/catalog.yaml --version-req "^1.2"
+this add module ./vendor/optional-tools.json --optional
+```
+
+What it writes:
+
+- `descriptor/module.yaml` gains `requires: [{ name, version }]`, `version` defaulting to `^<manifest version>`;
+- the interface is checked and copied to `descriptor/modules/<name>.json`, so the host can reason about the
+  module without having its code;
+- the derived files (materialized JSON, lock) are refreshed.
+
+`--optional` means *loaded when present, never required*: the module's absence does not fail the build.
+The command refuses a module that requires itself, a manifest version that is not semver, and a `--version-req`
+that is not a semver requirement. It requires `descriptor/module.yaml` — run `this descriptor init` first.
+`--dry-run` previews the writes.
 
 ### this generate client
 
@@ -265,6 +292,67 @@ Summary: 5 passed
 
 Exit codes: `0` on success (pass/warnings only), `1` on errors.
 
+### this descriptor
+
+`descriptor init | check | export | lock` work on `descriptor/module.yaml` — the file where a module is
+declared **once** (entities, fields, validators, typed filters, links, policies, translations) and from which
+REST, GraphQL, gRPC, the contracts and the lock are derived. Design: `docs/rfc/module-descriptor.md` in the [this-rs](https://github.com/this-rs/this) repository.
+
+#### this descriptor init
+
+```sh
+this descriptor init                          # module version from Module::version(), else 1.0.0
+this descriptor init --module-version 1.2.0   # explicit module version
+```
+
+Creates `descriptor/module.yaml` listing the entities already present in the project, adds `fn descriptor()`
+to `src/module.rs`, and fills the `described()` of those entities. It refuses to overwrite an existing
+`module.yaml`, and warns rather than guesses when `src/module.rs` is missing.
+
+#### this descriptor check
+
+```sh
+this descriptor check
+this descriptor check --json      # machine-readable report (errors + warnings)
+this descriptor check --strict    # a stale lock or a stale JSON export is an error, not a warning
+```
+
+Checks three things: the grammar and values of `descriptor/module.yaml`; its composition with the code (an
+entity the module does not register, a `name`/`version` or plural mismatch, a field declared twice, a proto
+tag reused); and the freshness of `descriptor.lock` and of the materialized JSON. Errors exit `1`; warnings
+do not, unless `--strict` is passed. A project without `module.yaml` is only a warning — `check` is safe to
+run in CI on every project.
+
+#### this descriptor export
+
+```sh
+this descriptor export                          # writes descriptor/module.descriptor.json
+this descriptor export --format graphql         # SDL derived from the descriptor
+this descriptor export --format proto           # .proto, tag numbers read from the lock
+this descriptor export --format json-schema     # create/update JSON Schema, per entity
+this descriptor export --format yaml --stdout    # print instead of writing
+```
+
+Formats: `json` (default), `yaml`, `graphql` (alias `sdl`), `proto`, `json-schema`. `--output <file>` writes
+to a chosen path, `--stdout` prints. The descriptor is materialized first — composed with the code entities, lock enforced — so `export` fails on a
+descriptor that cannot compose or whose lock refuses a tag. Use `check` for the full report.
+
+#### this descriptor lock
+
+```sh
+this descriptor lock
+```
+
+Brings `descriptor/descriptor.lock` up to date: a new field gets a proto tag, a removed field's tag is
+**reserved** — never reused, never renumbered. Each change is printed, or `descriptor.lock is up to date`.
+Commit the lock together with the descriptor: it is what keeps `.proto` compatibility across releases.
+
+Every write command accepts the global `--dry-run` flag to preview its file operations:
+
+```sh
+this --dry-run descriptor init
+```
+
 ## Shell Completions
 
 ```sh
@@ -291,6 +379,8 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - Workspace mode (`init --workspace`) with `this.yaml` and multi-target layout
 - Entity generation (`add entity`) with zero-touch pipeline
 - Link configuration (`add link`) with smart defaults
+- Descriptor mode (`descriptor init|check|export|lock`) — one declaration per module, composed with the code, proto tags frozen in `descriptor.lock`
+- Module requirements (`add module`) — semver `requires` + copied interface
 - Automatic `module.rs` / `stores.rs` / `links.yaml` updates
 - Build system (`build`) with 5 modes: default, embed, api-only, front-only, docker
 - Native target builds (`build --target desktop|ios|android|all`)

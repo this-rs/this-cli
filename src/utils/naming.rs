@@ -60,40 +60,14 @@ pub fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-/// Basic English pluralization
-/// "product" -> "products"
-/// "category" -> "categories"
-/// "status" -> "statuses"
-/// "entity" -> "entities"
+/// Plural of an entity name.
+///
+/// Delegates to `this_descriptor::naming::Pluralizer`, the ONE pluralizer shared with the
+/// `impl_data_entity!` macro, `EntityDesc::normalize` and `Entity::resource_name()`. The
+/// former CLI algorithm diverged (knife -> knifes here, knives at runtime), which made
+/// generated routes disagree with the server.
 pub fn pluralize(s: &str) -> String {
-    if s.is_empty() {
-        return s.to_string();
-    }
-
-    // Already plural common cases
-    if s.ends_with('s') && !s.ends_with("ss") && !s.ends_with("us") {
-        return s.to_string();
-    }
-
-    if let Some(prefix) = s.strip_suffix('y') {
-        // Check if the character before 'y' is a consonant
-        if let Some(c) = prefix.chars().last()
-            && !"aeiou".contains(c)
-        {
-            return format!("{}ies", prefix);
-        }
-    }
-
-    if s.ends_with('s')
-        || s.ends_with('x')
-        || s.ends_with('z')
-        || s.ends_with("sh")
-        || s.ends_with("ch")
-    {
-        return format!("{}es", s);
-    }
-
-    format!("{}s", s)
+    this_descriptor::naming::Pluralizer::pluralize(s)
 }
 
 #[cfg(test)]
@@ -129,5 +103,19 @@ mod tests {
         assert_eq!(pluralize("day"), "days");
         assert_eq!(pluralize("bush"), "bushes");
         assert_eq!(pluralize("match"), "matches");
+    }
+
+    #[test]
+    fn cli_uses_shared_pluralizer() {
+        for word in [
+            "knife", "leaf", "person", "company", "address", "status", "box", "news",
+        ] {
+            assert_eq!(
+                pluralize(word),
+                this_descriptor::naming::Pluralizer::pluralize(word),
+                "CLI plural of `{word}` must be the runtime plural"
+            );
+        }
+        assert_eq!(pluralize("knife"), "knives");
     }
 }
