@@ -149,6 +149,81 @@ mod tests {
     }
 
     #[test]
+    fn contract_without_params_has_no_suffix() {
+        let e = ContractError::new("shop.boom", this_descriptor::ErrorKind::BadRequest);
+        let shown = format!("{e}");
+        let msg = format!("{}", contract(e));
+        assert_eq!(msg, shown);
+        assert!(!msg.ends_with(')'), "{msg}");
+    }
+
+    #[test]
+    fn contract_renders_string_and_non_string_params() {
+        let mut e = ContractError::new("shop.boom", this_descriptor::ErrorKind::BadRequest);
+        e.params.insert("field".into(), serde_json::json!("email"));
+        e.params.insert("max".into(), serde_json::json!(150));
+        let shown = format!("{e}");
+        let msg = format!("{}", contract(e));
+        assert_eq!(msg, format!("{shown} (field: email; max: 150)"));
+    }
+
+    #[test]
+    fn load_accepts_empty_document_and_rejects_non_mapping() {
+        // An empty document is an empty mapping: the edit then fails on the parse
+        // (no name/version), not on `load`.
+        let err = add_entity("", "order").unwrap_err();
+        assert!(
+            format!("{err:#}").contains("edit refused: the result would not parse"),
+            "{err:#}"
+        );
+        let err = add_entity("- just\n- a list\n", "order").unwrap_err();
+        assert_eq!(format!("{err}"), "descriptor/module.yaml must be a mapping");
+        let err = add_entity("a: [unclosed", "order").unwrap_err();
+        assert_eq!(format!("{err}"), "descriptor/module.yaml is not YAML");
+    }
+
+    #[test]
+    fn non_list_section_is_refused_and_null_section_is_replaced() {
+        let base = "format: 1\nname: shop\nversion: 1.0.0\n";
+        let err = add_entity(&format!("{base}entities: nope\n"), "order").unwrap_err();
+        assert_eq!(
+            format!("{err}"),
+            "descriptor/module.yaml: `entities` must be a list"
+        );
+        let out = add_entity(&format!("{base}entities:\n"), "order")
+            .unwrap()
+            .unwrap();
+        assert_eq!(parse_source(&out).unwrap().entities[0].name, "order");
+    }
+
+    #[test]
+    fn add_requirement_replaces_existing_requirement_by_name() {
+        let base = "format: 1\nname: shop\nversion: 1.0.0\nentities: []\n";
+        let first = add_requirement(
+            base,
+            &ModuleReq {
+                name: "users".into(),
+                version: "^1.0.0".into(),
+                optional: false,
+            },
+        )
+        .unwrap();
+        let second = add_requirement(
+            &first,
+            &ModuleReq {
+                name: "users".into(),
+                version: "^2.0.0".into(),
+                optional: true,
+            },
+        )
+        .unwrap();
+        let d = parse_source(&second).unwrap();
+        assert_eq!(d.requires.len(), 1);
+        assert_eq!(d.requires[0].version, "^2.0.0");
+        assert!(d.requires[0].optional);
+    }
+
+    #[test]
     fn initial_source_parses() {
         let d = parse_source(&initial_source("shop", "1.0.0", &["order".into()])).unwrap();
         assert_eq!(d.entities[0].name, "order");
