@@ -226,7 +226,12 @@ fn export(root: &Path, a: &DescriptorExportArgs, w: &dyn FileWriter) -> Result<(
             };
             match std::fs::read_to_string(&path) {
                 Ok(old) => w.update_file(&path, &old, &rendered)?,
-                Err(_) => w.write_file(&path, &rendered)?,
+                Err(_) => {
+                    if let Some(parent) = path.parent() {
+                        w.create_dir_all(parent)?;
+                    }
+                    w.write_file(&path, &rendered)?
+                }
             }
             output::print_success(&format!("Wrote {}", path.display()));
         }
