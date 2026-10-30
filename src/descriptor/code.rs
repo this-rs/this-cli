@@ -425,4 +425,240 @@ mod tests {
         let back = entity_from_model(&out).unwrap().unwrap();
         assert_eq!(canonical(&back), canonical(&e));
     }
+
+    fn err_chain<T>(r: Result<T>) -> String {
+        match r {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => format!("{e:#}"),
+        }
+    }
+
+    const PARTIAL_MODEL: &str = r#"
+impl_data_entity_validated!(
+    Order,
+    "order",
+    ["name"],
+    {
+        // a comment entry,
+        tenant_id: Uuid,
+        loose,
+        sku: String,
+        qty: Option<i32>,
+    },
+    validate: {
+        create: { sku: [required string_length(2, 8)] },
+    },
+    filters: {
+        update: { sku: [trim] },
+    }
+);
+"#;
+
+    #[test]
+    fn braced_after_is_quote_aware_and_none_when_unterminated() {
+        let s = r#"x { "a}b" { y } } tail"#;
+        let (a, b) = braced_after(s, 0).unwrap();
+        assert_eq!(&s[a..b], r#" "a}b" { y } "#);
+        assert_eq!(braced_after("x { never closed", 0), None);
+        assert_eq!(braced_after("no brace here", 0), None);
+    }
+
+    #[test]
+    fn rule_tokens_parse_args_and_reject_garbage() {
+        let t = rule_tokens(r#"required, string_length(3, 50) in_list("a,b", "c\"d")"#).unwrap();
+        assert_eq!(t[0].name, "required");
+        assert!(t[0].args.is_empty());
+        assert_eq!(t[1].name, "string_length");
+        assert_eq!(t[1].args, vec!["3", "50"]);
+        assert_eq!(t[2].name, "in_list");
+        assert_eq!(t[2].args, vec!["a,b", "c\"d"]);
+        let e = err_chain(rule_tokens("required %"));
+        assert!(e.contains("unexpected `%` in rule list"), "{e}");
+    }
+
+    #[test]
+    fn macro_validator_from_covers_grammar_and_rejects_the_rest() {
+        let tok = |name: &str, args: &[&str]| RuleToken {
+            name: name.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            on: None,
+        };
+        assert_eq!(
+            macro_validator_from(&tok("positive", &[])).unwrap(),
+            ValidatorSpec::Positive
+        );
+        assert_eq!(
+            macro_validator_from(&tok("max_value", &["10f64"])).unwrap(),
+            ValidatorSpec::max_value_f64(10.0)
+        );
+        assert_eq!(
+            macro_validator_from(&tok("date_format", &["%Y"])).unwrap(),
+            ValidatorSpec::DateFormat("%Y".into())
+        );
+        assert_eq!(
+            macro_validator_from(&tok("date_format", &[])).unwrap(),
+            ValidatorSpec::DateFormat(String::new())
+        );
+        let e = err_chain(macro_validator_from(&tok("email", &[])));
+        assert!(
+            e.contains("validator `email` is not in the impl_data_entity_validated! grammar"),
+            "{e}"
+        );
+        let e = err_chain(macro_validator_from(&tok("string_length", &["3"])));
+        assert!(e.contains("`string_length` needs a number"), "{e}");
+    }
+
+    #[test]
+    fn macro_transform_from_covers_grammar_and_rejects_the_rest() {
+        let tok = |name: &str, args: &[&str]| RuleToken {
+            name: name.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            on: None,
+        };
+        assert_eq!(
+            macro_transform_from(&tok("uppercase", &[])).unwrap(),
+            TransformSpec::Uppercase
+        );
+        assert_eq!(
+            macro_transform_from(&tok("round_decimals", &["4"])).unwrap(),
+            TransformSpec::RoundDecimals(4)
+        );
+        let e = err_chain(macro_transform_from(&tok("round_decimals", &[])));
+        assert!(e.contains("round_decimals(n)"), "{e}");
+        let e = err_chain(macro_transform_from(&tok("reverse", &[])));
+        assert!(
+            e.contains("filter `reverse` is not in the impl_data_entity_validated! grammar"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn rule_lines_reports_unterminated_list() {
+        let ok = rule_lines("a: [required], b: [trim]").unwrap();
+        assert_eq!(ok.len(), 2);
+        assert_eq!(ok[1].0, "b");
+        assert_eq!(ok[1].1[0].name, "trim");
+        let e = err_chain(rule_lines("a: [required"));
+        assert!(e.contains("unterminated rule list"), "{e}");
+    }
+
+    #[test]
+    fn entity_from_model_reads_partial_validated_blocks() {
+        let e = entity_from_model(PARTIAL_MODEL).unwrap().unwrap();
+        let names: Vec<&str> = e.fields.iter().map(|f| f.name.as_str()).collect();
+        assert!(
+            names.contains(&"sku") && names.contains(&"qty"),
+            "{names:?}"
+        );
+        assert!(!names.contains(&"loose"), "entry without a type is skipped");
+        assert!(!names.iter().any(|n| n.starts_with("//")), "{names:?}");
+        assert_eq!(e.indexed, vec!["name".to_string()]);
+        let tenant = e.fields.iter().find(|f| f.name == "tenant_id").unwrap();
+        assert!(tenant.read_only, "tenant_id is read-only by the macro");
+        let qty = e.fields.iter().find(|f| f.name == "qty").unwrap();
+        assert!(qty.optional);
+        assert_eq!(qty.ty, this_descriptor::FieldType::I32);
+        let sku = e.fields.iter().find(|f| f.name == "sku").unwrap();
+        // `validate` has a create block only, `filters` an update block only.
+        assert!(
+            sku.validators
+                .iter()
+                .any(|v| v.rule == ValidatorSpec::Required && v.on == Applies::Create)
+        );
+        assert!(
+            sku.validators
+                .iter()
+                .any(|v| v.rule == (ValidatorSpec::StringLength { min: 2, max: 8 }))
+        );
+        assert!(sku.validators.iter().all(|v| v.on == Applies::Create));
+        assert_eq!(sku.transforms.len(), 1);
+        assert_eq!(sku.transforms[0].rule, TransformSpec::Trim);
+        assert_eq!(sku.transforms[0].on, Applies::Update);
+    }
+
+    #[test]
+    fn entity_from_model_without_validate_or_filters_sections() {
+        let src = r#"impl_data_entity_validated!(Order, "order", [], { sku: String });"#;
+        let e = entity_from_model(src).unwrap().unwrap();
+        assert!(e.indexed.is_empty());
+        let sku = e.fields.iter().find(|f| f.name == "sku").unwrap();
+        assert!(sku.validators.is_empty() && sku.transforms.is_empty());
+    }
+
+    #[test]
+    fn entity_from_model_none_without_macro() {
+        assert!(entity_from_model("pub struct Plain;").unwrap().is_none());
+    }
+
+    #[test]
+    fn entity_from_model_errors() {
+        let e = err_chain(entity_from_model(
+            r#"impl_data_entity!(Order, "order", ["name"], { sku: String"#,
+        ));
+        assert!(e.contains("fields block of the macro"), "{e}");
+
+        let e = err_chain(entity_from_model(
+            r#"impl_data_entity_validated!(Order, "order", [], { sku: String },
+               validate: { create: { ghost: [required] } });"#,
+        ));
+        assert!(
+            e.contains("rule on `ghost`, neither a declared field nor name/status"),
+            "{e}"
+        );
+
+        let e = err_chain(entity_from_model(
+            r#"impl_data_entity_validated!(Order, "order", [], { sku: String },
+               validate: { create: { sku: [email] } });"#,
+        ));
+        assert!(e.contains("validator `email` is not in"), "{e}");
+
+        let e = err_chain(entity_from_model(
+            r##"impl_data_entity!(Order, "order", [], { sku: String });
+               const DESCRIBED_EXTRA: &str = r#"not json"#;"##,
+        ));
+        assert!(
+            e.contains("DESCRIBED_EXTRA of `order` is not valid JSON"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn merge_extra_adds_rules_and_refuses_unknown_fields() {
+        let mut e = EntityDesc::new("order");
+        e.fields
+            .push(FieldDesc::new("sku", this_descriptor::FieldType::String));
+        let mut x = FieldDesc::new("sku", this_descriptor::FieldType::String);
+        x.validators.push(ValidatorRule {
+            rule: ValidatorSpec::Email,
+            on: Applies::Always,
+        });
+        x.sortable = true;
+        x.immutable = true;
+        merge_extra(&mut e, vec![x]).unwrap();
+        let sku = e.fields.iter().find(|f| f.name == "sku").unwrap();
+        assert_eq!(sku.validators.len(), 1);
+        assert_eq!(sku.validators[0].rule, ValidatorSpec::Email);
+        assert!(sku.sortable && sku.immutable && !sku.read_only);
+
+        let ghost = FieldDesc::new("ghost", this_descriptor::FieldType::String);
+        let e2 = err_chain(merge_extra(&mut e, vec![ghost]));
+        assert!(
+            e2.contains(
+                "DESCRIBED_EXTRA of `order`: `ghost` is neither a declared field nor name/status"
+            ),
+            "{e2}"
+        );
+    }
+
+    #[test]
+    fn described_extra_is_read_with_any_hash_count() {
+        let src = "const DESCRIBED_EXTRA: &str = r##\"[{\"a\":\"x\\\"#\"}]\"##;";
+        assert_eq!(
+            described_extra(src).as_deref(),
+            Some("[{\"a\":\"x\\\"#\"}]")
+        );
+        assert_eq!(described_extra("const OTHER: &str = \"\";"), None);
+        // Opening without its closing quote+hashes: no value.
+        assert_eq!(described_extra("DESCRIBED_EXTRA: &str = r#\"abc"), None);
+    }
 }

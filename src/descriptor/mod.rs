@@ -389,3 +389,314 @@ pub fn described_expr(entity: &str, pascal: &str, model: &str) -> String {
         format!("crate::entities::{entity}::{pascal}::descriptor().clone()")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::file_writer::RealWriter;
+    use std::fs;
+
+    const MODEL: &str = r#"impl_data_entity!(Order, "order", ["name"], { sku: String });"#;
+
+    /// Project with `descriptor/module.yaml` declaring `order` and its model.
+    fn project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("descriptor")).unwrap();
+        fs::create_dir_all(root.join("src/entities/order")).unwrap();
+        fs::write(
+            root.join(MODULE_YAML),
+            io::initial_source("shop", "1.0.0", &["order".to_string()]),
+        )
+        .unwrap();
+        fs::write(root.join("src/entities/order/model.rs"), MODEL).unwrap();
+        dir
+    }
+
+    fn err_chain<T>(r: Result<T>) -> String {
+        match r {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => format!("{e:#}"),
+        }
+    }
+
+    #[test]
+    fn enabled_and_read_source_follow_module_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!enabled(dir.path()));
+        assert!(read_source(dir.path()).unwrap().is_none());
+        assert!(check_project(dir.path()).unwrap().is_none());
+        assert!(current(dir.path()).unwrap().is_none());
+        let p = project();
+        assert!(enabled(p.path()));
+        let (text, d) = read_source(p.path()).unwrap().unwrap();
+        assert!(text.contains("name: shop"));
+        assert_eq!(d.entities[0].name, "order");
+    }
+
+    #[test]
+    fn code_entities_reads_models_and_overrides_replace_them() {
+        let p = project();
+        let from_disk = code_entities(p.path(), &[]).unwrap();
+        assert_eq!(from_disk.len(), 1);
+        assert!(from_disk[0].fields.iter().any(|f| f.name == "sku"));
+        // The override replaces the file content of the same directory.
+        let over = vec![(
+            "order".to_string(),
+            r#"impl_data_entity!(Order, "order", [], { title: String });"#.to_string(),
+        )];
+        let got = code_entities(p.path(), &over).unwrap();
+        assert_eq!(got.len(), 1);
+        assert!(got[0].fields.iter().any(|f| f.name == "title"));
+        assert!(!got[0].fields.iter().any(|f| f.name == "sku"));
+        // A model without the macro is ignored.
+        fs::create_dir_all(p.path().join("src/entities/plain")).unwrap();
+        fs::write(
+            p.path().join("src/entities/plain/model.rs"),
+            "pub struct P;",
+        )
+        .unwrap();
+        assert_eq!(code_entities(p.path(), &[]).unwrap().len(), 1);
+        assert_eq!(
+            model_paths(p.path())
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect::<Vec<_>>(),
+            vec!["order", "plain"]
+        );
+    }
+
+    #[test]
+    fn materialize_refuses_a_corrupt_lock_and_names_the_issue() {
+        let p = project();
+        fs::write(
+            p.path().join(LOCK),
+            "format: 1\nentities:\n  order:\n    fields:\n      sku: 16\n      title: 16\n",
+        )
+        .unwrap();
+        let (_, source) = read_source(p.path()).unwrap().unwrap();
+        let err = match materialize(p.path(), source, &[]) {
+            Ok(_) => panic!("a corrupt lock must be refused"),
+            Err(e) => e.to_string(),
+        };
+        assert!(err.starts_with("descriptor.lock: "), "{err}");
+        assert!(err.contains("tag 16 held by `sku` and `title`"), "{err}");
+    }
+
+    #[test]
+    fn materialize_assigns_tags_and_refresh_writes_outputs_once() {
+        let p = project();
+        let (text, _) = read_source(p.path()).unwrap().unwrap();
+        let m = refresh(p.path(), &text, &[], &RealWriter).unwrap();
+        let sku = m.descriptor.entities[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "sku")
+            .unwrap();
+        assert_eq!(sku.proto_tag, Some(16));
+        assert!(!m.lock_changes.is_empty());
+        let lock = fs::read_to_string(p.path().join(LOCK)).unwrap();
+        assert!(lock.contains("sku: 16"), "{lock}");
+        let json = fs::read_to_string(p.path().join(MATERIALIZED)).unwrap();
+        assert_eq!(json, materialized_json(&m.descriptor));
+        assert!(json.ends_with("}\n"));
+        // Nothing changed: write_outputs rewrites nothing.
+        assert!(!write_if_changed(p.path(), LOCK, &m.lock.to_yaml(), &RealWriter).unwrap());
+        assert_eq!(read_lock(p.path()).unwrap(), m.lock);
+        assert_eq!(current(p.path()).unwrap().unwrap(), m.descriptor);
+    }
+
+    #[test]
+    fn write_if_changed_creates_parents_then_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let w = RealWriter;
+        assert!(write_if_changed(dir.path(), "a/b/c.txt", "one", &w).unwrap());
+        assert!(!write_if_changed(dir.path(), "a/b/c.txt", "one", &w).unwrap());
+        assert!(write_if_changed(dir.path(), "a/b/c.txt", "two", &w).unwrap());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("a/b/c.txt")).unwrap(),
+            "two"
+        );
+    }
+
+    #[test]
+    fn check_project_reports_unreadable_code_and_lock() {
+        let p = project();
+        // A model rule outside the macro grammar.
+        fs::write(
+            p.path().join("src/entities/order/model.rs"),
+            r#"impl_data_entity_validated!(Order, "order", [], { sku: String },
+               validate: { create: { sku: [email] } });"#,
+        )
+        .unwrap();
+        let r = check_project(p.path()).unwrap().unwrap();
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert!(r.errors[0].contains("reading "), "{:?}", r.errors);
+        assert!(r.errors[0].contains("model.rs"), "{:?}", r.errors);
+        assert!(r.errors[0].contains("validator `email` is not in"));
+
+        let p = project();
+        fs::write(p.path().join(LOCK), "format: [not, a, number]\n").unwrap();
+        let r = check_project(p.path()).unwrap().unwrap();
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert!(r.errors[0].contains("descriptor.lock is not valid YAML"));
+    }
+
+    #[test]
+    fn check_project_warns_on_missing_then_stale_materialized_json() {
+        let p = project();
+        let r = check_project(p.path()).unwrap().unwrap();
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.starts_with("src/module.rs not found")),
+            "{:?}",
+            r.warnings
+        );
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w == &format!("{MATERIALIZED} is missing (run `this descriptor export`)")),
+            "{:?}",
+            r.warnings
+        );
+        let (text, _) = read_source(p.path()).unwrap().unwrap();
+        refresh(p.path(), &text, &[], &RealWriter).unwrap();
+        let r = check_project(p.path()).unwrap().unwrap();
+        assert!(
+            !r.warnings.iter().any(|w| w.contains(MATERIALIZED)),
+            "{:?}",
+            r.warnings
+        );
+        fs::write(p.path().join(MATERIALIZED), "{}\n").unwrap();
+        let r = check_project(p.path()).unwrap().unwrap();
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w == &format!("{MATERIALIZED} is stale (run `this descriptor export`)")),
+            "{:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn registration_issues_covers_each_module_rs_state() {
+        let p = project();
+        // A model without the macro is not checked.
+        fs::create_dir_all(p.path().join("src/entities/plain")).unwrap();
+        fs::write(
+            p.path().join("src/entities/plain/model.rs"),
+            "pub struct P;",
+        )
+        .unwrap();
+        let module_rs = p.path().join("src/module.rs");
+
+        let (e, w) = registration_issues(p.path()).unwrap();
+        assert!(e.is_empty());
+        assert_eq!(
+            w,
+            vec!["src/module.rs not found: Module::descriptor() not verified"]
+        );
+
+        fs::write(&module_rs, "impl Module for M {}").unwrap();
+        let (e, w) = registration_issues(p.path()).unwrap();
+        assert!(w.is_empty());
+        assert_eq!(e.len(), 1);
+        assert!(e[0].contains("has no fn descriptor()"), "{e:?}");
+
+        fs::write(&module_rs, "fn descriptor(&self) { custom() }").unwrap();
+        let (e, w) = registration_issues(p.path()).unwrap();
+        assert!(e.is_empty());
+        assert_eq!(w.len(), 1);
+        assert!(
+            w[0].contains("has no [this:described_entities] marker"),
+            "{w:?}"
+        );
+
+        // Marker present, entity missing from the list.
+        let with_marker = |list: &str| {
+            format!("fn descriptor(&self) {{\n vec![\n // {DESCRIBED_MARKER}\n {list}\n ];\n}}")
+        };
+        fs::write(&module_rs, with_marker("")).unwrap();
+        let (e, _) = registration_issues(p.path()).unwrap();
+        assert_eq!(e.len(), 1);
+        assert!(
+            e[0].contains("entity 'order' missing from Module::descriptor()"),
+            "{e:?}"
+        );
+        assert!(e[0].contains("crate::entities::order::Order::descriptor().clone(),"));
+
+        // Registered through the macro while the model has described().
+        fs::write(
+            p.path().join("src/entities/order/model.rs"),
+            format!("{MODEL}\npub fn described() -> EntityDesc {{ todo!() }}"),
+        )
+        .unwrap();
+        fs::write(
+            &module_rs,
+            with_marker("crate::entities::order::Order::descriptor().clone(),"),
+        )
+        .unwrap();
+        let (e, _) = registration_issues(p.path()).unwrap();
+        assert_eq!(e.len(), 1);
+        assert!(e[0].contains("composed without its described()"), "{e:?}");
+        assert!(e[0].contains("crate::entities::order::model::described()"));
+
+        // Registered correctly.
+        fs::write(
+            &module_rs,
+            with_marker("crate::entities::order::model::described(),"),
+        )
+        .unwrap();
+        let (e, w) = registration_issues(p.path()).unwrap();
+        assert!(e.is_empty() && w.is_empty(), "{e:?} {w:?}");
+    }
+
+    #[test]
+    fn described_expr_picks_described_or_macro_descriptor() {
+        assert_eq!(
+            described_expr("order", "Order", "pub fn described() -> X {}"),
+            "crate::entities::order::model::described()"
+        );
+        assert_eq!(
+            described_expr("order", "Order", MODEL),
+            "crate::entities::order::Order::descriptor().clone()"
+        );
+    }
+
+    #[test]
+    fn with_module_fn_inserts_once_before_the_closing_brace() {
+        let src = "impl Module for M {\n    fn name(&self) {}\n}\n";
+        let out = with_module_fn(src).unwrap();
+        assert!(out.contains(DESCRIBED_MARKER));
+        assert!(out.contains("fn descriptor(&self)"));
+        assert!(out.find("fn name").unwrap() < out.find("fn descriptor").unwrap());
+        assert!(out.trim_end().ends_with('}'));
+        assert_eq!(with_module_fn(&out).unwrap(), out, "idempotent");
+        assert_eq!(
+            with_module_fn("fn descriptor(&self) {}").unwrap(),
+            "fn descriptor(&self) {}"
+        );
+        let e = err_chain(with_module_fn("no braces"));
+        assert!(
+            e.contains("closing brace of `impl Module` not found"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn with_described_inserts_idempotently_and_refuses_custom_descriptor() {
+        let src = format!("  vec![\n    // {DESCRIBED_MARKER}\n  ]");
+        let expr = "crate::entities::order::model::described()";
+        let once = with_described(&src, expr).unwrap();
+        assert!(once.contains(&format!("    {expr},")), "{once}");
+        assert_eq!(with_described(&once, expr).unwrap(), once, "idempotent");
+        let e = err_chain(with_described("fn descriptor(&self) {}", expr));
+        assert!(
+            e.contains("custom `fn descriptor()` without the [this:described_entities] marker"),
+            "{e}"
+        );
+        assert!(e.contains(&format!("add `{expr},` to it by hand")), "{e}");
+    }
+}
