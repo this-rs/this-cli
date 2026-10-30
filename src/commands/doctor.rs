@@ -2543,4 +2543,180 @@ this = { package = "this-rs", version = "0.0.8", features = ["websocket", "grpc"
                 .any(|r| matches!(r.level, DiagnosticLevel::Pass) && r.category == "gRPC")
         );
     }
+
+    // ── Additional coverage: links.yaml policies, drift, requires, identity ──
+
+    #[test]
+    fn doctor_policies_reports_unknown_policy_on_link_auth_and_extra_keys() {
+        let dir = descriptor_project(None);
+        std::fs::write(
+            dir.path().join("config/links.yaml"),
+            "entities: []\nlinks:\n  - link_type: owns\n    source_type: knife\n    target_type: knife\n    forward_route_name: owns\n    reverse_route_name: owned-by\n    auth:\n      list: authenticated\n      get: authenticated\n      create: nonsense\n      update: authenticated\n      delete: authenticated\n      archive: bogus\n      count: 12\n",
+        )
+        .unwrap();
+        let r = check_policies(dir.path());
+        assert_eq!(r.len(), 2, "{r:?}");
+        assert!(r.iter().all(|d| matches!(d.level, DiagnosticLevel::Error)));
+        assert!(
+            r.iter()
+                .any(|d| d.message.contains("links.owns.auth.create")
+                    && d.message.contains("'nonsense'")),
+            "{r:?}"
+        );
+        // Extra string keys are checked, non-string extras are ignored.
+        assert!(
+            r.iter()
+                .any(|d| d.message.contains("links.owns.auth.archive")
+                    && d.message.contains("'bogus'")),
+            "{r:?}"
+        );
+        assert!(!r.iter().any(|d| d.message.contains("auth.count")));
+    }
+
+    #[test]
+    fn doctor_policies_silent_without_or_with_invalid_links_yaml() {
+        let dir = descriptor_project(None);
+        std::fs::write(dir.path().join("config/links.yaml"), "entities: [unclosed").unwrap();
+        assert!(check_policies(dir.path()).is_empty());
+        std::fs::remove_file(dir.path().join("config/links.yaml")).unwrap();
+        assert!(check_policies(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn doctor_reports_invalid_module_yaml_as_descriptor_error() {
+        let dir = descriptor_project(Some("format: 1\nname: [broken"));
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.len() >= 2 && r.iter().all(|d| matches!(d.level, DiagnosticLevel::Error)),
+            "{r:?}"
+        );
+        assert!(r.iter().all(|d| d.category == "Descriptor"), "{r:?}");
+    }
+
+    #[test]
+    fn doctor_reports_materialized_json_drift_in_both_directions() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\n",
+        ));
+        let materialized = dir.path().join("descriptor/module.descriptor.json");
+        // Saved with `blade: String` and `edge: f64`.
+        std::fs::write(
+            dir.path().join("src/entities/knife/model.rs"),
+            "impl_data_entity!(Knife, \"knife\", [\"name\"], { blade: String, edge: f64, });\n",
+        )
+        .unwrap();
+        let saved = crate::descriptor::current(dir.path()).unwrap().unwrap();
+        std::fs::write(&materialized, crate::descriptor::materialized_json(&saved)).unwrap();
+        // The code then changes blade's type and drops `edge`.
+        std::fs::write(
+            dir.path().join("src/entities/knife/model.rs"),
+            "impl_data_entity!(Knife, \"knife\", [\"name\"], { blade: i64, });\n",
+        )
+        .unwrap();
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.iter().any(|d| matches!(d.level, DiagnosticLevel::Warn)
+                && d.category == "Fields"
+                && d.message.contains(
+                    "knife.blade: type or rules differ from descriptor/module.descriptor.json"
+                )),
+            "{r:?}"
+        );
+        assert!(
+            r.iter().any(|d| d.category == "Fields"
+                && d.message.contains(
+                    "knife.edge: in descriptor/module.descriptor.json, no longer in the code"
+                )),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_entity_missing_from_materialized_json() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\n",
+        ));
+        let mut saved = crate::descriptor::current(dir.path()).unwrap().unwrap();
+        saved.entities.clear();
+        std::fs::write(
+            dir.path().join("descriptor/module.descriptor.json"),
+            crate::descriptor::materialized_json(&saved),
+        )
+        .unwrap();
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.iter().any(|d| matches!(d.level, DiagnosticLevel::Warn)
+                && d.category == "Fields"
+                && d.message
+                    .contains("'knife' missing from descriptor/module.descriptor.json")),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_unreadable_materialized_json() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\n",
+        ));
+        std::fs::write(
+            dir.path().join("descriptor/module.descriptor.json"),
+            "{ not json",
+        )
+        .unwrap();
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.iter().any(|d| matches!(d.level, DiagnosticLevel::Error)
+                && d.category == "Fields"
+                && d.message.starts_with("descriptor/module.descriptor.json:")),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_links_accept_entities_of_required_manifests_only() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\nrequires:\n  - name: billing\n    version: ^1\n  - name: absent\n    version: ^1\nlinks:\n  - link_type: billed\n    source: knife\n    target: invoice\n  - link_type: haunted\n    source: knife\n    target: ghost\n",
+        ));
+        let billing = crate::descriptor::io::parse_source(
+            "format: 1\nname: billing\nversion: 1.0.0\nentities:\n  - name: invoice\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("descriptor/modules")).unwrap();
+        std::fs::write(
+            dir.path().join("descriptor/modules/billing.json"),
+            crate::descriptor::materialized_json(&billing),
+        )
+        .unwrap();
+        let r = check_descriptor(dir.path());
+        let links: Vec<_> = r.iter().filter(|d| d.category == "Links").collect();
+        assert_eq!(links.len(), 1, "{r:?}");
+        assert!(matches!(links[0].level, DiagnosticLevel::Error));
+        assert!(links[0].message.contains("'ghost'"), "{links:?}");
+        assert!(!r.iter().any(|d| d.message.contains("'invoice'")), "{r:?}");
+    }
+
+    #[test]
+    fn doctor_reports_entity_missing_from_module_entity_types() {
+        let dir = descriptor_project(Some(
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: knife\n",
+        ));
+        std::fs::write(
+            dir.path().join("src/module.rs"),
+            "impl Module for ShopModule {\n    fn name(&self) -> &str {\n        \"shop\"\n    }\n    fn entity_types(&self) -> Vec<&str> {\n        vec![]\n    }\n    fn descriptor(&self) -> Option<ModuleDescriptor> {\n        None\n    }\n}\n",
+        )
+        .unwrap();
+        let r = check_descriptor(dir.path());
+        assert!(
+            r.iter().any(|d| matches!(d.level, DiagnosticLevel::Error)
+                && d.category == "Descriptor"
+                && d.message
+                    .contains("entity 'knife' missing from Module::entity_types()")),
+            "{r:?}"
+        );
+        // Name matches the descriptor: no identity error.
+        assert!(
+            !r.iter().any(|d| d.message.contains("Module::name()")),
+            "{r:?}"
+        );
+    }
 }
