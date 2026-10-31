@@ -28,12 +28,13 @@ jobs:
 
       # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
       # this-rs/this next to this crate. Ref: the integration branch until the module
-      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      # `main` carries this-descriptor (integ/module-descriptor was merged into it);
+      # THIS_RS_REF still overrides for a one-off run against another branch.
       - name: Checkout this-rs/this (this-descriptor)
         uses: actions/checkout@v5
         with:
           repository: this-rs/this
-          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
           path: .deps/this
 
       - name: Place this-rs/this at ../this
@@ -71,12 +72,13 @@ jobs:
 
       # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
       # this-rs/this next to this crate. Ref: the integration branch until the module
-      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      # `main` carries this-descriptor (integ/module-descriptor was merged into it);
+      # THIS_RS_REF still overrides for a one-off run against another branch.
       - name: Checkout this-rs/this (this-descriptor)
         uses: actions/checkout@v5
         with:
           repository: this-rs/this
-          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
           path: .deps/this
 
       - name: Place this-rs/this at ../this
@@ -128,12 +130,13 @@ jobs:
 
       # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
       # this-rs/this next to this crate. Ref: the integration branch until the module
-      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      # `main` carries this-descriptor (integ/module-descriptor was merged into it);
+      # THIS_RS_REF still overrides for a one-off run against another branch.
       - name: Checkout this-rs/this (this-descriptor)
         uses: actions/checkout@v5
         with:
           repository: this-rs/this
-          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
           path: .deps/this
 
       - name: Place this-rs/this at ../this
@@ -165,12 +168,13 @@ jobs:
 
       # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
       # this-rs/this next to this crate. Ref: the integration branch until the module
-      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      # `main` carries this-descriptor (integ/module-descriptor was merged into it);
+      # THIS_RS_REF still overrides for a one-off run against another branch.
       - name: Checkout this-rs/this (this-descriptor)
         uses: actions/checkout@v5
         with:
           repository: this-rs/this
-          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
           path: .deps/this
 
       - name: Place this-rs/this at ../this
@@ -212,12 +216,13 @@ jobs:
 
       # this-descriptor is a path dependency (../this/crates/this-descriptor): check out
       # this-rs/this next to this crate. Ref: the integration branch until the module
-      # descriptor lands on main (then set the THIS_RS_REF variable or drop the default).
+      # `main` carries this-descriptor (integ/module-descriptor was merged into it);
+      # THIS_RS_REF still overrides for a one-off run against another branch.
       - name: Checkout this-rs/this (this-descriptor)
         uses: actions/checkout@v5
         with:
           repository: this-rs/this
-          ref: ${{ vars.THIS_RS_REF || 'integ/module-descriptor' }}
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
           path: .deps/this
 
       - name: Place this-rs/this at ../this
