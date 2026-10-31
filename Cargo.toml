@@ -28,7 +28,7 @@ ctrlc = "3"
 regex = "1"
 # Shared module descriptor (types, check, pluralizer). version + path: publishable, and
 # the path resolves from a checkout of this-cli next to a checkout of this-rs/this.
-this-descriptor = { version = "0.1", path = "../this/crates/this-descriptor", features = ["yaml", "pattern"] }
+this-descriptor = { version = "0.0.1", path = "../this/crates/this-descriptor", features = ["yaml", "pattern"] }
 semver = "1"
 
 [dev-dependencies]
