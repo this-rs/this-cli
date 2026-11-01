@@ -63,6 +63,45 @@ jobs:
         run: cargo test --verbose
 
   # Code coverage (unit tests only — integration tests use a subprocess)
+  # The chain nothing tested: `this init` produces a project that COMPILES.
+  # `this add target desktop` shipped for months with eight defects that made the generated
+  # crate impossible to build; every template test passed, because rendering a template and
+  # asserting on substrings says nothing about the result being a program.
+  scaffold:
+    name: Scaffold compiles
+    runs-on: ubuntu-latest
+    # A full `cargo check` of a freshly generated project, cold registry included.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-scaffold-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-scaffold-
+
+      - name: Scaffold a project and compile it
+        run: cargo test --test scaffold_compiles -- --ignored --nocapture
+
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
