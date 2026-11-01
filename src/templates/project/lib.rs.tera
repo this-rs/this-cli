@@ -1,0 +1,40 @@
+//! The library face of the API: the same router `main` serves.
+//!
+//! `main` used to be the only entry point, so anything that needed the API in-process — the
+//! Tauri desktop target, integration tests — had to re-declare the module and drift from the
+//! server. One definition, two binaries.
+
+pub mod entities;
+pub mod module;
+pub mod stores;
+
+pub use module::{{ project_name_snake | pascal_case }}Module;
+pub use stores::{{ project_name_snake | pascal_case }}Stores;
+
+/// Build the router the server serves.
+///
+/// Keep this the single place that wires stores, module and exposures: `main` calls it, and so
+/// does the desktop target. When you add a WebSocket or gRPC exposure, add it here.
+pub fn router() -> anyhow::Result<axum::Router> {
+    use this::server::builder::ServerBuilder;
+    use this::storage::InMemoryLinkService;
+
+    let stores = {{ project_name_snake | pascal_case }}Stores::new_in_memory();
+    let module = {{ project_name_snake | pascal_case }}Module::new(stores);
+
+    ServerBuilder::new()
+        .with_link_service(InMemoryLinkService::new())
+        .register_module(module)?
+        .build()
+}
+
+/// Serve [`router`] on `127.0.0.1:port`.
+///
+/// The desktop target calls this instead of `axum::serve`: the desktop crate has no `axum`
+/// dependency, and it should not need one to run the API the library defines.
+pub async fn serve(port: u16) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
+    println!("[api] listening on http://127.0.0.1:{}", port);
+    axum::serve(listener, router()?).await?;
+    Ok(())
+}

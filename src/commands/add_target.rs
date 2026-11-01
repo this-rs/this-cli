@@ -183,6 +183,19 @@ fn run_desktop(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Pa
     // 5. Create directory structure
     writer.create_dir_all(&tauri_path.join("src"))?;
     writer.create_dir_all(&tauri_path.join("icons"))?;
+    // `tauri::generate_context!` opens `icons/icon.png` at compile time and refuses anything that
+    // is not RGBA — an empty directory made every generated desktop crate fail to build. A real
+    // 32x32 RGBA PNG, replaceable with `cargo tauri icon path/to/logo.png` when you have a logo.
+    writer.write_bytes(
+        &tauri_path.join("icons").join("icon.png"),
+        &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 32, 0, 0, 0, 32,
+            8, 6, 0, 0, 0, 115, 122, 122, 244, 0, 0, 0, 47, 73, 68, 65, 84, 120, 218, 237, 206, 33,
+            1, 0, 0, 8, 3, 48, 202, 144, 140, 248, 132, 128, 24, 55, 19, 243, 171, 158, 189, 164,
+            18, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 72, 7, 30, 2, 245, 200,
+            136, 245, 86, 38, 43, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        ],
+    )?;
     writer.create_dir_all(&tauri_path.join("capabilities"))?;
 
     // 6. Render and write templates

@@ -10,6 +10,7 @@ use crate::utils::naming;
 // ============================================================================
 
 const TPL_PROJECT_CARGO_TOML: &str = include_str!("project/Cargo.toml.tera");
+const TPL_PROJECT_LIB_RS: &str = include_str!("project/lib.rs.tera");
 const TPL_PROJECT_MAIN_RS: &str = include_str!("project/main.rs.tera");
 const TPL_PROJECT_MODULE_RS: &str = include_str!("project/module.rs.tera");
 const TPL_PROJECT_ENTITIES_MOD_RS: &str = include_str!("project/entities_mod.rs.tera");
@@ -87,6 +88,7 @@ impl TemplateEngine {
         // Register all templates
         let templates: HashMap<&str, &str> = HashMap::from([
             ("project/Cargo.toml", TPL_PROJECT_CARGO_TOML),
+            ("project/lib.rs", TPL_PROJECT_LIB_RS),
             ("project/main.rs", TPL_PROJECT_MAIN_RS),
             ("project/module.rs", TPL_PROJECT_MODULE_RS),
             ("project/entities_mod.rs", TPL_PROJECT_ENTITIES_MOD_RS),
@@ -964,7 +966,7 @@ mod tests {
         assert!(content.contains("tauri-build"));
         assert!(content.contains("tauri = { version = \"2\""));
         assert!(content.contains("tokio"));
-        assert!(content.contains("my-app = { path = \"../../api\" }"));
+        assert!(content.contains("my-app = { path = \"../../../api\" }"));
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
     }
 
@@ -979,7 +981,7 @@ mod tests {
         );
         let content = result.unwrap();
         assert!(content.contains("\"productName\": \"my-app\""));
-        assert!(content.contains("com.my_app.app"));
+        assert!(content.contains("com.my-app.app"));
         assert!(content.contains("../../../front/dist"));
         assert!(content.contains("http://localhost:5173"));
         assert!(content.contains("1024"));

@@ -11,6 +11,12 @@ pub trait FileWriter {
     /// Write content to a file (create or overwrite)
     fn write_file(&self, path: &Path, content: &str) -> Result<()>;
 
+    /// Write raw bytes (create or overwrite).
+    ///
+    /// Templates are text; the Tauri desktop target needs a real `icons/icon.png` before
+    /// `tauri::generate_context!` can compile, and a PNG cannot travel through `&str`.
+    fn write_bytes(&self, path: &Path, content: &[u8]) -> Result<()>;
+
     /// Update an existing file (read + transform + write)
     /// In dry-run mode, shows a diff of what would change.
     fn update_file(&self, path: &Path, original: &str, updated: &str) -> Result<()>;
@@ -29,6 +35,11 @@ impl FileWriter for RealWriter {
     }
 
     fn write_file(&self, path: &Path, content: &str) -> Result<()> {
+        std::fs::write(path, content)
+            .with_context(|| format!("Failed to write: {}", path.display()))
+    }
+
+    fn write_bytes(&self, path: &Path, content: &[u8]) -> Result<()> {
         std::fs::write(path, content)
             .with_context(|| format!("Failed to write: {}", path.display()))
     }
@@ -106,6 +117,12 @@ impl FileWriter for DryRunWriter {
     }
 
     fn write_file(&self, path: &Path, _content: &str) -> Result<()> {
+        println!("  {} {}", "Would create:".cyan(), path.display());
+        self.files_created.borrow_mut().push(path.to_path_buf());
+        Ok(())
+    }
+
+    fn write_bytes(&self, path: &Path, _content: &[u8]) -> Result<()> {
         println!("  {} {}", "Would create:".cyan(), path.display());
         self.files_created.borrow_mut().push(path.to_path_buf());
         Ok(())
