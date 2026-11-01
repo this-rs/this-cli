@@ -102,6 +102,47 @@ jobs:
       - name: Scaffold a project and compile it
         run: cargo test --test scaffold_compiles -- --ignored --nocapture
 
+  # macOS only: this is where the generated desktop crate can actually be COMPILED.
+  # Tauri needs its system libraries (webkit2gtk on Linux), which a bare runner does not
+  # have; the macOS images ship them with the SDK. The `scaffold` job above stops at
+  # `cargo metadata`, which proves the graph resolves but not that the crate builds —
+  # seven of the eight defects that broke this template were compile errors.
+  scaffold-desktop:
+    name: Scaffold desktop compiles
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Checkout this-rs/this (this-descriptor)
+        uses: actions/checkout@v5
+        with:
+          repository: this-rs/this
+          ref: ${{ vars.THIS_RS_REF || 'main' }}
+          path: .deps/this
+
+      - name: Place this-rs/this at ../this
+        run: ln -sfn "$GITHUB_WORKSPACE/.deps/this" "$GITHUB_WORKSPACE/../this"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-scaffold-desktop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-scaffold-desktop-
+
+      - name: Scaffold, and compile the Tauri crate
+        env:
+          SCAFFOLD_CHECK_DESKTOP: "1"
+        run: cargo test --test scaffold_compiles -- --ignored --nocapture
+
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest

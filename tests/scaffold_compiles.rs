@@ -93,4 +93,20 @@ fn a_scaffolded_project_compiles() {
         "the desktop crate does not resolve its dependencies:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
+
+    // And, where Tauri's system libraries exist, actually compile it.
+    //
+    // Opt-in through the environment rather than `cfg!(target_os)`: the Linux runners have no
+    // webkit2gtk, so the job able to do this is explicitly the macOS one. `cargo metadata`
+    // proves the graph resolves; only this proves the crate builds — seven of the eight defects
+    // that broke this template were compile errors, and `tauri::generate_context!` panics at
+    // compile time on a missing or non-RGBA icon.
+    if std::env::var("SCAFFOLD_CHECK_DESKTOP").is_ok() {
+        let out = cargo(&["check", "--quiet"], &src_tauri, &target);
+        assert!(
+            out.status.success(),
+            "the generated desktop crate does not compile:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 }
