@@ -96,6 +96,7 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
 
     let mut files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
+        ("project/lib.rs", "src/lib.rs"),
         ("project/main.rs", "src/main.rs"),
         ("project/module.rs", "src/module.rs"),
         ("project/stores.rs", "src/stores.rs"),
@@ -252,6 +253,7 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
 
     let mut api_files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
+        ("project/lib.rs", "src/lib.rs"),
         ("project/main.rs", "src/main.rs"),
         ("project/embedded_frontend.rs", "src/embedded_frontend.rs"),
         ("project/module.rs", "src/module.rs"),

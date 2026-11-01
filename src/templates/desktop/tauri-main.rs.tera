@@ -32,23 +32,21 @@ async fn main() {
 }
 
 /// Start the this-rs API server on the given port.
+///
+/// Uses the router the library defines — the same one the API's own `main` serves. This
+/// template carried four errors that made it impossible to compile: `use <crate>::*` on a
+/// crate with no library target, `module.into_router()` (does not exist in this-rs),
+/// `Stores::new_in_memory().await` (the constructor is synchronous), and a `/api/health`
+/// probe while the server answers `/health`.
 async fn start_api_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    use {{ project_name_snake }}::*;
-
-    let stores = Stores::new_in_memory().await;
-    let module = Module::new(stores);
-    let router = module.into_router();
-
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("[desktop] API server listening on http://{}", addr);
-    axum::serve(listener, router).await?;
+    // The library serves it, so this crate needs neither `axum` nor the wiring.
+    {{ project_name_snake }}::serve(port).await?;
     Ok(())
 }
 
 /// Wait for the API server to respond to health checks.
 async fn wait_for_api(port: u16) {
-    let url = format!("http://127.0.0.1:{}/api/health", port);
+    let url = format!("http://127.0.0.1:{}/health", port);
     let client = reqwest::Client::new();
     let max_retries = 300; // 30 seconds at 100ms intervals
 

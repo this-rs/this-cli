@@ -114,6 +114,13 @@ impl FileWriter for McpFileWriter {
         Ok(())
     }
 
+    fn write_bytes(&self, path: &std::path::Path, content: &[u8]) -> Result<()> {
+        std::fs::write(path, content)
+            .map_err(|e| anyhow::anyhow!("Failed to write '{}': {}", path.display(), e))?;
+        self.files_created.borrow_mut().push(path.to_path_buf());
+        Ok(())
+    }
+
     fn update_file(&self, path: &std::path::Path, _original: &str, updated: &str) -> Result<()> {
         std::fs::write(path, updated)
             .map_err(|e| anyhow::anyhow!("Failed to write '{}': {}", path.display(), e))?;

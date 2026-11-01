@@ -9,16 +9,16 @@ use this::server::exposure::websocket::WebSocketExposure;
 use this::server::exposure::grpc::GrpcExposure;
 {% endif %}
 
-mod entities;
-mod module;
-mod stores;
 {% if workspace %}
 #[cfg(feature = "embedded-frontend")]
 mod embedded_frontend;
 {% endif %}
 
-use module::{{ project_name_snake | pascal_case }}Module;
-use stores::{{ project_name_snake | pascal_case }}Stores;
+// The module, the stores and the entities live in the library (`src/lib.rs`), so this
+// binary is not the only definition of the server: the desktop target and the tests call
+// `{{ project_name_snake }}::router()` and get the same wiring.
+use {{ project_name_snake }}::{{ project_name_snake | pascal_case }}Module;
+use {{ project_name_snake }}::{{ project_name_snake | pascal_case }}Stores;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
