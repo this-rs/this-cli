@@ -879,7 +879,7 @@ mod tests {
         );
         let content = result.unwrap();
         assert!(content.contains("proxy"));
-        assert!(content.contains("\"/api\""));
+        assert!(content.contains("\"/health\""));
         assert!(content.contains("http://127.0.0.1:3000"));
     }
 
@@ -909,7 +909,7 @@ mod tests {
         );
         let content = result.unwrap();
         assert!(content.contains("test-project"));
-        assert!(content.contains("/api/health"));
+        assert!(content.contains("fetch(\"/health\")"));
         assert!(content.contains("useEffect"));
     }
 

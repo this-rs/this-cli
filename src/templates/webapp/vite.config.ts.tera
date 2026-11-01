@@ -5,11 +5,16 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Only used by the legacy `npm run dev` fallback: in the vite-rs dev loop this SPA is
+    // served by the API process itself, same origin, no proxy involved.
     proxy: {
-      "/api": {
+      // this-rs serves its routes at the root (`/health`, `/invoices`, ...), not under /api.
+      "/health": {
         target: "http://127.0.0.1:{{ api_port }}",
         changeOrigin: true,
       },
+      // Add one entry per entity route you call from the browser, e.g.:
+      // "/invoices": { target: "http://127.0.0.1:{{ api_port }}", changeOrigin: true },
     },
   },
 });

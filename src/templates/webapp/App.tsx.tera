@@ -4,7 +4,8 @@ function App() {
   const [status, setStatus] = useState<string>("loading...");
 
   useEffect(() => {
-    fetch("/api/health")
+    // this-rs serves its routes at the root: `GET /health`, `GET /{plural}`.
+    fetch("/health")
       .then((res) => (res.ok ? "connected" : "error"))
       .then(setStatus)
       .catch(() => setStatus("offline"));
