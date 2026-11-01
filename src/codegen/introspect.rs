@@ -14,6 +14,12 @@ pub struct FieldMeta {
     pub name: String,
     /// Rust type as a string, e.g. `String`, `f64`, `Option<String>`
     pub rust_type: String,
+    /// TypeScript type derived from the descriptor (`this_descriptor::derive::typescript`).
+    ///
+    /// `Some` when the module descriptor declares this field: the descriptor knows the WIRE type,
+    /// the Rust type does not (`Uuid` and `Ref` are both a string on the wire, `Decimal` is a
+    /// string and not a float). `None` falls back to [`rust_type_to_ts`], which is a guess.
+    pub ts_type: Option<String>,
 }
 
 /// REST route info extracted from a descriptor.
@@ -122,6 +128,13 @@ pub fn introspect(api_root: &Path) -> Result<ProjectIntrospection> {
         for em in &mut entities {
             if let Some(e) = d.entity(&em.snake_name) {
                 em.plural = e.plural.clone();
+                // The descriptor is the only source of the WIRE type; the regex above only saw a
+                // Rust type name. Filling it here keeps one owner per name (RFC 6.3).
+                for f in &mut em.fields {
+                    if let Some(fd) = e.field(&f.name) {
+                        f.ts_type = Some(this_descriptor::derive::typescript::ts_field(fd));
+                    }
+                }
             }
         }
         for l in &d.links {
@@ -203,6 +216,7 @@ fn parse_fields(raw: &str) -> Vec<FieldMeta> {
         .map(|c| FieldMeta {
             name: c[1].to_string(),
             rust_type: c[2].trim().to_string(),
+            ts_type: None,
         })
         .collect()
 }
@@ -721,6 +735,45 @@ impl_data_entity!(
             std::fs::write(root.join("config/links.yaml"), l).unwrap();
         }
         tmp
+    }
+
+    #[test]
+    fn descriptor_supplies_the_typescript_type_a_rust_grep_cannot_guess() {
+        // `Money` is not a TypeScript type: the regex fallback copies it verbatim into the
+        // generated interface. The macro reader maps the unknown Rust type to `Json`, and the
+        // descriptor says so — the field is `unknown`, which a client has to narrow before use.
+        // One owner per name: the YAML declares no `fields`, the macro owns them.
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let dir = root.join("src/entities/product");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("model.rs"),
+            "impl_data_entity!(\n    Product,\n    \"product\",\n    [\"name\"],\n    {\n        name: String,\n        price: Money,\n    }\n);\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("descriptor")).unwrap();
+        std::fs::write(
+            root.join("descriptor/module.yaml"),
+            "format: 1\nname: shop\nversion: 1.0.0\nentities:\n  - name: product\n    plural: products\n",
+        )
+        .unwrap();
+
+        let result = introspect(root).unwrap();
+        let product = &result.entities[0];
+        let price = product.fields.iter().find(|f| f.name == "price").unwrap();
+        assert_eq!(
+            price.rust_type, "Money",
+            "the regex still sees the Rust type"
+        );
+        assert_eq!(
+            price.ts_type.as_deref(),
+            Some("unknown"),
+            "the descriptor decided the wire type"
+        );
+        let client = crate::codegen::typescript::generate(&result);
+        assert!(client.contains("price: unknown;"), "{client}");
+        assert!(!client.contains("Money"), "{client}");
     }
 
     #[test]

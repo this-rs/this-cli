@@ -195,7 +195,12 @@ fn generate_interface(
             continue;
         }
 
-        let ts_type = rust_type_to_ts(&field.rust_type);
+        // Descriptor first, Rust type as the fallback: the descriptor states what crosses the
+        // wire, `rust_type_to_ts` only guesses from a struct field.
+        let ts_type = field
+            .ts_type
+            .clone()
+            .unwrap_or_else(|| rust_type_to_ts(&field.rust_type));
         let optional = if kind == InterfaceKind::Update {
             "?"
         } else {
@@ -363,18 +368,44 @@ mod tests {
                 FieldMeta {
                     name: "name".to_string(),
                     rust_type: "String".to_string(),
+                    ts_type: None,
                 },
                 FieldMeta {
                     name: "price".to_string(),
                     rust_type: "f64".to_string(),
+                    ts_type: None,
                 },
                 FieldMeta {
                     name: "description".to_string(),
                     rust_type: "Option<String>".to_string(),
+                    ts_type: None,
                 },
             ],
             routes: vec![],
         }
+    }
+
+    #[test]
+    fn test_generate_interface_prefers_the_derived_type_over_the_rust_type() {
+        // `Option<Money>` is not TypeScript; the descriptor-derived type is `string | null`.
+        let fields = vec![FieldMeta {
+            name: "price".to_string(),
+            rust_type: "Option<Money>".to_string(),
+            ts_type: Some("string | null".to_string()),
+        }];
+        let iface = generate_interface("Product", &fields, InterfaceKind::Full);
+        assert!(iface.contains("  price: string | null;"), "{iface}");
+        assert!(!iface.contains("Money"), "{iface}");
+
+        // Without a descriptor the fallback still runs, and it still passes unknown types through.
+        let guess = vec![FieldMeta {
+            name: "price".to_string(),
+            rust_type: "f64".to_string(),
+            ts_type: None,
+        }];
+        assert!(
+            generate_interface("Product", &guess, InterfaceKind::Full).contains("  price: number;")
+        );
     }
 
     #[test]
@@ -396,14 +427,17 @@ mod tests {
             FieldMeta {
                 name: "id".to_string(),
                 rust_type: "Uuid".to_string(),
+                ts_type: None,
             },
             FieldMeta {
                 name: "name".to_string(),
                 rust_type: "String".to_string(),
+                ts_type: None,
             },
             FieldMeta {
                 name: "created_at".to_string(),
                 rust_type: "DateTime<Utc>".to_string(),
+                ts_type: None,
             },
         ];
         let iface = generate_interface("CreateProduct", &fields, InterfaceKind::Create);
@@ -539,6 +573,7 @@ mod tests {
                     fields: vec![FieldMeta {
                         name: "total".to_string(),
                         rust_type: "f64".to_string(),
+                        ts_type: None,
                     }],
                     routes: vec![],
                 },
