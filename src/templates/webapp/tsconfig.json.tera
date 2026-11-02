@@ -5,6 +5,8 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
+    /* Declares *.css side-effect imports (noUncheckedSideEffectImports) */
+    "types": ["vite/client"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",

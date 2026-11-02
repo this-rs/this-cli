@@ -106,6 +106,15 @@ fn a_scaffolded_project_compiles() {
         );
     }
 
+    // `noUncheckedSideEffectImports` rejects `import "./App.css"` unless Vite's client types are
+    // declared: `npm run build` (tsc -b) failed on the generated front until `types` was set.
+    let tsconfig = std::fs::read_to_string(root.join("ws").join("front").join("tsconfig.json"))
+        .expect("front/tsconfig.json");
+    assert!(
+        tsconfig.contains("\"vite/client\""),
+        "front/tsconfig.json must declare vite/client, or `npm run build` fails on css imports"
+    );
+
     // The desktop shell's devUrl is fixed to 5173: the webapp must hold that port and refuse to
     // move, or the window silently loads whatever else owns 5173.
     let vite = std::fs::read_to_string(root.join("ws").join("front").join("vite.config.ts"))
