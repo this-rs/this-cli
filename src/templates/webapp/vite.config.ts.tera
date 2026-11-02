@@ -5,6 +5,11 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Fixed to the port the desktop shell's `devUrl` expects (tauri.conf.json: 5173). Without
+    // `strictPort`, Vite silently moves to 5175 when 5173 is taken — and the window then loads
+    // whatever else holds 5173. Failing loudly is the only honest behaviour here.
+    port: 5173,
+    strictPort: true,
     // Only used by the legacy `npm run dev` fallback: in the vite-rs dev loop this SPA is
     // served by the API process itself, same origin, no proxy involved.
     proxy: {

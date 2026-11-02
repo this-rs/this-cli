@@ -83,6 +83,38 @@ fn a_scaffolded_project_compiles() {
         "the desktop target must ship a real icon: `tauri::generate_context!` opens it at \
          compile time and refuses anything that is not RGBA"
     );
+    // The before-commands run from the desktop target directory (the parent of `src-tauri`),
+    // not from `src-tauri`: `../../../front` pointed outside the workspace and `tauri dev` died
+    // with `Could not read package.json`. Resolve the `--prefix` from there and require it.
+    let desktop_dir = src_tauri.parent().expect("src-tauri has a parent");
+    let conf: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(src_tauri.join("tauri.conf.json")).expect("tauri.conf.json"),
+    )
+    .expect("tauri.conf.json is valid JSON");
+    for key in ["beforeDevCommand", "beforeBuildCommand"] {
+        let cmd = conf["build"][key]
+            .as_str()
+            .unwrap_or_else(|| panic!("{key} missing"));
+        let prefix = cmd
+            .split("--prefix ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{key} has no --prefix: {cmd}"));
+        assert!(
+            desktop_dir.join(prefix).join("package.json").is_file(),
+            "{key} runs in {} and `--prefix {prefix}` has no package.json there",
+            desktop_dir.display()
+        );
+    }
+
+    // The desktop shell's devUrl is fixed to 5173: the webapp must hold that port and refuse to
+    // move, or the window silently loads whatever else owns 5173.
+    let vite = std::fs::read_to_string(root.join("ws").join("front").join("vite.config.ts"))
+        .expect("front/vite.config.ts");
+    assert!(
+        vite.contains("port: 5173") && vite.contains("strictPort: true"),
+        "front/vite.config.ts must pin port 5173 with strictPort"
+    );
+
     let out = cargo(
         &["metadata", "--format-version", "1", "--no-deps"],
         &src_tauri,
