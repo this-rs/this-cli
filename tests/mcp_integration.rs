@@ -25,13 +25,40 @@ fn this_bin() -> String {
         .to_string()
 }
 
-/// Send JSON-RPC messages to `this mcp` and collect all responses
-fn mcp_call(messages: &[&str]) -> Vec<Value> {
+/// Everything one `this mcp` session produced.
+#[derive(Debug)]
+struct McpSession {
+    /// JSON-RPC messages read from stdout, in order.
+    responses: Vec<Value>,
+    /// Diagnostics read from stderr (banners, "Next steps", warnings...).
+    stderr: String,
+}
+
+/// Send JSON-RPC messages to `this mcp` and collect its whole output.
+///
+/// # Contract asserted here
+///
+/// In MCP mode **stdout carries the JSON-RPC protocol and nothing else**. Any
+/// other line on stdout is a corrupted channel, so this helper panics on it
+/// instead of skipping it: a client that parses stdout as a JSON-RPC stream
+/// cannot ignore a stray line, so neither may we.
+///
+/// Measured before the fix (this-cli 0.0.5), one `tools/call init_project`:
+/// 24 lines on stdout for 2 responses — 19 human-readable lines (banner,
+/// `📄 <file>`, "Next steps") and an empty stderr. Reproduce with:
+///
+/// ```text
+/// printf '%s\n' '<initialize>' '<tools/call init_project>' | this mcp
+/// ```
+///
+/// Human output belongs on stderr, which is why the banner is asserted there
+/// rather than being dropped (`Stdio::null()` used to hide it).
+fn mcp_session(messages: &[&str]) -> McpSession {
     let mut child = Command::new(this_bin())
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to spawn this mcp");
 
@@ -41,18 +68,60 @@ fn mcp_call(messages: &[&str]) -> Vec<Value> {
     }
     drop(stdin); // Close stdin to signal EOF
 
+    // Read stderr on its own thread: the fix routes *all* human output there,
+    // so a full pipe must not be able to block us while we read stdout.
+    let stderr_pipe = child.stderr.take().expect("Failed to open stderr");
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(stderr_pipe);
+        let mut line = String::new();
+        while let Ok(n) = reader.read_line(&mut line) {
+            if n == 0 {
+                break;
+            }
+            buf.push_str(&line);
+            line.clear();
+        }
+        buf
+    });
+
     let stdout = child.stdout.take().expect("Failed to open stdout");
     let reader = BufReader::new(stdout);
 
-    let responses: Vec<Value> = reader
-        .lines()
-        .map_while(Result::ok)
-        .filter(|line| !line.is_empty())
-        .filter_map(|line| serde_json::from_str(&line).ok())
-        .collect();
+    let mut responses = Vec::new();
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.expect("Failed to read a stdout line");
+        if line.is_empty() {
+            continue;
+        }
+        let value: Value = serde_json::from_str(&line).unwrap_or_else(|e| {
+            panic!(
+                "stdout line {} is not valid JSON ({e}). \
+                 In MCP mode stdout must carry the JSON-RPC protocol only — \
+                 human output belongs on stderr.\nOffending line: {line}",
+                index + 1
+            )
+        });
+        assert_eq!(
+            value["jsonrpc"],
+            "2.0",
+            "stdout line {} is JSON but not a JSON-RPC 2.0 message: {line}",
+            index + 1
+        );
+        responses.push(value);
+    }
 
+    let stderr = stderr_reader.join().expect("stderr reader thread panicked");
     child.wait().expect("Failed to wait for child");
-    responses
+
+    McpSession { responses, stderr }
+}
+
+/// Send JSON-RPC messages to `this mcp` and collect all responses
+///
+/// Strict by construction: see [`mcp_session`].
+fn mcp_call(messages: &[&str]) -> Vec<Value> {
+    mcp_session(messages).responses
 }
 
 /// Build a JSON-RPC request string
@@ -111,7 +180,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 17);
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"init_project"));
@@ -123,6 +192,9 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"check_project_health"));
     assert!(tool_names.contains(&"build_project"));
     assert!(tool_names.contains(&"start_dev"));
+    assert!(tool_names.contains(&"dev_status"));
+    assert!(tool_names.contains(&"dev_logs"));
+    assert!(tool_names.contains(&"dev_stop"));
     assert!(tool_names.contains(&"add_target"));
     assert!(tool_names.contains(&"generate_client"));
     assert!(tool_names.contains(&"descriptor"));
@@ -875,4 +947,163 @@ fn test_mcp_init_project_grpc_websocket() {
         "main.rs should contain WebSocketExposure. Got:\n{}",
         main_rs
     );
+}
+
+// ============================================================================
+// Channel purity — stdout carries the protocol, stderr carries the humans
+// ============================================================================
+
+/// The whole point: a client parses stdout as a JSON-RPC stream. Human output
+/// (banner, `📄 file`, "Next steps") must not appear there.
+///
+/// This test failed before the fix, with 19 non-JSON lines on stdout for the
+/// `init_project` call alone. It exercises several tools in ONE session on
+/// purpose: every tool call that prints is a chance to corrupt the channel.
+#[test]
+fn test_mcp_stdout_is_protocol_only() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let init_project = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "init_project",
+            "arguments": {
+                "name": "purity_project",
+                "cwd": cwd,
+                "no_git": true
+            }
+        })),
+        2,
+    );
+    let add_entity = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "add_entity",
+            "arguments": {
+                "name": "purity_project",
+                "entity_name": "widget",
+                "fields": "name:string,price:f64",
+                "cwd": cwd
+            }
+        })),
+        3,
+    );
+    let info = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "get_project_info",
+            "arguments": { "cwd": cwd }
+        })),
+        4,
+    );
+
+    // mcp_session panics on any stdout line that is not JSON-RPC 2.0, so
+    // reaching the assertions below already proves the channel is clean.
+    let session = mcp_session(&[&init, &init_project, &add_entity, &info]);
+
+    assert_eq!(
+        session.responses.len(),
+        4,
+        "one response per request; got {:#?}",
+        session.responses
+    );
+
+    // And the human output still exists — it moved, it did not disappear.
+    assert!(
+        session.stderr.contains("this-rs project builder"),
+        "the CLI banner should be on stderr, not dropped. Got:\n{}",
+        session.stderr
+    );
+    assert!(
+        session.stderr.contains("created successfully"),
+        "the success message should be on stderr. Got:\n{}",
+        session.stderr
+    );
+}
+
+/// `ping` is the quietest tool: proving purity on it isolates the protocol
+/// itself from any command's printing.
+#[test]
+fn test_mcp_ping_stdout_is_protocol_only() {
+    let init = initialize_msg();
+    let ping = json_rpc("ping", None, 2);
+    let session = mcp_session(&[&init, &ping]);
+
+    assert_eq!(session.responses.len(), 2);
+    assert_eq!(session.responses[1]["result"], json!({}));
+}
+
+// ============================================================================
+// start_dev — supervised sessions, protocol never blocked
+// ============================================================================
+
+/// `start_dev` used to call `dev::run` synchronously: the tool's description
+/// promised "returns the command", the handler froze the whole JSON-RPC loop.
+///
+/// Non-blocking is proven at the unit level
+/// (`mcp::dev_session::tests::start_returns_while_the_child_keeps_running_and_stop_ends_it`,
+/// which supervises a real 30-second child). What this test pins is the
+/// protocol behaviour: `start_dev` answers, the transport keeps serving the next
+/// request, and a failed start leaves no phantom session behind.
+#[test]
+fn test_mcp_start_dev_answers_and_leaves_the_transport_alive() {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let cwd = tmpdir.path().to_string_lossy().to_string();
+
+    let init = initialize_msg();
+    let start = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "start_dev",
+            "arguments": {"cwd": cwd}
+        })),
+        2,
+    );
+    let status = json_rpc(
+        "tools/call",
+        Some(json!({
+            "name": "dev_status",
+            "arguments": {}
+        })),
+        3,
+    );
+    let ping = json_rpc("ping", None, 4);
+
+    let session = mcp_session(&[&init, &start, &status, &ping]);
+
+    assert_eq!(
+        session.responses.len(),
+        4,
+        "every request must be answered, including the ones after start_dev"
+    );
+
+    // Outside a workspace `this dev` dies at once: the tool must report that,
+    // not hand back a session id for a process that is already gone.
+    let started = &session.responses[1];
+    assert_eq!(
+        started["result"]["isError"], true,
+        "start_dev outside a workspace should fail: {started}"
+    );
+    let text = started["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("Not a this-rs workspace"),
+        "the tool should surface the child's own error, got: {text}"
+    );
+
+    // No session was registered, so the registry is empty and still answerable.
+    let status_content = session.responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    let status_json: Value = serde_json::from_str(status_content).unwrap();
+    assert_eq!(
+        status_json["sessions"].as_array().unwrap().len(),
+        0,
+        "a failed start must not register a session: {status_json}"
+    );
+
+    assert_eq!(session.responses[3]["result"], json!({}));
 }
