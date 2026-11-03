@@ -60,29 +60,33 @@ pub fn inline(msg: impl AsRef<str>) {
     emit(false, msg.as_ref());
 }
 
+/// Format one message for the human channel.
+///
+/// Split from [`emit`] so the formatting (the part with a contract — does it add
+/// a newline?) is testable without capturing a process-wide stream.
+/// Errors on the channel (EPIPE on a closed pipe, typically) are dropped: a CLI
+/// that cannot write its own output has nothing useful left to say.
+fn write_one(out: &mut dyn Write, newline: bool, msg: &str) -> std::io::Result<()> {
+    if newline {
+        writeln!(out, "{msg}")?;
+    } else {
+        write!(out, "{msg}")?;
+    }
+    out.flush()
+}
+
 fn emit(newline: bool, msg: &str) {
-    // Errors on the channel (EPIPE on a closed pipe, typically) are dropped:
-    // a CLI that cannot write its own output has nothing useful left to say.
+    // The MCP branch cannot be reached from a test in this process (`set_mode`
+    // is a `OnceLock`, and the MCP tests run a child binary), so it is kept to
+    // this three-line selection and everything below it is covered.
     match mode() {
         OutputMode::Cli => {
             let stdout = std::io::stdout();
-            let mut lock = stdout.lock();
-            let _ = if newline {
-                writeln!(lock, "{msg}")
-            } else {
-                write!(lock, "{msg}")
-            };
-            let _ = lock.flush();
+            let _ = write_one(&mut stdout.lock(), newline, msg);
         }
         OutputMode::Mcp => {
             let stderr = std::io::stderr();
-            let mut lock = stderr.lock();
-            let _ = if newline {
-                writeln!(lock, "{msg}")
-            } else {
-                write!(lock, "{msg}")
-            };
-            let _ = lock.flush();
+            let _ = write_one(&mut stderr.lock(), newline, msg);
         }
     }
 }
@@ -156,5 +160,51 @@ pub fn print_next_steps(steps: &[&str]) {
     line("Next steps:".bold().to_string());
     for step in steps {
         line(format!("  {}", step));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_one_appends_a_newline() {
+        let mut buf: Vec<u8> = Vec::new();
+        write_one(&mut buf, true, "hello").unwrap();
+        assert_eq!(buf, b"hello\n");
+    }
+
+    #[test]
+    fn write_one_without_newline_leaves_the_line_open() {
+        let mut buf: Vec<u8> = Vec::new();
+        write_one(&mut buf, false, "part one").unwrap();
+        write_one(&mut buf, false, " and two").unwrap();
+        write_one(&mut buf, true, "").unwrap();
+        assert_eq!(buf, b"part one and two\n");
+    }
+
+    #[test]
+    fn blank_is_a_line_of_its_own() {
+        let mut buf: Vec<u8> = Vec::new();
+        write_one(&mut buf, true, "").unwrap();
+        assert_eq!(buf, b"\n");
+    }
+
+    /// The default mode is CLI: nothing sets a mode in a plain `cargo test`.
+    #[test]
+    fn the_default_mode_is_cli() {
+        assert_eq!(mode(), OutputMode::Cli);
+    }
+
+    #[test]
+    fn print_helpers_do_not_panic() {
+        print_banner();
+        print_step("step");
+        print_file_created("file.rs");
+        print_success("done");
+        print_error("oops");
+        print_info("info");
+        print_warn("warning");
+        print_next_steps(&["one", "two"]);
     }
 }

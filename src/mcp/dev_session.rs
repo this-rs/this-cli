@@ -592,4 +592,85 @@ mod tests {
             0
         );
     }
+    /// `logs` / `stop` without a session id address the whole registry: the most
+    /// recent session for logs, every session for stop.
+    #[cfg(unix)]
+    #[test]
+    fn logs_and_stop_default_to_the_whole_registry() {
+        let sleep = ["/bin/sleep", "/usr/bin/sleep"]
+            .iter()
+            .map(PathBuf::from)
+            .find(|p| p.exists())
+            .expect("a `sleep` binary is needed for long-lived children");
+        let sessions = DevSessions::new().with_command(sleep, vec!["30".to_string()]);
+        let dir = tempfile::tempdir().unwrap();
+
+        let first = sessions.start(dir.path(), false, false, None).unwrap()["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let second = sessions.start(dir.path(), false, false, None).unwrap()["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(first, second, "each session gets its own id");
+
+        // `logs` with no id reads the most recently started session.
+        let logs = sessions.logs(None, 5).unwrap();
+        assert_eq!(logs["session_id"], second);
+
+        // An unknown id names the sessions that do exist.
+        let err = sessions.status(Some("dev-999")).unwrap_err().to_string();
+        assert!(
+            err.contains(&first) && err.contains(&second),
+            "the error should list the known sessions, got: {err}"
+        );
+
+        // `stop` with no id stops every session.
+        let stopped = sessions.stop(None).unwrap();
+        assert_eq!(stopped["status"], "stopped");
+        assert_eq!(stopped["stopped"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            sessions.status(None).unwrap()["sessions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    /// A child that dies *after* the startup grace: `status` must report it as
+    /// stopped, with its exit status, and `stop` must not pretend it killed it.
+    #[cfg(unix)]
+    #[test]
+    fn status_reports_a_session_whose_child_died_after_start() {
+        let sleep = ["/bin/sleep", "/usr/bin/sleep"]
+            .iter()
+            .map(PathBuf::from)
+            .find(|p| p.exists())
+            .expect("a `sleep` binary is needed for a long-lived child");
+        let sessions = DevSessions::new().with_command(sleep, vec!["1".to_string()]);
+        let dir = tempfile::tempdir().unwrap();
+
+        let id = sessions.start(dir.path(), false, false, None).unwrap()["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // The child lives one second; let it exit on its own.
+        std::thread::sleep(Duration::from_millis(1600));
+
+        let status = sessions.status(Some(&id)).unwrap();
+        assert_eq!(status["running"], false, "the child exited: {status}");
+        assert!(
+            status["exit_status"].is_string(),
+            "an exited session reports how it exited: {status}"
+        );
+
+        let stopped = sessions.stop(Some(&id)).unwrap();
+        assert_eq!(
+            stopped["stopped"][0]["outcome"], "already_exited",
+            "stop must not claim to have killed a process that was already gone"
+        );
+    }
 }
