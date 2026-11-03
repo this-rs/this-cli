@@ -382,31 +382,37 @@ fn terminate(session: &mut DevSession) -> &'static str {
 
 /// Signal the process group led by `pgid` (`pid` of a child started with
 /// `process_group(0)`).
+///
+/// # Why `kill(2)` and not `sh -c "kill ..."`
+///
+/// The first version shelled out. It worked on macOS and failed on the Ubuntu
+/// runner: dash's `kill` builtin does not accept the `--` separator before a
+/// negative pid, so the SIGTERM was silently dropped, the grace expired, and
+/// every stop degraded to SIGKILL. `kill(2)` with a negative pid *is* the
+/// "signal the group" call — no shell, no dialect.
 fn signal_group(pgid: u32, force: bool) {
     #[cfg(unix)]
     {
-        let flag = if force { "-KILL" } else { "-TERM" };
-        // Negative pgid = "the whole group". `|| true` so a group that is
-        // already gone is not an error.
-        let _ = Command::new("sh")
-            .arg("-c")
-            .arg(format!("kill {flag} -- -{pgid} 2>/dev/null || true"))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        // `kill(2)` with a negative pid signals the whole process group. The
+        // return value is ignored on purpose: a group that is already gone
+        // reports ESRCH, which is not an error here.
+        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        // SAFETY: `kill` is a plain syscall wrapper with no memory contract; the
+        // only requirement is that the pid namespace is the caller's, which it is.
+        unsafe {
+            libc::kill(-(pgid as i32), signal);
+        }
     }
     #[cfg(windows)]
     {
-        // `/T` reaches the whole tree, which is the closest Windows equivalent
-        // of a process group.
+        // `/T` reaches the whole tree, the closest Windows equivalent of a
+        // process group.
+        let mut args = vec!["/PID".to_string(), pgid.to_string(), "/T".to_string()];
+        if force {
+            args.push("/F".to_string());
+        }
         let _ = Command::new("taskkill")
-            .args([
-                "/PID",
-                &pgid.to_string(),
-                "/T",
-                if force { "/F" } else { "" },
-            ])
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

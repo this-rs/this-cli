@@ -31,6 +31,13 @@ regex = "1"
 this-descriptor = { version = "0.0.1", path = "../this/crates/this-descriptor", features = ["yaml", "pattern"] }
 semver = "1"
 
+# Signalling a whole dev process group (dev_status / dev_stop) needs `kill(2)`
+# with a negative pid. No shell: the `kill` builtin of dash (Ubuntu's /bin/sh)
+# does not accept the `--` separator before a negative pid, so shelling out
+# silently failed there and the stop degraded to SIGKILL after the grace.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 serial_test = "3"
