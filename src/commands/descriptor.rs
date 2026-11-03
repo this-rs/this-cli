@@ -10,6 +10,7 @@ use this_descriptor::{CheckProfile, CustomRegistry, DescriptorSet, ModuleDescrip
 use super::{AddModuleArgs, DescriptorCommands, DescriptorExportArgs};
 use crate::descriptor::{self, io};
 use crate::utils::file_writer::FileWriter;
+use crate::utils::output::human;
 use crate::utils::{naming, output, project};
 
 pub fn run(cmd: DescriptorCommands, writer: &dyn FileWriter) -> Result<()> {
@@ -162,14 +163,14 @@ pub fn check(root: &Path) -> Result<CheckReport> {
 
 fn print_report(r: &CheckReport, json: bool) {
     if json {
-        println!("{}", serde_json::to_string_pretty(r).unwrap_or_default());
+        human!("{}", serde_json::to_string_pretty(r).unwrap_or_default());
         return;
     }
     for e in &r.errors {
-        println!("  {} {}", "✗".red().bold(), e);
+        human!("  {} {}", "✗".red().bold(), e);
     }
     for w in &r.warnings {
-        println!("  {} {}", "⚠".yellow().bold(), w);
+        human!("  {} {}", "⚠".yellow().bold(), w);
     }
     if r.errors.is_empty() && r.warnings.is_empty() {
         output::print_success("Descriptor OK");
@@ -235,7 +236,7 @@ fn export(root: &Path, a: &DescriptorExportArgs, w: &dyn FileWriter) -> Result<(
             }
             output::print_success(&format!("Wrote {}", path.display()));
         }
-        _ => print!("{rendered}"),
+        _ => output::inline(&rendered),
     }
     Ok(())
 }

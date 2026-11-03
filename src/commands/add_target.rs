@@ -6,6 +6,7 @@ use crate::config::{self, TargetConfig, TargetType};
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::output;
+use crate::utils::output::human;
 use crate::utils::project;
 
 pub fn run(args: AddTargetArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -114,11 +115,11 @@ fn run_webapp(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Pat
     output::print_info("Updated this.yaml with webapp target");
 
     // 7. Print next steps
-    println!();
-    println!("  {}", "Next steps:".bold());
-    println!("    cd {} && npm install", target_dir_name);
-    println!("    this dev");
-    println!();
+    human!();
+    human!("  {}", "Next steps:".bold());
+    human!("    cd {} && npm install", target_dir_name);
+    human!("    this dev");
+    human!();
 
     Ok(())
 }
@@ -236,15 +237,15 @@ fn run_desktop(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Pa
     output::print_info("Updated this.yaml with desktop target");
 
     // 8. Print next steps
-    println!();
-    println!("  {}", "Next steps:".bold());
-    println!("    Install Tauri CLI: cargo install tauri-cli@^2");
-    println!(
+    human!();
+    human!("  {}", "Next steps:".bold());
+    human!("    Install Tauri CLI: cargo install tauri-cli@^2");
+    human!(
         "    Run desktop app:  cargo tauri dev --manifest-path {}/src-tauri/Cargo.toml",
         target_dir_name
     );
-    println!("    Build desktop:    this build --target desktop");
-    println!();
+    human!("    Build desktop:    this build --target desktop");
+    human!();
 
     Ok(())
 }
@@ -359,20 +360,21 @@ fn run_mobile(
     output::print_info(&format!("Updated this.yaml with {} target", platform));
 
     // 8. Print next steps
-    println!();
-    println!("  {}", "Next steps:".bold());
-    println!("    cd {} && npm install", target_dir_name);
-    println!(
+    human!();
+    human!("  {}", "Next steps:".bold());
+    human!("    cd {} && npm install", target_dir_name);
+    human!(
         "    npx cap add {}  (initializes the native {} project)",
-        platform, platform
+        platform,
+        platform
     );
     if platform == "ios" {
-        println!("    npx cap open ios  (opens Xcode)");
+        human!("    npx cap open ios  (opens Xcode)");
     } else {
-        println!("    npx cap open android  (opens Android Studio)");
+        human!("    npx cap open android  (opens Android Studio)");
     }
-    println!("    this build --target {}", platform);
-    println!();
+    human!("    this build --target {}", platform);
+    human!();
 
     Ok(())
 }

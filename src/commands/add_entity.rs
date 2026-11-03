@@ -7,6 +7,7 @@ use super::AddEntityArgs;
 use crate::descriptor::{self, from_fields};
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
+use crate::utils::output::human;
 use crate::utils::{markers, naming, output, project};
 
 /// Parsed field definition (legacy view, kept for the parse tests)
@@ -64,8 +65,8 @@ pub(crate) fn run_in(
     }
 
     if writer.is_dry_run() {
-        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
-        println!();
+        human!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        human!();
     }
 
     // Parse fields (with their rules) and filter out reserved fields (already provided by
@@ -278,111 +279,111 @@ pub(crate) fn run_in(
 
     if !writer.is_dry_run() {
         output::print_success(&format!("Entity '{}' created!", entity_name));
-        println!();
+        human!();
         match args.backend.as_str() {
             "postgres" => {
-                println!("  Backend: {}", "PostgreSQL (sqlx)".bold());
-                println!();
-                println!("  Next steps:");
-                println!(
+                human!("  Backend: {}", "PostgreSQL (sqlx)".bold());
+                human!();
+                human!("  Next steps:");
+                human!(
                     "    1. Add {} to your Cargo.toml",
                     "this = { features = [\"postgres\"] }".bold()
                 );
-                println!("    2. Run migrations: {}", "sqlx migrate run".bold());
-                println!(
+                human!("    2. Run migrations: {}", "sqlx migrate run".bold());
+                human!(
                     "    3. Update main.rs to use {}",
                     "Stores::new_postgres(pool)".bold()
                 );
-                println!("    4. Run: {}", "cargo run --features postgres".bold());
+                human!("    4. Run: {}", "cargo run --features postgres".bold());
             }
             "mongodb" => {
-                println!("  Backend: {}", "MongoDB".bold());
-                println!();
-                println!("  Next steps:");
-                println!(
+                human!("  Backend: {}", "MongoDB".bold());
+                human!();
+                human!("  Next steps:");
+                human!(
                     "    1. Add {} to your Cargo.toml",
                     "this = { features = [\"mongodb\"] }".bold()
                 );
-                println!(
+                human!(
                     "    2. Start MongoDB: {}",
                     "docker run -d -p 27017:27017 mongo".bold()
                 );
-                println!(
+                human!(
                     "    3. Update main.rs to use {}",
                     "Stores::new_mongodb(db)".bold()
                 );
-                println!("    4. Run: {}", "cargo run --features mongodb".bold());
+                human!("    4. Run: {}", "cargo run --features mongodb".bold());
             }
             "neo4j" => {
-                println!("  Backend: {}", "Neo4j".bold());
-                println!();
-                println!("  Next steps:");
-                println!(
+                human!("  Backend: {}", "Neo4j".bold());
+                human!();
+                human!("  Next steps:");
+                human!(
                     "    1. Add {} to your Cargo.toml",
                     "this = { features = [\"neo4j\"] }".bold()
                 );
-                println!(
+                human!(
                     "    2. Start Neo4j: {}",
                     "docker run -d -p 7687:7687 -e NEO4J_AUTH=none neo4j".bold()
                 );
-                println!(
+                human!(
                     "    3. Update main.rs to use {}",
                     "Stores::new_neo4j(graph)".bold()
                 );
-                println!("    4. Run: {}", "cargo run --features neo4j".bold());
+                human!("    4. Run: {}", "cargo run --features neo4j".bold());
             }
             "scylladb" => {
-                println!("  Backend: {}", "ScyllaDB".bold());
-                println!();
-                println!("  Next steps:");
-                println!(
+                human!("  Backend: {}", "ScyllaDB".bold());
+                human!();
+                human!("  Next steps:");
+                human!(
                     "    1. Add {} to your Cargo.toml",
                     "this = { features = [\"scylladb\"] }".bold()
                 );
-                println!(
+                human!(
                     "    2. Start ScyllaDB: {}",
                     "docker run -d -p 9042:9042 scylladb/scylla".bold()
                 );
-                println!(
+                human!(
                     "    3. Update main.rs to use {}",
                     "Stores::new_scylladb(session, keyspace)".bold()
                 );
-                println!("    4. Run: {}", "cargo run --features scylladb".bold());
+                human!("    4. Run: {}", "cargo run --features scylladb".bold());
             }
             "mysql" => {
-                println!("  Backend: {}", "MySQL (sqlx)".bold());
-                println!();
-                println!("  Next steps:");
-                println!(
+                human!("  Backend: {}", "MySQL (sqlx)".bold());
+                human!();
+                human!("  Next steps:");
+                human!(
                     "    1. Add {} to your Cargo.toml",
                     "this = { features = [\"mysql\"] }".bold()
                 );
-                println!("    2. Run migrations: {}", "sqlx migrate run".bold());
-                println!(
+                human!("    2. Run migrations: {}", "sqlx migrate run".bold());
+                human!(
                     "    3. Update main.rs to use {}",
                     "Stores::new_mysql(pool)".bold()
                 );
-                println!("    4. Run: {}", "cargo run --features mysql".bold());
+                human!("    4. Run: {}", "cargo run --features mysql".bold());
             }
             "lmdb" => {
-                println!("  Backend: {}", "LMDB (embedded)".bold());
-                println!();
-                println!("  Next steps:");
-                println!(
+                human!("  Backend: {}", "LMDB (embedded)".bold());
+                human!();
+                human!("  Next steps:");
+                human!(
                     "    1. Add {} to your Cargo.toml",
                     "this = { features = [\"lmdb\"] }".bold()
                 );
-                println!(
+                human!(
                     "    2. Update main.rs to use {}",
                     "Stores::new_lmdb(env)".bold()
                 );
-                println!("    3. Run: {}", "cargo run --features lmdb".bold());
+                human!("    3. Run: {}", "cargo run --features lmdb".bold());
             }
             _ => {
-                println!("  Your project is ready to run: {}", "cargo run".bold());
+                human!("  Your project is ready to run: {}", "cargo run".bold());
             }
         }
-        println!();
+        human!();
     }
 
     Ok(())

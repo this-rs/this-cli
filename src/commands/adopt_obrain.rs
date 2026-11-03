@@ -31,6 +31,7 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value, value};
 
 use super::AdoptObrainArgs;
 use crate::utils::file_writer::FileWriter;
+use crate::utils::output::human;
 use crate::utils::{markers, output, project};
 
 /// Le marqueur que `this init` pose là où le store doit être branché.
@@ -73,14 +74,14 @@ pub fn run(args: AdoptObrainArgs, writer: &dyn FileWriter) -> Result<()> {
     };
 
     output::print_step("this adopt obrain");
-    println!("  projet : {}", root.display());
-    println!();
+    human!("  projet : {}", root.display());
+    human!();
 
     let report = adopt(&root, writer, args.report_only)?;
     print_report(&report, args.report_only);
 
     if writer.is_dry_run() {
-        println!("  {}", "mode --dry-run : rien n'a été écrit".yellow());
+        human!("  {}", "mode --dry-run : rien n'a été écrit".yellow());
     }
     Ok(())
 }
@@ -322,38 +323,42 @@ fn wiring_snippet(report_only: bool) -> String {
 
 /// L'affichage — ce que la commande a fait, et ce qui reste à faire.
 fn print_report(report: &AdoptionReport, report_only: bool) {
-    println!("  {}", "1. Dépendance".bold());
+    human!("  {}", "1. Dépendance".bold());
     if report.feature_added {
-        println!(
+        human!(
             "     feature « {} » activée sur `{}` dans {}",
-            FEATURE, DEP, report.manifest_section
+            FEATURE,
+            DEP,
+            report.manifest_section
         );
     } else if report.manifest_updated {
-        println!("     Cargo.toml mis à jour ({})", report.manifest_section);
+        human!("     Cargo.toml mis à jour ({})", report.manifest_section);
     } else {
-        println!(
+        human!(
             "     déjà en place : `{}` porte la feature « {} » ({})",
-            DEP, FEATURE, report.manifest_section
+            DEP,
+            FEATURE,
+            report.manifest_section
         );
     }
-    println!();
+    human!();
 
-    println!("  {}", "2. Branchement du store".bold());
+    human!("  {}", "2. Branchement du store".bold());
     if report.wiring_present {
-        println!("     déjà présent dans le code (`.with_obrain_store(…)`)");
+        human!("     déjà présent dans le code (`.with_obrain_store(…)`)");
     } else if report.wiring_inserted {
-        println!("     ligne insérée après le marqueur `{STORE_MARKER}`");
+        human!("     ligne insérée après le marqueur `{STORE_MARKER}`");
     } else {
-        println!("     aucun marqueur `{STORE_MARKER}` : à recopier où vous construisez l'hôte —");
-        println!();
+        human!("     aucun marqueur `{STORE_MARKER}` : à recopier où vous construisez l'hôte —");
+        human!();
         for line in report.wiring_snippet.as_deref().unwrap_or("").lines() {
-            println!("       {}", line);
+            human!("       {}", line);
         }
     }
-    println!();
+    human!();
 
-    println!("  {}", "3. Ce qui suit (dans cet ordre)".bold());
-    println!(
+    human!("  {}", "3. Ce qui suit (dans cet ordre)".bold());
+    human!(
         "     a. {} l'observation : {}",
         "activez d'abord".bold(),
         if report_only {
@@ -363,27 +368,27 @@ fn print_report(report: &AdoptionReport, report_only: bool) {
                 .to_string()
         }
     );
-    println!(
+    human!(
         "     b. laissez tourner, puis lisez les journaux : {}",
         "« autorisation : refus OBSERVÉ »".italic()
     );
-    println!("     c. corrigez les politiques qui refusent à tort, puis retirez l'observation");
-    println!(
+    human!("     c. corrigez les politiques qui refusent à tort, puis retirez l'observation");
+    human!(
         "     d. si vos identités ne sont pas `(user_id, tenant_id)` : {}",
         "`.with_principal_mapping(… )`".bold()
     );
-    println!("     e. vérifiez qu'un second écrivain est refusé (le bail est armé par défaut)");
-    println!();
-    println!(
+    human!("     e. vérifiez qu'un second écrivain est refusé (le bail est armé par défaut)");
+    human!();
+    human!(
         "  {} {}",
         "Guide complet :".bold(),
         "this-rs/docs/adoption-projet-existant.md (dans le dépôt du framework)".cyan()
     );
-    println!(
+    human!(
         "  {} cette commande n'écrit AUCUNE configuration d'authentification : vos politiques",
         "Note :".bold()
     );
-    println!("         et votre fournisseur restent les vôtres. Elle prépare, elle ne décide pas.");
+    human!("         et votre fournisseur restent les vôtres. Elle prépare, elle ne décide pas.");
 }
 
 #[cfg(test)]

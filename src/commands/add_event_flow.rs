@@ -3,6 +3,7 @@ use colored::Colorize;
 
 use super::AddEventFlowArgs;
 use crate::utils::file_writer::FileWriter;
+use crate::utils::output::human;
 use crate::utils::{output, project};
 
 /// Represents the events.yaml config structure
@@ -74,8 +75,8 @@ pub(crate) fn run_in(
     }
 
     if writer.is_dry_run() {
-        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
-        println!();
+        human!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        human!();
     }
 
     output::print_step(&format!(

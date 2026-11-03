@@ -4,6 +4,7 @@ use colored::Colorize;
 use super::AddSinkArgs;
 use crate::commands::add_event_flow::EventsConfig;
 use crate::utils::file_writer::FileWriter;
+use crate::utils::output::human;
 use crate::utils::{output, project};
 
 const VALID_SINK_TYPES: &[&str] = &["in_app", "webhook", "push", "websocket", "counter"];
@@ -47,8 +48,8 @@ pub(crate) fn run_in(
     }
 
     if writer.is_dry_run() {
-        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
-        println!();
+        human!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        human!();
     }
 
     output::print_step(&format!(

@@ -5,6 +5,7 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::config;
+use crate::utils::output::human;
 use crate::utils::{markers, naming, project};
 
 /// Result of a single diagnostic check
@@ -69,7 +70,7 @@ impl DiagnosticResult {
             DiagnosticLevel::Warn => self.message.yellow().to_string(),
             DiagnosticLevel::Error => self.message.red().to_string(),
         };
-        println!("  {} {} — {}", self.icon(), self.category.bold(), msg);
+        human!("  {} {} — {}", self.icon(), self.category.bold(), msg);
     }
 
     fn level_str(&self) -> &str {
@@ -126,21 +127,21 @@ pub fn run() -> Result<()> {
     let project_root = project::detect_project_root()?;
 
     let project_name = detect_project_name(&project_root);
-    println!();
+    human!();
     if project::find_workspace_root().is_some() {
-        println!(
+        human!(
             "{} Checking workspace project: {}",
             "🔍".bold(),
             project_name.cyan().bold()
         );
     } else {
-        println!(
+        human!(
             "{} Checking project: {}",
             "🔍".bold(),
             project_name.cyan().bold()
         );
     }
-    println!();
+    human!();
 
     let results = run_checks(&project_root);
 
@@ -163,17 +164,23 @@ pub fn run() -> Result<()> {
         .filter(|r| matches!(r.level, DiagnosticLevel::Error))
         .count();
 
-    println!();
-    print!("Summary: ");
-    print!("{}", format!("{} passed", passed).green());
+    human!();
+    // Built as one string rather than a sequence of print!: the summary is a
+    // single line of the human channel, and writing it in fragments is how a
+    // partial line ends up interleaved with another writer's output.
+    let mut summary = format!("Summary: {}", format!("{} passed", passed).green());
     if warnings > 0 {
-        print!(", {}", format!("{} warning(s)", warnings).yellow());
+        summary.push_str(&format!(
+            ", {}",
+            format!("{} warning(s)", warnings).yellow()
+        ));
     }
     if errors > 0 {
-        print!(", {}", format!("{} error(s)", errors).red());
+        summary.push_str(&format!(", {}", format!("{} error(s)", errors).red()));
     }
-    println!();
-    println!();
+    human!("{summary}");
+    human!();
+    human!();
 
     if errors > 0 {
         std::process::exit(1);

@@ -5,6 +5,7 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::config;
+use crate::utils::output::human;
 use crate::utils::{markers, project};
 
 /// Parsed entity info from scanning the project
@@ -165,7 +166,7 @@ fn detect_events_info(project_root: &Path) -> Option<EventsInfo> {
 pub fn run_with(json: bool) -> Result<()> {
     if json {
         let info = collect_info()?;
-        println!("{}", serde_json::to_string_pretty(&info)?);
+        human!("{}", serde_json::to_string_pretty(&info)?);
         return Ok(());
     }
     run()
@@ -181,45 +182,45 @@ pub fn run() -> Result<()> {
     let coherence = &info.coherence;
 
     // Display
-    println!();
-    println!("{} Project: {}", "📦".bold(), project_name.cyan().bold());
-    println!("   Framework: this-rs {}", this_version.dimmed());
+    human!();
+    human!("{} Project: {}", "📦".bold(), project_name.cyan().bold());
+    human!("   Framework: this-rs {}", this_version.dimmed());
     if info.features.graphql {
-        println!("   GraphQL:   {}", "✓ enabled".green());
+        human!("   GraphQL:   {}", "✓ enabled".green());
     } else {
-        println!("   GraphQL:   {}", "✗ disabled".dimmed());
+        human!("   GraphQL:   {}", "✗ disabled".dimmed());
     }
     if info.features.websocket {
-        println!("   WebSocket: {}", "✓ enabled".green());
+        human!("   WebSocket: {}", "✓ enabled".green());
     } else {
-        println!("   WebSocket: {}", "✗ disabled".dimmed());
+        human!("   WebSocket: {}", "✗ disabled".dimmed());
     }
     if info.features.grpc {
-        println!("   gRPC:      {}", "✓ enabled".green());
+        human!("   gRPC:      {}", "✓ enabled".green());
     } else {
-        println!("   gRPC:      {}", "✗ disabled".dimmed());
+        human!("   gRPC:      {}", "✗ disabled".dimmed());
     }
-    println!();
+    human!();
 
     // Workspace section (only if inside a workspace)
     if let Some(ws) = &info.workspace {
-        println!("{} Workspace: {}", "🏗️".bold(), ws.name.cyan().bold());
-        println!(
+        human!("{} Workspace: {}", "🏗️".bold(), ws.name.cyan().bold());
+        human!(
             "   API: {} (port {})",
             ws.api_path.dimmed(),
             ws.api_port.to_string().dimmed()
         );
         if ws.targets.is_empty() {
-            println!("   Targets: {}", "none".dimmed());
+            human!("   Targets: {}", "none".dimmed());
         } else {
-            println!("   Targets ({}):", ws.targets.len());
+            human!("   Targets ({}):", ws.targets.len());
             for target in &ws.targets {
                 let detail = match (&target.framework, &target.runtime) {
                     (Some(fw), _) => format!(" ({})", fw),
                     (_, Some(rt)) => format!(" ({})", rt),
                     _ => String::new(),
                 };
-                println!(
+                human!(
                     "     {} {} → {}{}",
                     "•".dimmed(),
                     target.target_type.bold(),
@@ -228,14 +229,14 @@ pub fn run() -> Result<()> {
                 );
             }
         }
-        println!();
+        human!();
     }
 
     // Entities section
     if entities.is_empty() {
-        println!("{} Entities: {}", "📋".bold(), "none".dimmed());
+        human!("{} Entities: {}", "📋".bold(), "none".dimmed());
     } else {
-        println!("{} Entities ({}):", "📋".bold(), entities.len());
+        human!("{} Entities ({}):", "📋".bold(), entities.len());
         for entity in entities {
             let fields_str = if entity.fields.is_empty() {
                 "no fields".dimmed().to_string()
@@ -252,7 +253,7 @@ pub fn run() -> Result<()> {
             } else {
                 String::new()
             };
-            println!(
+            human!(
                 "   {} {} (fields: {}){}",
                 "•".dimmed(),
                 entity.name.bold(),
@@ -261,17 +262,17 @@ pub fn run() -> Result<()> {
             );
         }
     }
-    println!();
+    human!();
 
     // Links section
     if links.is_empty() {
-        println!("{} Links: {}", "🔗".bold(), "none".dimmed());
+        human!("{} Links: {}", "🔗".bold(), "none".dimmed());
     } else {
-        println!("{} Links ({}):", "🔗".bold(), links.len());
+        human!("{} Links ({}):", "🔗".bold(), links.len());
         for link in links {
             let source_plural = crate::utils::naming::pluralize(&link.source);
             let target_plural = crate::utils::naming::pluralize(&link.target);
-            println!(
+            human!(
                 "   {} {} {} {} ({})",
                 "•".dimmed(),
                 link.source.bold(),
@@ -279,13 +280,13 @@ pub fn run() -> Result<()> {
                 link.target.bold(),
                 link.link_type.dimmed()
             );
-            println!(
+            human!(
                 "     {} Forward: /{}/{{id}}/{}",
                 "↳".dimmed(),
                 source_plural,
                 link.forward_route
             );
-            println!(
+            human!(
                 "     {} Reverse: /{}/{{id}}/{}",
                 "↳".dimmed(),
                 target_plural,
@@ -293,29 +294,29 @@ pub fn run() -> Result<()> {
             );
         }
     }
-    println!();
+    human!();
 
     // Events section
     if let Some(events) = &info.events {
-        println!(
+        human!(
             "{} Events: {} sink(s), {} flow(s)",
             "📡".bold(),
             events.sinks.len().to_string().cyan(),
             events.flows.len().to_string().cyan()
         );
         if !events.sinks.is_empty() {
-            println!("   Sinks: {}", events.sinks.join(", ").dimmed());
+            human!("   Sinks: {}", events.sinks.join(", ").dimmed());
         }
         if !events.flows.is_empty() {
             for flow in &events.flows {
-                println!("   {} {}", "•".dimmed(), flow.bold());
+                human!("   {} {}", "•".dimmed(), flow.bold());
             }
         }
-        println!();
+        human!();
     }
 
     // Status section
-    println!("{} Status:", "📊".bold());
+    human!("{} Status:", "📊".bold());
 
     // Module registration
     let check =
@@ -325,11 +326,12 @@ pub fn run() -> Result<()> {
             "✅"
         };
     if coherence.module_total == 0 {
-        println!("   {check} Module: {}", "No entities to register".dimmed());
+        human!("   {check} Module: {}", "No entities to register".dimmed());
     } else {
-        println!(
+        human!(
             "   {check} Module: {}/{} entities registered",
-            coherence.module_registered, coherence.module_total
+            coherence.module_registered,
+            coherence.module_total
         );
     }
 
@@ -341,25 +343,26 @@ pub fn run() -> Result<()> {
             "✅"
         };
     if coherence.stores_total == 0 {
-        println!("   {check} Stores: {}", "No stores to configure".dimmed());
+        human!("   {check} Stores: {}", "No stores to configure".dimmed());
     } else {
-        println!(
+        human!(
             "   {check} Stores: {}/{} stores configured",
-            coherence.stores_configured, coherence.stores_total
+            coherence.stores_configured,
+            coherence.stores_total
         );
     }
 
     // Links validity
     if coherence.links_valid {
-        println!("   ✅ Links: Valid configuration");
+        human!("   ✅ Links: Valid configuration");
     } else {
-        println!("   ⚠️ Links: {}", "Issues found".yellow());
+        human!("   ⚠️ Links: {}", "Issues found".yellow());
         for issue in &coherence.links_issues {
-            println!("     {} {}", "→".dimmed(), issue);
+            human!("     {} {}", "→".dimmed(), issue);
         }
     }
 
-    println!();
+    human!();
 
     Ok(())
 }
