@@ -1540,6 +1540,34 @@ impl Module for TestModule {{
     }
 
     #[test]
+    fn test_add_entity_neo4j_backend() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "neo4j_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "neo4j".to_string();
+
+        run_in(args, &writer, &project).unwrap();
+
+        assert_file_contains(&project, "src/entities/product/store.rs", "Neo4j");
+        assert_file_contains(&project, "src/stores.rs", "Neo4jProductStore");
+    }
+
+    #[test]
+    fn test_add_entity_scylladb_backend() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "scylla_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "scylladb".to_string();
+
+        run_in(args, &writer, &project).unwrap();
+
+        assert_file_contains(&project, "src/entities/product/store.rs", "Scylla");
+        assert_file_contains(&project, "src/stores.rs", "ScyllaProductStore");
+    }
+
+    #[test]
     fn test_add_entity_reserved_fields_skipped() {
         let tmp = TempDir::new().unwrap();
         let project = setup_entity_project(&tmp, "reserved_fields");

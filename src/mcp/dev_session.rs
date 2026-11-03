@@ -673,4 +673,91 @@ mod tests {
             "stop must not claim to have killed a process that was already gone"
         );
     }
+    /// The production argument construction was never exercised: every test so
+    /// far injected its own command. Point the executable at a path that does
+    /// not exist, so the spawn error carries the exact command line.
+    #[test]
+    fn start_translates_the_options_into_this_dev_flags() {
+        let sessions = DevSessions::with_exe(PathBuf::from("/nonexistent/this-binary"));
+        let dir = tempfile::tempdir().unwrap();
+
+        let err = sessions
+            .start(dir.path(), true, true, Some(4321))
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            err.contains("/nonexistent/this-binary dev --api-only --no-watch --port 4321"),
+            "the options must become the real `this dev` flags, got: {err}"
+        );
+    }
+
+    /// Without the options, the command is bare `dev`: no stray flag.
+    #[test]
+    fn start_without_options_runs_a_bare_dev() {
+        let sessions = DevSessions::with_exe(PathBuf::from("/nonexistent/this-binary"));
+        let dir = tempfile::tempdir().unwrap();
+
+        let err = sessions
+            .start(dir.path(), false, false, None)
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            // The closing backtick right after `dev` proves no flag followed.
+            err.contains("/nonexistent/this-binary dev`"),
+            "expected a bare `dev`, got: {err}"
+        );
+    }
+
+    /// The escalation path: a process group that ignores SIGTERM must still be
+    /// killed, and `stop` must report that it had to escalate.
+    #[cfg(unix)]
+    #[test]
+    fn stop_escalates_to_sigkill_when_the_group_ignores_sigterm() {
+        let shell = ["/bin/sh", "/usr/bin/sh"]
+            .iter()
+            .map(PathBuf::from)
+            .find(|p| p.exists())
+            .expect("a POSIX shell is needed");
+        // `trap '' TERM` makes the disposition inherited by `sleep`: SIGTERM is
+        // ignored, so only SIGKILL can end the group.
+        let sessions = DevSessions::new().with_command(
+            shell,
+            vec!["-c".to_string(), "trap '' TERM; sleep 60".to_string()],
+        );
+        let dir = tempfile::tempdir().unwrap();
+
+        let id = sessions.start(dir.path(), false, false, None).unwrap()["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let began = Instant::now();
+        let stopped = sessions.stop(Some(&id)).unwrap();
+
+        assert_eq!(
+            stopped["stopped"][0]["outcome"], "killed",
+            "a group that ignores SIGTERM must be killed, and stop must say so"
+        );
+        assert!(
+            began.elapsed() >= STOP_GRACE,
+            "the grace period must be spent before escalating, took {:?}",
+            began.elapsed()
+        );
+    }
+
+    /// `Default` is what `ToolHandler::new` would get from a derived default;
+    /// covering it keeps the impl honest rather than dead.
+    #[test]
+    fn default_registry_is_empty() {
+        let sessions = DevSessions::default();
+        assert_eq!(
+            sessions.status(None).unwrap()["sessions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
 }
