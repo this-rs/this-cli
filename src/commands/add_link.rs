@@ -3,6 +3,7 @@ use colored::Colorize;
 
 use super::AddLinkArgs;
 use crate::utils::file_writer::FileWriter;
+use crate::utils::output::human;
 use crate::utils::{naming, output, project};
 
 /// Unknown YAML keys carried through a read-modify-write of a config file.
@@ -139,8 +140,8 @@ pub(crate) fn run_in(
     let reverse = args.reverse.unwrap_or_else(|| source.clone());
 
     if writer.is_dry_run() {
-        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
-        println!();
+        human!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        human!();
     }
 
     output::print_step(&format!(

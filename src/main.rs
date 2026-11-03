@@ -58,6 +58,10 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
         Commands::Build(args) => commands::build::run(args, writer),
         Commands::Dev(args) => commands::dev::run(args),
         Commands::Mcp => {
+            // stdout belongs to the JSON-RPC protocol from here on: every human
+            // line (banner, "Next steps", diagnostics) must go to stderr, or the
+            // client receives garbage in the middle of its stream.
+            output::set_mode(output::OutputMode::Mcp);
             let mut server = mcp::server::McpServer::new();
             server.run()
         }

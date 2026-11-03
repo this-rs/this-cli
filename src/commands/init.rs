@@ -7,6 +7,7 @@ use super::InitArgs;
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::output;
+use crate::utils::output::human;
 
 /// Entry point: dispatch to classic or workspace mode based on `--workspace` flag.
 pub fn run(args: InitArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -37,8 +38,8 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
     }
 
     if writer.is_dry_run() {
-        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
-        println!();
+        human!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        human!();
     }
 
     output::print_banner();
@@ -173,8 +174,8 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     }
 
     if writer.is_dry_run() {
-        println!("🔍 {}", "Dry run — no files will be written".cyan().bold());
-        println!();
+        human!("🔍 {}", "Dry run — no files will be written".cyan().bold());
+        human!();
     }
 
     output::print_banner();
@@ -346,8 +347,8 @@ fn init_git(args: &InitArgs, project_dir: &Path, writer: &dyn FileWriter) -> Res
             _ => output::print_warn("Could not initialize git repository (git not found?)"),
         }
     } else if !args.no_git && writer.is_dry_run() {
-        println!("  {} .gitignore", "Would create:".cyan());
-        println!("  {} git init", "Would run:".cyan());
+        human!("  {} .gitignore", "Would create:".cyan());
+        human!("  {} git init", "Would run:".cyan());
     }
 
     Ok(())

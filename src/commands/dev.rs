@@ -11,6 +11,7 @@ use colored::Colorize;
 use super::DevArgs;
 use crate::commands::info;
 use crate::config::{self, TargetType};
+use crate::utils::output::human;
 use crate::utils::project;
 use crate::utils::{naming, output};
 
@@ -365,7 +366,7 @@ pub fn run(args: DevArgs) -> Result<()> {
     }
 
     // 11. Cleanup — kill children gracefully
-    println!();
+    human!();
     output::print_step("Shutting down...");
 
     let _ = api_child.kill();
@@ -453,16 +454,16 @@ fn build_api_command(watcher: &RustWatcher, api_path: &Path, port: u16) -> Comma
 
 /// Print the dev server startup banner.
 fn print_banner(port: u16, watcher: &RustWatcher, front_mode: &FrontMode, api_only: bool) {
-    println!();
-    println!("  {}", "🚀 Starting development servers...".bold());
-    println!();
+    human!();
+    human!("  {}", "🚀 Starting development servers...".bold());
+    human!();
 
     // API line
     let watcher_info = match watcher {
         RustWatcher::None => format!("  {}", "(tip: cargo install cargo-watch)".dimmed()),
         w => format!("  {} {}", "✓".green(), w.label().dimmed()),
     };
-    println!(
+    human!(
         "   {}  http://127.0.0.1:{}{}",
         "API:".cyan().bold(),
         port,
@@ -477,14 +478,14 @@ fn print_banner(port: u16, watcher: &RustWatcher, front_mode: &FrontMode, api_on
                 dev_log,
                 ..
             } => {
-                println!(
+                human!(
                     "   {} http://127.0.0.1:{}  {}",
                     "Front:".green().bold(),
                     port,
                     "(vite-rs dev loop — served by the API process)".dimmed()
                 );
-                println!("        {} {}", "dev log:".dimmed(), dev_log.display());
-                println!(
+                human!("        {} {}", "dev log:".dimmed(), dev_log.display());
+                human!(
                     "        {} curl -s -X POST localhost:{}/__dev/command -H 'content-type: application/json' -d '{{\"code\":\"document.title\"}}'",
                     "bridge:".dimmed(),
                     port
@@ -492,7 +493,7 @@ fn print_banner(port: u16, watcher: &RustWatcher, front_mode: &FrontMode, api_on
                 let _ = front_path;
             }
             FrontMode::Legacy { front_path } => {
-                println!(
+                human!(
                     "   {} http://localhost:5173  {}",
                     "Front:".green().bold(),
                     format!("({}, Node/Vite dev server)", front_path.display()).dimmed()
@@ -502,9 +503,9 @@ fn print_banner(port: u16, watcher: &RustWatcher, front_mode: &FrontMode, api_on
         }
     }
 
-    println!();
-    println!("   {}", "Press Ctrl+C to stop".dimmed());
-    println!();
+    human!();
+    human!("   {}", "Press Ctrl+C to stop".dimmed());
+    human!();
 }
 
 /// Print contextual usage examples based on project introspection.
@@ -520,19 +521,19 @@ fn print_usage_examples(port: u16) {
         .first()
         .map(|e| naming::pluralize(&e.name));
 
-    println!("   {}", "Examples:".bold());
-    println!();
+    human!("   {}", "Examples:".bold());
+    human!();
 
     // REST example — always available
     if let Some(ref route) = first_entity_route {
-        println!(
+        human!(
             "   {}  curl http://127.0.0.1:{}/{}",
             "[REST]".cyan(),
             port,
             route
         );
     } else {
-        println!(
+        human!(
             "   {}  curl http://127.0.0.1:{}/health",
             "[REST]".cyan(),
             port
@@ -543,17 +544,17 @@ fn print_usage_examples(port: u16) {
     if project_info.features.graphql {
         if !project_info.entities.is_empty() {
             let entity_name = &project_info.entities[0].name;
-            println!(
+            human!(
                 "   {}  curl -X POST http://127.0.0.1:{}/graphql -H 'Content-Type: application/json' \\",
                 "[GQL] ".magenta(),
                 port
             );
-            println!(
+            human!(
                 "                 -d '{{\"query\": \"{{ {} {{ id }} }}\"}}'",
                 naming::pluralize(entity_name)
             );
         } else {
-            println!(
+            human!(
                 "   {}  open http://127.0.0.1:{}/graphql/playground",
                 "[GQL] ".magenta(),
                 port
@@ -563,7 +564,7 @@ fn print_usage_examples(port: u16) {
 
     // gRPC example — only if feature enabled
     if project_info.features.grpc {
-        println!(
+        human!(
             "   {}  grpcurl -plaintext 127.0.0.1:{} list",
             "[gRPC]".yellow(),
             port
@@ -572,14 +573,14 @@ fn print_usage_examples(port: u16) {
 
     // WebSocket example — only if feature enabled
     if project_info.features.websocket {
-        println!(
+        human!(
             "   {}  websocat ws://127.0.0.1:{}/ws",
             "[WS]  ".green(),
             port
         );
     }
 
-    println!();
+    human!();
 }
 
 /// Build usage examples as a list of (label, command) pairs — useful for testing.

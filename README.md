@@ -226,7 +226,11 @@ this generate client                # Auto-detect output from this.yaml webapp t
 this generate client --output ./client.ts  # Custom output path
 ```
 
-Generates a self-contained TypeScript file with interfaces and CRUD functions for all entities and links. Type mapping: `String` -> `string`, `f64`/`f32`/`i32`/`i64`/`u32`/`u64` -> `number`, `bool` -> `boolean`, `Option<T>` -> `T | null`, `Vec<T>` -> `T[]`.
+Generates a self-contained TypeScript file with interfaces and CRUD functions for all entities and links.
+
+Type mapping: `String`/`&str`/`Uuid` -> `string`, `bool` -> `boolean`, `f64`/`f32`/`i8`..`i32`/`u8`..`u32` -> `number`, `Option<T>` -> `T | null`, `Vec<T>` -> `T[]`, `HashMap<K, V>` -> `Record<K, V>`.
+
+**Wide integers are `string`, not `number`.** `i64`, `u64`, `i128`, `u128`, `isize` and `usize` are generated as `string` — including inside `Option<...>`, `Vec<...>` and `HashMap<...>`. A JavaScript `number` is an IEEE-754 double and represents integers exactly only up to 2^53 - 1 (`9_007_199_254_740_991`); beyond that an id or a counter would silently round and two distinct entities could compare equal. `Uuid` already crosses the wire as a string for the same reason. Fields that legitimately fit in 32 bits keep `number`.
 
 ### this build
 

@@ -55,6 +55,10 @@ impl McpServer {
             }
         }
 
+        // stdin is closed: the client is gone. Nothing this server started —
+        // in practice the `this dev` sessions — may outlive it.
+        self.tool_handler.shutdown();
+
         Ok(())
     }
 
@@ -280,8 +284,9 @@ mod tests {
         assert!(resp.result.is_some());
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        // Un outil par commande — `adopt_obrain` compris.
-        assert_eq!(tools.len(), 14);
+        // Un outil par commande — `adopt_obrain` compris — plus les trois
+        // outils de session de `start_dev` (dev_status, dev_logs, dev_stop).
+        assert_eq!(tools.len(), 17);
     }
 
     #[test]

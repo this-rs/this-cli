@@ -10,6 +10,7 @@ use crate::config::{self, TargetType, WorkspaceConfig};
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::output;
+use crate::utils::output::human;
 use crate::utils::project;
 
 /// Entry point for `this build`.
@@ -191,7 +192,7 @@ fn run_embed(
     let binary_path = api_path.join(format!("target/release/{}", config.name));
     if let Ok(meta) = fs::metadata(&binary_path) {
         let size_mb = meta.len() as f64 / (1024.0 * 1024.0);
-        println!(
+        human!(
             "  {} Single binary: {} ({:.1} MB)",
             "📦".bold(),
             binary_path.display().to_string().dimmed(),

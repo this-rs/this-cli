@@ -1,14 +1,27 @@
 //! MCP tool handlers — bridge between MCP tool calls and CLI commands
 
+use crate::mcp::dev_session::{DEFAULT_LOG_LINES, DevSessions};
 use anyhow::Result;
 use serde_json::Value;
 
 /// Handles MCP tool calls by dispatching to the appropriate CLI command
-pub struct ToolHandler;
+pub struct ToolHandler {
+    /// Long-lived `this dev` sessions. Owned here because the MCP server lives
+    /// as long as the session and must outlive the individual tool calls.
+    dev: DevSessions,
+}
 
 impl ToolHandler {
     pub fn new() -> Self {
-        Self
+        Self {
+            dev: DevSessions::new(),
+        }
+    }
+
+    /// Stop everything this process started. Called when the MCP server's stdin
+    /// closes, so no dev server outlives the session that launched it.
+    pub fn shutdown(&self) {
+        self.dev.shutdown_all();
     }
 
     /// Handle a tool call by name with the given arguments
@@ -22,7 +35,10 @@ impl ToolHandler {
             "get_project_info" => handle_get_project_info(&args),
             "check_project_health" => handle_check_project_health(&args),
             "build_project" => handle_build_project(&args),
-            "start_dev" => handle_start_dev(&args),
+            "start_dev" => handle_start_dev(&self.dev, &args),
+            "dev_status" => handle_dev_status(&self.dev, &args),
+            "dev_logs" => handle_dev_logs(&self.dev, &args),
+            "dev_stop" => handle_dev_stop(&self.dev, &args),
             "add_target" => handle_add_target(&args),
             "add_event_flow" => handle_add_event_flow(&args),
             "add_sink" => handle_add_sink(&args),
@@ -65,8 +81,7 @@ impl Drop for CwdGuard {
 }
 
 use crate::commands::{
-    AddEntityArgs, AddEventFlowArgs, AddLinkArgs, AddSinkArgs, AddTargetArgs, BuildArgs, DevArgs,
-    InitArgs,
+    AddEntityArgs, AddEventFlowArgs, AddLinkArgs, AddSinkArgs, AddTargetArgs, BuildArgs, InitArgs,
 };
 use crate::utils::file_writer::FileWriter;
 
@@ -474,7 +489,14 @@ fn handle_build_project(args: &Value) -> Result<Value> {
     }))
 }
 
-fn handle_start_dev(args: &Value) -> Result<Value> {
+/// Start a supervised `this dev` and return at once.
+///
+/// The old implementation called `commands::dev::run` directly: a synchronous
+/// long-running process that froze the whole JSON-RPC loop — while the tool's
+/// own description claimed it only returned a command. One session = one child
+/// `this dev` in its own process group, so it can be inspected and stopped, and
+/// it cannot outlive this server.
+fn handle_start_dev(dev: &DevSessions, args: &Value) -> Result<Value> {
     let api_only = args
         .get("api_only")
         .and_then(|v| v.as_bool())
@@ -487,25 +509,32 @@ fn handle_start_dev(args: &Value) -> Result<Value> {
 
     let port = args.get("port").and_then(|v| v.as_u64()).map(|p| p as u16);
 
-    let _cwd_guard = CwdGuard::from_args(args)?;
-
-    let dev_args = DevArgs {
-        api_only,
-        no_watch,
-        port,
+    // The session keeps its own cwd instead of moving the server's: `this dev`
+    // is spawned with `current_dir`, so no guard is needed here.
+    let cwd = match args.get("cwd").and_then(|v| v.as_str()) {
+        Some(cwd) => std::path::PathBuf::from(cwd),
+        None => std::env::current_dir()
+            .map_err(|e| anyhow::anyhow!("Cannot determine the current directory: {e}"))?,
     };
 
-    // Note: this dev is a long-running process. In MCP context, it will block
-    // the stdio server. For now, we start it — the MCP client (e.g. Claude Code)
-    // should run this in a background shell instead of via MCP for long-running use.
-    // This handler is useful for validation (workspace detection, config parsing)
-    // and for short-lived checks.
-    crate::commands::dev::run(dev_args)?;
+    dev.start(&cwd, api_only, no_watch, port)
+}
 
-    Ok(serde_json::json!({
-        "status": "stopped",
-        "message": "Dev servers shut down",
-    }))
+fn handle_dev_status(dev: &DevSessions, args: &Value) -> Result<Value> {
+    dev.status(args.get("session_id").and_then(|v| v.as_str()))
+}
+
+fn handle_dev_logs(dev: &DevSessions, args: &Value) -> Result<Value> {
+    let lines = args
+        .get("lines")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize)
+        .unwrap_or(DEFAULT_LOG_LINES);
+    dev.logs(args.get("session_id").and_then(|v| v.as_str()), lines)
+}
+
+fn handle_dev_stop(dev: &DevSessions, args: &Value) -> Result<Value> {
+    dev.stop(args.get("session_id").and_then(|v| v.as_str()))
 }
 
 fn handle_add_target(args: &Value) -> Result<Value> {

@@ -15,6 +15,9 @@ pub fn all_tools() -> Vec<ToolDefinition> {
         check_project_health_tool(),
         build_project_tool(),
         start_dev_tool(),
+        dev_status_tool(),
+        dev_logs_tool(),
+        dev_stop_tool(),
         add_target_tool(),
         generate_client_tool(),
         adopt_obrain_tool(),
@@ -341,7 +344,7 @@ fn build_project_tool() -> ToolDefinition {
 fn start_dev_tool() -> ToolDefinition {
     ToolDefinition {
         name: "start_dev".to_string(),
-        description: "Start development servers: API (cargo run with auto-detected watcher) + frontend (npm run dev). Returns the command to run rather than spawning long-lived processes. Requires a workspace (this.yaml).".to_string(),
+        description: "Start a SUPERVISED development session and return immediately: one background `this dev` process (API with auto-detected watcher, plus the frontend) whose output goes to a log file. The call never blocks the MCP transport. Returns a session_id — use dev_status to check liveness, dev_logs to read the output tail, dev_stop to terminate. Sessions are killed when the MCP server exits. Requires a workspace (this.yaml).".to_string(),
         input_schema: InputSchema {
             schema_type: "object".to_string(),
             properties: Some(json!({
@@ -360,6 +363,61 @@ fn start_dev_tool() -> ToolDefinition {
                 "cwd": {
                     "type": "string",
                     "description": "Working directory (must be inside a this-rs workspace)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
+fn dev_status_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "dev_status".to_string(),
+        description: "Report supervised development sessions: liveness, pid, uptime, exit status, cwd, command and log path. With no session_id, lists every session.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "session_id": {
+                    "type": "string",
+                    "description": "Session returned by start_dev. Omit to list all sessions."
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
+fn dev_logs_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "dev_logs".to_string(),
+        description: "Read the tail of a supervised development session's log (bounded: default 80 lines, max 1000). With no session_id, reads the most recently started session.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "session_id": {
+                    "type": "string",
+                    "description": "Session returned by start_dev. Omit for the most recent session."
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "How many trailing lines to return (default 80, max 1000)"
+                }
+            })),
+            required: None,
+        },
+    }
+}
+
+fn dev_stop_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "dev_stop".to_string(),
+        description: "Stop a supervised development session: SIGTERM to the whole process group (so `cargo run`'s binary and `npm`'s node process die too), then SIGKILL after a grace period. With no session_id, stops every session.".to_string(),
+        input_schema: InputSchema {
+            schema_type: "object".to_string(),
+            properties: Some(json!({
+                "session_id": {
+                    "type": "string",
+                    "description": "Session returned by start_dev. Omit to stop all sessions."
                 }
             })),
             required: None,
@@ -457,8 +515,9 @@ mod tests {
 
     #[test]
     fn test_all_tools_count() {
-        // Un outil par commande : `adopt_obrain` est le dernier ajouté.
-        assert_eq!(all_tools().len(), 14);
+        // Un outil par commande, plus les trois outils de session de
+        // `start_dev` : `dev_status`, `dev_logs`, `dev_stop`.
+        assert_eq!(all_tools().len(), 17);
     }
 
     /// L'outil d'adoption expose bien ce qui compte : le répertoire, et le choix
@@ -521,7 +580,14 @@ mod tests {
 
     #[test]
     fn test_all_tools_have_cwd_param() {
+        // The session tools address an existing session by id: they take no
+        // `cwd`, because the working directory was fixed when the session
+        // started.
+        const SESSION_TOOLS: [&str; 3] = ["dev_status", "dev_logs", "dev_stop"];
         for tool in all_tools() {
+            if SESSION_TOOLS.contains(&tool.name.as_str()) {
+                continue;
+            }
             let props = tool
                 .input_schema
                 .properties

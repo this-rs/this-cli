@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::utils::output::human;
 use anyhow::{Context, Result};
 use colored::Colorize;
 
@@ -91,21 +92,21 @@ impl DryRunWriter {
         let created = self.files_created.borrow();
         let updated = self.files_updated.borrow();
 
-        println!();
+        human!();
         if !created.is_empty() {
-            println!(
+            human!(
                 "  {} file(s) would be created",
                 created.len().to_string().bold()
             );
         }
         if !updated.is_empty() {
-            println!(
+            human!(
                 "  {} file(s) would be modified",
                 updated.len().to_string().bold()
             );
         }
         if created.is_empty() && updated.is_empty() {
-            println!("  {}", "No changes would be made".dimmed());
+            human!("  {}", "No changes would be made".dimmed());
         }
     }
 }
@@ -117,19 +118,19 @@ impl FileWriter for DryRunWriter {
     }
 
     fn write_file(&self, path: &Path, _content: &str) -> Result<()> {
-        println!("  {} {}", "Would create:".cyan(), path.display());
+        human!("  {} {}", "Would create:".cyan(), path.display());
         self.files_created.borrow_mut().push(path.to_path_buf());
         Ok(())
     }
 
     fn write_bytes(&self, path: &Path, _content: &[u8]) -> Result<()> {
-        println!("  {} {}", "Would create:".cyan(), path.display());
+        human!("  {} {}", "Would create:".cyan(), path.display());
         self.files_created.borrow_mut().push(path.to_path_buf());
         Ok(())
     }
 
     fn update_file(&self, path: &Path, original: &str, updated: &str) -> Result<()> {
-        println!("  {} {}", "Would modify:".yellow(), path.display());
+        human!("  {} {}", "Would modify:".yellow(), path.display());
         self.files_updated.borrow_mut().push(path.to_path_buf());
 
         // Show a simplified diff
@@ -150,7 +151,7 @@ fn print_simple_diff(original: &str, updated: &str) {
 
     for line in &updated_lines {
         if !original_lines.contains(line) {
-            println!("    {} {}", "+".green(), line.green());
+            human!("    {} {}", "+".green(), line.green());
         }
     }
 }
