@@ -574,4 +574,45 @@ mod tests {
              elle pourrait désarmer celle du projet"
         );
     }
+    /// `run` is the part that displays: the ten tests above call `adopt()`
+    /// directly, so `print_report` and the dry-run notice around it were never
+    /// executed. This covers the display path end to end, on a real project.
+    #[test]
+    fn run_prints_the_report_for_observation_mode() {
+        let dir = project("[dependencies]\nthis-rs = \"0.0.9\"\n");
+        run(
+            AdoptObrainArgs {
+                path: Some(dir.path().to_path_buf()),
+                report_only: true,
+            },
+            &RealWriter,
+        )
+        .expect("run");
+
+        let after = manifest(&dir);
+        // The manifest gets the feature; `report_only` changes the *wiring
+        // snippet that is displayed*, not the rewritten source (it is guidance
+        // to copy by hand, see the "aucun marqueur" branch of the report).
+        assert!(
+            after.contains("obrain"),
+            "the feature was still added: {after}"
+        );
+    }
+
+    /// And with a dry-run writer, `run` must say so and write nothing.
+    #[test]
+    fn run_reports_a_dry_run_without_writing() {
+        let dir = project("[dependencies]\nthis-rs = \"0.0.9\"\n");
+        let before = manifest(&dir);
+        run(
+            AdoptObrainArgs {
+                path: Some(dir.path().to_path_buf()),
+                report_only: false,
+            },
+            &crate::utils::file_writer::DryRunWriter::new(),
+        )
+        .expect("run");
+
+        assert_eq!(manifest(&dir), before, "a dry run must not touch the file");
+    }
 }

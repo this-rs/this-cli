@@ -1107,3 +1107,41 @@ fn test_mcp_start_dev_answers_and_leaves_the_transport_alive() {
 
     assert_eq!(session.responses[3]["result"], json!({}));
 }
+
+/// `dev_logs` and `dev_stop` are the other half of the session surface: without
+/// them `start_dev` would hand back a session nobody can inspect or close.
+/// Exercised through the protocol, on an empty registry — the state a fresh
+/// server is in.
+#[test]
+fn test_mcp_dev_logs_and_dev_stop_without_a_session() {
+    let init = initialize_msg();
+    let logs = json_rpc(
+        "tools/call",
+        Some(json!({"name": "dev_logs", "arguments": {}})),
+        2,
+    );
+    let stop = json_rpc(
+        "tools/call",
+        Some(json!({"name": "dev_stop", "arguments": {}})),
+        3,
+    );
+
+    let session = mcp_session(&[&init, &logs, &stop]);
+    assert_eq!(session.responses.len(), 3);
+
+    // Asking for logs when nothing ran is an error that says exactly that.
+    assert_eq!(session.responses[1]["result"]["isError"], true);
+    let text = session.responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(text.contains("No dev session is running"), "got: {text}");
+
+    // Stopping nothing is a no-op, not an error: a stop that cannot fail is
+    // what a client wants to be able to call unconditionally.
+    let text = session.responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    let stopped: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(stopped["status"], "none");
+    assert_eq!(stopped["stopped"].as_array().unwrap().len(), 0);
+}
