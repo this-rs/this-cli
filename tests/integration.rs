@@ -2564,3 +2564,37 @@ fn test_framework_check_catches_a_manifest_that_builds_another_commit() {
         "the finding should be named on stderr, got:\n{stderr}"
     );
 }
+
+#[test]
+fn test_init_workspace_declares_its_framework_pin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (success, _, stderr) = run_this(
+        &[
+            "init",
+            "pinned",
+            "--workspace",
+            "--grpc",
+            "--this-url",
+            "https://github.com/this-rs/this",
+            "--this-rev",
+            "cceb3063e1",
+        ],
+        tmp.path(),
+    );
+    assert!(success, "init should succeed: {stderr}");
+
+    let yaml = std::fs::read_to_string(tmp.path().join("pinned/this.yaml")).unwrap();
+    assert!(
+        yaml.contains("this:"),
+        "a generated workspace declares its pin:\n{yaml}"
+    );
+    assert!(yaml.contains("rev: cceb3063e1"), "got:\n{yaml}");
+
+    // The manifest and the declaration must say the same thing, or the project
+    // is born inconsistent.
+    let cargo = std::fs::read_to_string(tmp.path().join("pinned/api/Cargo.toml")).unwrap();
+    assert!(
+        cargo.contains(r#"rev = "cceb3063e1""#),
+        "the manifest follows the declaration, got:\n{cargo}"
+    );
+}

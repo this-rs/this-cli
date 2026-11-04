@@ -204,6 +204,10 @@ mod tests {
             "this_dependency",
             "this = { package = \"this-rs\", version = \"0.0.9\", features = [\"grpc\"] }",
         );
+        ctx.insert(
+            "this_section",
+            "this:\n  source: crates-io\n  version: 0.0.9\n",
+        );
         ctx
     }
 
@@ -846,6 +850,10 @@ mod tests {
         assert!(content.contains("port: 3000"));
         assert!(content.contains("path: api"));
         assert!(content.contains("targets: []"));
+        assert!(
+            content.contains("this:\n  source: crates-io"),
+            "the declaration is written with the project:\n{content}"
+        );
         assert!(!content.contains("{{"), "No unresolved Tera placeholders");
     }
 

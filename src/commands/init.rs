@@ -227,6 +227,13 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
     context.insert("project_name", &args.name);
     context.insert("port", &args.port);
 
+    // The declaration is written with the project, not left to be added later.
+    let declaration = pin_of(&args, &requested_features(&args, true))?;
+    context.insert(
+        "this_section",
+        &framework::spec_yaml(&declaration).map_err(|e| anyhow::anyhow!(e))?,
+    );
+
     let this_yaml = engine
         .render("workspace/this.yaml", &context)
         .with_context(|| "Failed to render workspace/this.yaml template")?;
