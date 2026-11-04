@@ -137,6 +137,7 @@ The generated project includes:
 | `this adopt obrain` | Prepare an **existing** project for this-rs + obrain + IAM: enables the `obrain` feature, inserts (or shows) the store wiring, and prints the adoption order — observe first, then arm. It writes no authentication configuration |
 | `this build` | Build the project (API + frontend if configured) |
 | `this dev` | Start dev servers (API + SPA together — vite-rs flow or legacy `npm run dev` fallback) |
+| `this framework <status\|check\|upgrade\|rollback\|digest>` | See, verify and move the framework commit a project follows (see [Pinning the framework](#pinning-the-framework)) |
 | `this info` | Display project summary and coherence status |
 | `this doctor` | Run diagnostic checks on project health |
 | `this completions <shell>` | Generate shell completion scripts |
@@ -160,7 +161,7 @@ this init my-app --workspace --this-path <local this>  # Required for now, see n
 this --dry-run init my-api          # Preview without creating files
 ```
 
-> **Note:** without `--this-path`, the scaffold pins `this-rs = "0.0.9"`, which does not provide the APIs the project templates use. A scaffold made that way does not compile until this-rs 0.0.10 is published, so pass `--this-path <local this-rs checkout>` for now.
+> **Pinning the framework.** With no option, the scaffold depends on the published version (`this-rs = "0.0.9"`), which does not yet provide the APIs the templates use; it compiles once `0.0.10` is published. To build today, pin a commit: `--this-url <repo> --this-rev <commit>`, or `--this-path <local checkout>` for a working copy. Either way the choice is written into `this.yaml`, and `this framework status` says what the project actually builds.
 
 ### this add entity
 
@@ -358,6 +359,74 @@ Every write command accepts the global `--dry-run` flag to preview its file oper
 ```sh
 this --dry-run descriptor init
 ```
+
+## Pinning the framework
+
+A this-rs project does not depend on "a version": it depends on a **commit** of
+the framework. Between two commits a field is born, a type is renamed, a rule
+changes meaning — so the question that matters is not *which version* but
+*which commit, and what changed since*.
+
+Two files answer it, and they cannot disagree silently:
+
+| File | Says | Written by |
+|------|------|------------|
+| `this.yaml` → `this:` | what the project **wants**: source, channel, features | `this init`, or you |
+| `.this/framework.lock` | what it **got**: the commit, when, with which features | the CLI |
+
+The third witness is `Cargo.toml` — the only file Cargo actually reads — and it
+is checked against the other two.
+
+```sh
+this framework status           # where am I, and can anybody rebuild this?
+this framework check            # exit 1 on a blocking finding: usable as a CI gate
+this framework upgrade --to <commit>          # move the pin (writes the three files)
+this framework upgrade --to <commit> --dry-run # show what would change, change nothing
+this framework rollback         # go back to the commit the last move replaced
+this framework digest           # the vocabulary of the pinned commit (crates, features)
+```
+
+`status` answers the question people actually ask of a pin:
+
+```
+framework  https://github.com/this-rs/this @ cceb306
+rebuildable yes, on any machine
+channel    stable
+features   grpc
+lock       /…/.this/framework.lock
+resolved   2026-11-04T21:59:02Z
+commit     cceb306
+crates     this-rs @ cceb306
+```
+
+and, when `Cargo.toml` builds something else, a second line that says so:
+
+```
+framework  https://github.com/this-rs/this @ aaaaaaa
+builds     https://github.com/this-rs/this @ fffffff
+```
+
+`builds` comes from `Cargo.toml` and only appears when it differs from
+`framework` — which is exactly when it matters.
+
+### What is refused, on purpose
+
+- **A branch is not a pin.** A dependency without `rev` is reported, never silently resolved.
+- **A local path is not reproducible.** It is an error in CI and a warning locally.
+- **Two commits in one repository** is an error: Cargo unifies by source, so two
+  commits build the same crate twice with types that do not match.
+- **A feature that does not exist at the pinned commit** is named (`feature-unknown`)
+  before `cargo build` says it in its own words.
+- **No digest is invented.** The vocabulary is read from a checkout on this
+  machine; for a git pin there is none until Cargo has fetched that commit, and
+  the command says so.
+
+### What is not automatic yet
+
+Migrations are **named, not repaired**. `upgrade` lists the changes that concern
+this project before moving — by a symbol it can see (`Session::anonymous`), or
+with `(cannot be decided from the text)` when the change is about an absence.
+Applying them stays a human act, and the lock records nothing until it is.
 
 ## Shell Completions
 

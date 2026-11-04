@@ -159,20 +159,20 @@ pub struct InitArgs {
     #[arg(long, default_value = "3000")]
     pub port: u16,
 
-    /// Path to this-rs crate for local development (uses path dependency instead of crates.io)
-    #[arg(long, hide = true)]
+    /// Path to a this-rs checkout, for local development (path dependency instead of crates.io)
+    #[arg(long)]
     pub this_path: Option<String>,
 
     /// Pin the framework to a git repository
-    #[arg(long, hide = true)]
+    #[arg(long)]
     pub this_url: Option<String>,
 
     /// Commit of the framework to pin (requires --this-url)
-    #[arg(long, hide = true)]
+    #[arg(long)]
     pub this_rev: Option<String>,
 
     /// Channel to follow instead of a commit (requires --this-url)
-    #[arg(long, hide = true)]
+    #[arg(long)]
     pub this_channel: Option<String>,
 
     /// Create a workspace layout with this.yaml and api/ subdirectory
