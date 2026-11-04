@@ -163,6 +163,9 @@ fn upgrade(root: &Path, to: &str, dry_run: bool) -> Result<()> {
     )
     .map_err(|error| anyhow::anyhow!(error))?;
 
+    // What the move is about to break, before anything is written.
+    report_migrations(manifest_path.parent().unwrap_or(root));
+
     let from = previous
         .as_deref()
         .map(short_rev)
@@ -185,6 +188,36 @@ fn upgrade(root: &Path, to: &str, dry_run: bool) -> Result<()> {
     say("written", "this.yaml, Cargo.toml, .this/framework.lock");
     output::print_info("`this framework check` verifies the result");
     Ok(())
+}
+
+/// Say what the framework broke, and whether this project is affected.
+///
+/// Named before the move, not after: knowing that a rename concerns you is only
+/// useful while you can still decide not to move.
+fn report_migrations(crate_dir: &Path) {
+    let sources = framework::migration::scan_sources(crate_dir).unwrap_or_default();
+    let concerning = framework::migration::detect(&sources, framework::migration::REGISTRY);
+    if concerning.is_empty() {
+        return;
+    }
+
+    say(
+        "migrations",
+        &format!("{} concern this project", concerning.len()),
+    );
+    for migration in &concerning {
+        match framework::migration::matched(migration, &sources) {
+            Some(symbol) => output::print_warn(&format!(
+                "{}  {} (uses `{symbol}`)",
+                migration.id, migration.summary
+            )),
+            None => output::print_warn(&format!(
+                "{}  {} (cannot be decided from the text)",
+                migration.id, migration.summary
+            )),
+        }
+    }
+    output::print_info("no automatic repair yet: apply them by hand, then `this framework check`");
 }
 
 /// Undo the last move, by moving back to the commit it replaced.

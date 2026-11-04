@@ -29,6 +29,7 @@
 
 pub mod lock;
 pub mod manifest;
+pub mod migration;
 pub mod pin;
 pub mod upgrade;
 
