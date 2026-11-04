@@ -2802,12 +2802,12 @@ fn test_upgrade_names_the_migrations_that_cannot_be_decided_from_the_text() {
 
     assert!(stdout.contains("migrations"), "got:\n{stdout}");
     assert!(
-        stdout.contains("0002") && stdout.contains("cannot be decided"),
+        stdout.contains("0001") && stdout.contains("cannot be decided"),
         "an undecidable migration is always named, got:\n{stdout}"
     );
     assert!(
-        !stdout.contains("0001"),
-        "a generated project does not use the old Session, got:\n{stdout}"
+        !stdout.contains("0002"),
+        "a generated project calls `with_default_event_bus`, not `with_event_bus`, got:\n{stdout}"
     );
     assert!(
         stdout.contains("no automatic repair"),
@@ -2820,8 +2820,8 @@ fn test_upgrade_names_the_migration_a_project_actually_uses() {
     let tmp = tempfile::tempdir().unwrap();
     let root = pinned_workspace(tmp.path());
     std::fs::write(
-        root.join("api/src/auth.rs"),
-        "pub fn make() { let _ = Session::anonymous(); }\n",
+        root.join("api/src/bus.rs"),
+        "pub fn build(host: Host) -> Host { host.with_event_bus(1024) }\n",
     )
     .unwrap();
 
@@ -2832,7 +2832,7 @@ fn test_upgrade_names_the_migration_a_project_actually_uses() {
     assert!(success);
 
     assert!(
-        stdout.contains("0001") && stdout.contains("Session::anonymous"),
+        stdout.contains("0002") && stdout.contains("with_event_bus"),
         "the symbol in use is named, got:\n{stdout}"
     );
 }
