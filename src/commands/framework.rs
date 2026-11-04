@@ -32,34 +32,54 @@ pub enum FrameworkSubcommand {
 
     /// Report an inconsistent pin and exit 1 (usable as a CI gate)
     Check,
+
+    /// Move the pin to another commit of the same repository
+    Upgrade {
+        /// Commit to move to
+        #[arg(long)]
+        to: String,
+    },
+
+    /// Move the pin back to the commit it replaced
+    Rollback,
 }
 
-pub fn run(command: FrameworkSubcommand) -> Result<()> {
+pub fn run(command: FrameworkSubcommand, dry_run: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let root = project::find_workspace_root_from(&cwd)
         .or_else(|| project::detect_project_root_from(&cwd).ok())
         .unwrap_or(cwd);
+
+    // The two verbs that write are handled here; what follows only reads.
+    let mode = match command {
+        FrameworkSubcommand::Upgrade { to } => return upgrade(&root, &to, dry_run),
+        FrameworkSubcommand::Rollback => return rollback(&root, dry_run),
+        FrameworkSubcommand::Status => Mode::Status,
+        FrameworkSubcommand::Check => Mode::Check,
+    };
 
     let spec = read_spec(&root).map_err(|message| anyhow::anyhow!("{message}"))?;
     let lock = read_lock(&root).map_err(|message| anyhow::anyhow!("{message}"))?;
 
     // What Cargo actually builds. Neither the declaration nor the lock says it,
     // so it is read and compared to both.
-    let manifest_text = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
+    let manifest_text = framework::manifest_path(&root)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default();
     let manifest = Manifest::read(&manifest_text);
 
     let now = now_ms();
     let diagnostics = evaluate(spec.as_ref(), lock.as_ref(), &manifest, now, Run::detect());
 
-    let blocking = match command {
-        FrameworkSubcommand::Status => {
+    let blocking = match mode {
+        Mode::Status => {
             for (label, value) in report(spec.as_ref(), lock.as_ref(), &manifest, &root, now) {
                 output::line(format!("{label:<10} {value}"));
             }
             print_diagnostics(&diagnostics);
             false
         }
-        FrameworkSubcommand::Check => {
+        Mode::Check => {
             print_diagnostics(&diagnostics);
             let errors = error_count(&diagnostics);
             if errors > 0 {
@@ -78,6 +98,105 @@ pub fn run(command: FrameworkSubcommand) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// What the read-only verbs are.
+#[derive(Clone, Copy)]
+enum Mode {
+    Status,
+    Check,
+}
+
+/// One labelled line, for the verbs that write.
+fn say(label: &str, value: &str) {
+    output::line(format!("{label:<10} {value}"));
+}
+
+/// Move the pin to `to`, rewriting the three files that carry it.
+fn upgrade(root: &Path, to: &str, dry_run: bool) -> Result<()> {
+    let spec_path = root.join("this.yaml");
+    let spec_text = std::fs::read_to_string(&spec_path).map_err(|_| {
+        anyhow::anyhow!(
+            "no `this.yaml` next to the crate: nothing declares which commit this project follows"
+        )
+    })?;
+    let spec = framework::pin_from_yaml(&spec_text)
+        .map_err(|error| anyhow::anyhow!(error))?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "`this.yaml` declares no `this:` section: declare the source and the channel first"
+            )
+        })?;
+
+    let lock = read_lock(root).map_err(|message| anyhow::anyhow!(message))?;
+    let manifest_path = framework::manifest_path(root).ok_or_else(|| {
+        anyhow::anyhow!("no crate manifest found: neither Cargo.toml nor the api path it declares")
+    })?;
+    let manifest_text = std::fs::read_to_string(&manifest_path)
+        .map_err(|error| anyhow::anyhow!("{}: {error}", manifest_path.display()))?;
+
+    // Where we come from: the lock is the authority, the declaration next.
+    let previous = lock
+        .as_ref()
+        .and_then(|lock| lock.source().ok())
+        .and_then(|source| source.rev().map(str::to_string))
+        .or_else(|| {
+            spec.source()
+                .ok()
+                .and_then(|source| source.rev().map(str::to_string))
+        });
+
+    let crates: Vec<String> = lock
+        .as_ref()
+        .map(|lock| lock.crates.iter().map(|krate| krate.name.clone()).collect())
+        .filter(|names: &Vec<String>| !names.is_empty())
+        .unwrap_or_else(|| vec!["this-rs".to_string()]);
+
+    let edits = framework::upgrade::plan(
+        &spec_text,
+        &manifest_text,
+        &spec,
+        to,
+        previous.as_deref(),
+        &crates,
+        now_ms(),
+    )
+    .map_err(|error| anyhow::anyhow!(error))?;
+
+    let from = previous
+        .as_deref()
+        .map(short_rev)
+        .unwrap_or_else(|| "?".to_string());
+
+    if dry_run {
+        say("move", &format!("{from} → {}", short_rev(to)));
+        say("would write", "this.yaml, Cargo.toml, .this/framework.lock");
+        output::print_info("dry run: nothing was written");
+        return Ok(());
+    }
+
+    std::fs::write(&spec_path, &edits.specification)
+        .map_err(|error| anyhow::anyhow!("{}: {error}", spec_path.display()))?;
+    std::fs::write(&manifest_path, &edits.manifest)
+        .map_err(|error| anyhow::anyhow!("{}: {error}", manifest_path.display()))?;
+    framework::write_lock(root, &edits.lock).map_err(|message| anyhow::anyhow!(message))?;
+
+    say("move", &format!("{from} → {}", short_rev(to)));
+    say("written", "this.yaml, Cargo.toml, .this/framework.lock");
+    output::print_info("`this framework check` verifies the result");
+    Ok(())
+}
+
+/// Undo the last move, by moving back to the commit it replaced.
+fn rollback(root: &Path, dry_run: bool) -> Result<()> {
+    let lock = read_lock(root)
+        .map_err(|message| anyhow::anyhow!(message))?
+        .ok_or_else(|| anyhow::anyhow!("no `.this/framework.lock`: there is no move to undo"))?;
+    let previous = lock.previous_rev.clone().ok_or_else(|| {
+        anyhow::anyhow!("the lock names no previous commit: there is nothing to go back to")
+    })?;
+
+    upgrade(root, &previous, dry_run)
 }
 
 /// What the crate manifest says, in the same vocabulary as the pin.
@@ -319,6 +438,7 @@ mod tests {
             features: vec!["grpc".into()],
             api_digest: None,
             migrations: Vec::new(),
+            previous_rev: None,
         }
     }
 

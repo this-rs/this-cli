@@ -30,6 +30,7 @@
 pub mod lock;
 pub mod manifest;
 pub mod pin;
+pub mod upgrade;
 
 pub use lock::{Lock, this_dependency, validate};
 pub use manifest::{dependency_from_manifest, manifest_drift};
@@ -119,6 +120,34 @@ pub fn pin_from_request(request: PinRequest<'_>, features: &[String]) -> Result<
 /// Where the lock lives for a project rooted at `root`.
 pub fn lock_path(root: &Path) -> PathBuf {
     root.join(LOCK_DIR).join(LOCK_FILE)
+}
+
+/// The crate manifest of this project, wherever it lives.
+///
+/// A standalone project keeps `Cargo.toml` at its root; a workspace keeps the
+/// crate under `api.path` from `this.yaml` (`api` by default). Reading the root
+/// unconditionally made every check on a workspace see an empty manifest — that
+/// is, "nothing to report", which is the worst possible answer.
+pub fn manifest_path(root: &Path) -> Option<PathBuf> {
+    let direct = root.join("Cargo.toml");
+    if direct.is_file() {
+        return Some(direct);
+    }
+
+    let declared = std::fs::read_to_string(root.join("this.yaml"))
+        .ok()
+        .and_then(|text| serde_yaml::from_str::<serde_yaml::Value>(&text).ok())
+        .and_then(|value| {
+            value
+                .get("api")
+                .and_then(|api| api.get("path"))
+                .and_then(|path| path.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "api".to_string());
+
+    let candidate = root.join(declared).join("Cargo.toml");
+    candidate.is_file().then_some(candidate)
 }
 
 /// The `this` dependency line of a crate manifest, as written.
@@ -391,6 +420,7 @@ mod tests {
             features: vec!["grpc".into()],
             api_digest: None,
             migrations: vec!["0009-session-to-capabilities".into()],
+            previous_rev: None,
         }
     }
 
@@ -441,6 +471,42 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("this.yaml"), "this: [not, a, mapping").unwrap();
         assert!(read_spec(dir.path()).is_err());
+    }
+
+    #[test]
+    fn a_workspace_crate_is_found_under_the_path_its_this_yaml_declares() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("serveur")).unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: shop\napi:\n  path: serveur\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("serveur/Cargo.toml"), "[dependencies]\n").unwrap();
+
+        let found = manifest_path(dir.path()).expect("the crate manifest is found");
+        assert_eq!(found, dir.path().join("serveur/Cargo.toml"));
+    }
+
+    #[test]
+    fn a_standalone_crate_is_found_at_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[dependencies]\n").unwrap();
+        assert_eq!(
+            manifest_path(dir.path()),
+            Some(dir.path().join("Cargo.toml"))
+        );
+    }
+
+    #[test]
+    fn a_project_without_a_manifest_reports_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: shop\napi:\n  path: api\n",
+        )
+        .unwrap();
+        assert!(manifest_path(dir.path()).is_none());
     }
 
     #[test]

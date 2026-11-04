@@ -348,7 +348,9 @@ fn check_framework_pin(project_root: &Path) -> Vec<DiagnosticResult> {
         }
     };
 
-    let manifest_text = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
+    let manifest_text = framework::manifest_path(&root)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default();
     let manifest = framework::dependency_from_manifest(&manifest_text);
 
     let mut out = Vec::new();
