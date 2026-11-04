@@ -330,7 +330,7 @@ mod tests {
             "{}",
             value(&rows, "age")
         );
-        assert!(value(&rows, "lock").ends_with(".this/framework.lock"));
+        assert!(value(&rows, "lock").ends_with("framework.lock"));
         assert_eq!(
             labels(&rows),
             vec![

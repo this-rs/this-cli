@@ -385,7 +385,11 @@ mod tests {
         let lock = sample_lock();
         write_lock(dir.path(), &lock).unwrap();
         assert_eq!(read_lock(dir.path()).unwrap().unwrap(), lock);
-        assert!(lock_path(dir.path()).ends_with(".this/framework.lock"));
+        // Compare components, not a string: `display()` uses the separator of
+        // the platform, so `".this/framework.lock"` is a Windows-only failure.
+        let path = lock_path(dir.path());
+        assert_eq!(path.file_name().unwrap(), LOCK_FILE);
+        assert_eq!(path.parent().unwrap().file_name().unwrap(), LOCK_DIR);
     }
 
     #[test]
