@@ -16,6 +16,10 @@ axum = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+{% if grpc %}# gRPC-Web : un navigateur ne parle pas gRPC HTTP/2 ; la couche traduit le même
+# service sur HTTP/1.1, sur le port de REST.
+tonic-web = "0.14"
+{% endif %}
 {% if workspace %}
 {# Local this-rs checkout (this_path): frontend serving lives in the framework
    (this::server::frontend, vite-rs based) — rust-embed only stores the assets. #}

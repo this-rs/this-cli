@@ -4,7 +4,12 @@ function App() {
   const [status, setStatus] = useState<string>("loading...");
 
   useEffect(() => {
-    // this-rs serves its routes at the root: `GET /health`, `GET /{plural}`.
+    // `/health` stays REST: it is a probe, not a data operation.
+    //
+    // Entity calls go through **gRPC-Web** — the generated server exposes it on the same
+    // port as REST (tonic-web layer). A browser cannot speak gRPC (HTTP/2 binary), so the
+    // front frames requests as gRPC-Web: one 5-byte header per message, decoded frames in
+    // return. REST remains available for scripts and curl.
     fetch("/health")
       .then((res) => (res.ok ? "connected" : "error"))
       .then(setStatus)
