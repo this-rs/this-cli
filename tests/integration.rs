@@ -2933,3 +2933,70 @@ fn test_framework_digest_refuses_a_pin_it_cannot_read() {
         "the limit is stated, got:\n{stderr}"
     );
 }
+
+#[test]
+fn test_framework_digest_is_stable_and_ordered_by_declaration_alone() {
+    // The digest is compared between runs and between machines, so its shape
+    // must not depend on the order a manifest happens to list things in.
+    let tmp = tempfile::tempdir().unwrap();
+    let checkout = tmp.path().join("framework");
+    std::fs::create_dir_all(checkout.join("crates/zzz")).unwrap();
+    std::fs::create_dir_all(checkout.join("crates/aaa")).unwrap();
+    // Members and features listed out of alphabetical order on purpose.
+    std::fs::write(
+        checkout.join("Cargo.toml"),
+        "[workspace]\nmembers = [\".\", \"crates/zzz\", \"crates/aaa\"]\n\n[package]\nname = \"this-rs\"\nversion = \"0.0.10\"\n\n[features]\nzeta = []\nalpha = []\nmid = []\n",
+    )
+    .unwrap();
+    std::fs::write(
+        checkout.join("crates/zzz/Cargo.toml"),
+        "[package]\nname = \"zzz\"\nversion = \"1.0.0\"\n\n[features]\nbravo = []\nalpha = []\n",
+    )
+    .unwrap();
+    std::fs::write(
+        checkout.join("crates/aaa/Cargo.toml"),
+        "[package]\nname = \"aaa\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
+
+    let root = tmp.path().join("proj");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: proj\napi:\n  path: \".\"\nthis:\n  source: path\n  path: ../framework\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"proj\"\n").unwrap();
+
+    let (first_ok, first, _) = run_this(&["framework", "digest", "--json"], &root);
+    let (second_ok, second, _) = run_this(&["framework", "digest", "--json"], &root);
+    assert!(first_ok && second_ok);
+    assert_eq!(first, second, "two runs must produce the same digest");
+
+    let digest: serde_json::Value = serde_json::from_str(first.trim()).unwrap();
+    let names: Vec<&str> = digest["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|krate| krate["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["aaa", "this-rs", "zzz"], "crates are sorted");
+
+    let this_rs = digest["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|krate| krate["name"] == "this-rs")
+        .unwrap();
+    let features: Vec<&str> = this_rs["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|feature| feature.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        features,
+        vec!["alpha", "mid", "zeta"],
+        "features are sorted"
+    );
+}
