@@ -179,6 +179,19 @@ mod tests {
     }
 
     #[test]
+    fn checked_name_refuses_every_rust_keyword_in_any_case() {
+        for kw in RUST_KEYWORDS {
+            let err = checked_name(kw, "entity").unwrap_err().to_string();
+            assert!(err.contains("is a Rust keyword"), "{kw}: {err}");
+            let shouted = kw[..1].to_uppercase() + &kw[1..];
+            assert!(
+                checked_name(&shouted, "entity").is_err(),
+                "{shouted} normalises to a keyword and must be refused"
+            );
+        }
+    }
+
+    #[test]
     fn cli_uses_shared_pluralizer() {
         for word in [
             "knife", "leaf", "person", "company", "address", "status", "box", "news",

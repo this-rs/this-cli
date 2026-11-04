@@ -519,6 +519,160 @@ mod tests {
         assert!(relay.is_empty());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn mcp_build_child_stdin_is_closed() {
+        // `cat` returns at once only if stdin is /dev/null; an inherited stdin would block.
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "cat; echo done"]);
+        let mut relay: Vec<u8> = Vec::new();
+
+        let status = relay_build_cmd(&mut cmd, OutputMode::Mcp, &mut relay).unwrap();
+
+        assert!(status.success());
+        assert_eq!(String::from_utf8(relay).unwrap().trim(), "done");
+    }
+
+    #[test]
+    fn relay_build_cmd_spawn_failure_is_an_error() {
+        let mut cmd = Command::new("this-binary-does-not-exist-for-coverage");
+        let mut relay: Vec<u8> = Vec::new();
+
+        assert!(relay_build_cmd(&mut cmd, OutputMode::Mcp, &mut relay).is_err());
+        assert!(relay.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_build_cmd_returns_child_status_in_cli_mode() {
+        // Tests never call `output::set_mode`, so `run_build_cmd` takes the CLI branch.
+        let status = run_build_cmd(Command::new("sh").args(["-c", "exit 2"])).unwrap();
+        assert_eq!(status.code(), Some(2));
+    }
+
+    #[test]
+    fn run_build_cmd_spawn_failure_is_an_error() {
+        let mut cmd = Command::new("this-binary-does-not-exist-for-coverage");
+        assert!(run_build_cmd(&mut cmd).is_err());
+    }
+
+    #[test]
+    fn test_run_api_build_failure_is_reported() {
+        // An empty directory is not a cargo package: `cargo build` fails in both modes.
+        let tmp = tempfile::tempdir().unwrap();
+        for release in [false, true] {
+            let err = run_api_build(tmp.path(), release).unwrap_err().to_string();
+            assert!(err.contains("cargo build"), "release={release}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_run_build_desktop_failure_is_reported() {
+        // A broken manifest makes `cargo tauri build` fail whether or not cargo-tauri is installed.
+        let tmp = tempfile::tempdir().unwrap();
+        let tauri_dir = tmp.path().join("targets/desktop/src-tauri");
+        fs::create_dir_all(&tauri_dir).unwrap();
+        fs::write(tauri_dir.join("Cargo.toml"), "not a manifest = [").unwrap();
+        let config = make_config_with_targets(vec![desktop_target()]);
+
+        let err = run_build_desktop(&desktop_target(), &config, tmp.path())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cargo tauri build"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_front_build_npm_failure_is_reported() {
+        // The package has no `build` script, so `npm run build` exits non-zero offline.
+        let tmp = tempfile::tempdir().unwrap();
+        let front = tmp.path().join("front");
+        fs::create_dir_all(&front).unwrap();
+        fs::write(
+            front.join("package.json"),
+            r#"{"name":"front","version":"0.0.0"}"#,
+        )
+        .unwrap();
+
+        let err = run_front_build(&webapp_target(), tmp.path())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("npm run build"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_embed_builds_front_copies_dist_then_fails_on_api_build() {
+        // The front build succeeds offline (a `build` script that creates dist/), its
+        // output is copied into the API, and the embedded cargo build then fails on an
+        // empty API directory.
+        let tmp = tempfile::tempdir().unwrap();
+        let front = tmp.path().join("front");
+        fs::create_dir_all(&front).unwrap();
+        fs::write(
+            front.join("package.json"),
+            r#"{"name":"front","version":"0.0.0","scripts":{"build":"mkdir -p dist && echo ok > dist/index.html"}}"#,
+        )
+        .unwrap();
+        let api = tmp.path().join("api");
+        fs::create_dir_all(&api).unwrap();
+        let config = make_config_with_targets(vec![webapp_target()]);
+
+        let err = run_embed(&config, &webapp_target(), &api, tmp.path())
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            err.contains("cargo build --features embedded-frontend failed"),
+            "{err}"
+        );
+        assert!(
+            api.join("dist/index.html").exists(),
+            "dist must be copied before the API build"
+        );
+    }
+
+    /// Scaffold an iOS target whose `node_modules/.bin/cap` is a shell script exiting
+    /// with `exit_code`. `npx` runs a project-local bin without touching the network.
+    #[cfg(unix)]
+    fn scaffold_ios_with_fake_cap(root: &Path, exit_code: i32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let target = root.join("targets/ios");
+        let bin = target.join("node_modules/.bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(
+            target.join("package.json"),
+            r#"{"name":"ios","version":"0.0.0"}"#,
+        )
+        .unwrap();
+        let cap = bin.join("cap");
+        fs::write(&cap, format!("#!/bin/sh\nexit {exit_code}\n")).unwrap();
+        fs::set_permissions(&cap, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_build_mobile_cap_sync_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        scaffold_ios_with_fake_cap(tmp.path(), 0);
+
+        let result = run_build_mobile(&ios_target(), tmp.path(), &None);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_build_mobile_cap_sync_failure_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        scaffold_ios_with_fake_cap(tmp.path(), 3);
+
+        let err = run_build_mobile(&ios_target(), tmp.path(), &None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("npx cap sync ios failed"), "{err}");
+    }
+
     #[test]
     fn test_find_webapp_target_found() {
         let config = WorkspaceConfig {
