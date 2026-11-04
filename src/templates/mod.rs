@@ -25,6 +25,7 @@ const TPL_PROJECT_EMBEDDED_FRONTEND_RS: &str = include_str!("project/embedded_fr
 // Workspace Templates
 // ============================================================================
 
+const TPL_PROJECT_THIS_YAML: &str = include_str!("project/this.yaml.tera");
 const TPL_WORKSPACE_THIS_YAML: &str = include_str!("workspace/this.yaml.tera");
 const TPL_WORKSPACE_DOCKERFILE: &str = include_str!("workspace/Dockerfile.tera");
 
@@ -101,6 +102,7 @@ impl TemplateEngine {
                 "project/embedded_frontend.rs",
                 TPL_PROJECT_EMBEDDED_FRONTEND_RS,
             ),
+            ("project/this.yaml", TPL_PROJECT_THIS_YAML),
             ("workspace/this.yaml", TPL_WORKSPACE_THIS_YAML),
             ("workspace/Dockerfile", TPL_WORKSPACE_DOCKERFILE),
             ("webapp/package.json", TPL_WEBAPP_PACKAGE_JSON),
