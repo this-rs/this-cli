@@ -242,7 +242,8 @@ fn test_init_classic_unchanged() {
         "Classic mode should NOT have embedded_frontend.rs"
     );
 
-    // Classic structure: flat, no this.yaml, no api/ subdirectory
+    // Classic structure: still flat — no api/ subdirectory — but the project
+    // now declares which framework it follows, so it is also a workspace.
     assert!(
         project_dir.join("Cargo.toml").exists(),
         "Cargo.toml at root"
@@ -252,8 +253,8 @@ fn test_init_classic_unchanged() {
         "src/main.rs at root"
     );
     assert!(
-        !project_dir.join("this.yaml").exists(),
-        "No this.yaml in classic mode"
+        project_dir.join("this.yaml").exists(),
+        "A classic project declares its framework"
     );
     assert!(
         !project_dir.join("api").exists(),
@@ -960,7 +961,7 @@ fn test_info_workspace_displays_workspace_section() {
 }
 
 #[test]
-fn test_info_classic_no_workspace_section() {
+fn test_info_classic_shows_the_workspace_it_now_is() {
     let tmp = tempfile::tempdir().unwrap();
     let (success, _, _) = run_this(&["init", "classic-info", "--no-git"], tmp.path());
     assert!(success);
@@ -970,8 +971,8 @@ fn test_info_classic_no_workspace_section() {
 
     assert!(success, "info should succeed in classic project");
     assert!(
-        !stdout.contains("Workspace:"),
-        "Should NOT show Workspace section in classic mode"
+        stdout.contains("Workspace:"),
+        "a classic project is a workspace now, got:\n{stdout}"
     );
 }
 
@@ -1152,18 +1153,24 @@ fn test_build_outside_workspace_fails() {
 }
 
 #[test]
-fn test_build_in_classic_project_fails() {
+fn test_a_classic_project_is_born_with_its_declaration() {
+    // A classic project used to have no `this.yaml`, so `build`, `dev` and
+    // `add target` refused it with "Not a this-rs workspace". It now declares
+    // its pin from birth, and its api path is the crate itself.
     let tmp = tempfile::tempdir().unwrap();
     let project = setup_project(&tmp);
 
-    let (success, _, stderr) = run_this(&["build"], &project);
-
-    assert!(!success, "build in classic project should fail");
+    let yaml = std::fs::read_to_string(project.join("this.yaml"))
+        .expect("a classic project declares its framework");
+    assert!(yaml.contains("this:"), "got:\n{yaml}");
     assert!(
-        stderr.contains("Not a this-rs workspace"),
-        "Should say not a workspace. stderr: {}",
-        stderr
+        yaml.contains("path: \".\""),
+        "the api path is the crate:\n{yaml}"
     );
+
+    let (success, stdout, _) = run_this(&["framework", "status"], &project);
+    assert!(success, "status should read the declaration");
+    assert!(stdout.contains("crates.io"), "got:\n{stdout}");
 }
 
 #[test]
@@ -1324,13 +1331,14 @@ fn test_dev_outside_workspace_fails() {
 }
 
 #[test]
-fn test_dev_in_classic_project_fails() {
+fn test_dev_outside_any_project_fails() {
+    // A generated project is a workspace now; what must still refuse is running
+    // outside one — and it must refuse *fast*, not start a server.
     let tmp = tempfile::tempdir().unwrap();
-    let project = setup_project(&tmp);
 
-    let (success, _, stderr) = run_this(&["dev"], &project);
+    let (success, _, stderr) = run_this(&["dev"], tmp.path());
 
-    assert!(!success, "dev in classic project should fail");
+    assert!(!success, "dev outside a workspace should fail");
     assert!(
         stderr.contains("Not a this-rs workspace"),
         "Should say not a workspace. stderr: {}",

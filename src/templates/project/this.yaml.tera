@@ -1,0 +1,9 @@
+name: {{ project_name }}
+
+api:
+  path: "."
+  port: {{ port }}
+
+targets: []
+
+{{ this_section }}

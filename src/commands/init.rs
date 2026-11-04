@@ -130,8 +130,15 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
     let pin = pin_of(&args, &features)?;
     let this_dependency = framework::this_dependency(&pin, None).map_err(|e| anyhow::anyhow!(e))?;
     context.insert("this_dependency", &this_dependency);
+    // The declaration exists in this mode too: the project is born knowing which
+    // framework it follows, and `build`, `dev` and `add target` find a workspace.
+    context.insert(
+        "this_section",
+        &framework::spec_yaml(&pin).map_err(|e| anyhow::anyhow!(e))?,
+    );
 
     let mut files: Vec<(&str, &str)> = vec![
+        ("project/this.yaml", "this.yaml"),
         ("project/Cargo.toml", "Cargo.toml"),
         ("project/lib.rs", "src/lib.rs"),
         ("project/main.rs", "src/main.rs"),
