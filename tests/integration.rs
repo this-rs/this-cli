@@ -2836,3 +2836,100 @@ fn test_upgrade_names_the_migration_a_project_actually_uses() {
         "the symbol in use is named, got:\n{stdout}"
     );
 }
+
+/// A project pinned to a `path` checkout of a tiny fake framework.
+fn project_pinned_to_a_checkout(dir: &Path, features: &[&str]) -> std::path::PathBuf {
+    let checkout = dir.join("framework");
+    std::fs::create_dir_all(&checkout).unwrap();
+    std::fs::write(
+        checkout.join("Cargo.toml"),
+        "[workspace]\nmembers = [\".\"]\n\n[package]\nname = \"this-rs\"\nversion = \"0.0.10\"\n\n[features]\ndefault = []\ngrpc = []\nwebsocket = []\n",
+    )
+    .unwrap();
+
+    let root = dir.join("proj");
+    std::fs::create_dir_all(&root).unwrap();
+    let list: Vec<String> = features.iter().map(|f| format!("\"{f}\"")).collect();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"proj\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = {{ package = \"this-rs\", path = \"../framework\", features = [{}] }}\n",
+            list.join(", ")
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("this.yaml"),
+        format!(
+            "name: proj\napi:\n  path: \".\"\nthis:\n  source: path\n  path: ../framework\n  features: [{}]\n",
+            features.join(", ")
+        ),
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn test_framework_digest_reads_the_pinned_checkout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = project_pinned_to_a_checkout(tmp.path(), &["grpc"]);
+
+    let (success, stdout, stderr) = run_this(&["framework", "digest"], &root);
+
+    assert!(success, "digest should read the checkout: {stderr}");
+    assert!(stdout.contains("this-rs"), "got:\n{stdout}");
+    assert!(stdout.contains("0.0.10"), "got:\n{stdout}");
+    assert!(
+        stdout.contains("grpc") && stdout.contains("websocket"),
+        "every declared feature is listed, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_framework_digest_speaks_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = project_pinned_to_a_checkout(tmp.path(), &["grpc"]);
+
+    let (success, stdout, _) = run_this(&["framework", "digest", "--json"], &root);
+    assert!(success);
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("the output is JSON");
+    assert_eq!(parsed["crates"][0]["name"], "this-rs");
+}
+
+#[test]
+fn test_framework_check_names_a_feature_that_does_not_exist_at_the_pinned_commit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = project_pinned_to_a_checkout(tmp.path(), &["grpc", "frontend"]);
+
+    let (success, _, stderr) = run_this(&["framework", "check"], &root);
+
+    assert!(!success, "an absent feature blocks");
+    assert!(
+        stderr.contains("feature-unknown") && stderr.contains("frontend"),
+        "the absent feature is named, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_framework_digest_refuses_a_pin_it_cannot_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }",
+    );
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: api\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+    )
+    .unwrap();
+
+    let (success, _, stderr) = run_this(&["framework", "digest"], &root);
+
+    assert!(!success, "a git pin has no local checkout to read");
+    assert!(
+        stderr.contains("no local checkout"),
+        "the limit is stated, got:\n{stderr}"
+    );
+}

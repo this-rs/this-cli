@@ -42,6 +42,17 @@ pub enum FrameworkSubcommand {
 
     /// Move the pin back to the commit it replaced
     Rollback,
+
+    /// Show the framework's vocabulary at the pinned commit
+    ///
+    /// Read from a checkout on this machine: a `path` pin names one. For a git
+    /// pin there is none until Cargo has fetched that commit, and this command
+    /// says so rather than inventing a vocabulary.
+    Digest {
+        /// Machine-readable output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn run(command: FrameworkSubcommand, dry_run: bool) -> Result<()> {
@@ -54,6 +65,7 @@ pub fn run(command: FrameworkSubcommand, dry_run: bool) -> Result<()> {
     let mode = match command {
         FrameworkSubcommand::Upgrade { to } => return upgrade(&root, &to, dry_run),
         FrameworkSubcommand::Rollback => return rollback(&root, dry_run),
+        FrameworkSubcommand::Digest { json } => return digest(&root, json),
         FrameworkSubcommand::Status => Mode::Status,
         FrameworkSubcommand::Check => Mode::Check,
     };
@@ -68,8 +80,25 @@ pub fn run(command: FrameworkSubcommand, dry_run: bool) -> Result<()> {
         .unwrap_or_default();
     let manifest = Manifest::read(&manifest_text);
 
+    // The vocabulary of the pinned commit, when it is readable here.
+    let digest = spec
+        .as_ref()
+        .and_then(|spec| spec.source().ok())
+        .and_then(|source| {
+            framework::digest::checkout_for(&root, &source).and_then(|checkout| {
+                framework::digest::digest_from_checkout(&checkout, source.rev()).ok()
+            })
+        });
+
     let now = now_ms();
-    let diagnostics = evaluate(spec.as_ref(), lock.as_ref(), &manifest, now, Run::detect());
+    let diagnostics = evaluate(
+        spec.as_ref(),
+        lock.as_ref(),
+        &manifest,
+        digest.as_ref(),
+        now,
+        Run::detect(),
+    );
 
     let blocking = match mode {
         Mode::Status => {
@@ -241,6 +270,8 @@ struct Manifest {
     source: Option<Source>,
     /// Why it could not be read, when it could not.
     error: Option<String>,
+    /// The crate the dependency names (`package = "this-rs"`), when it says so.
+    package: Option<String>,
 }
 
 impl Manifest {
@@ -253,6 +284,7 @@ impl Manifest {
             line: framework::manifest_dependency(text),
             source,
             error,
+            package: framework::manifest::dependency_package(text),
         }
     }
 }
@@ -262,6 +294,7 @@ fn evaluate(
     spec: Option<&PinSpec>,
     lock: Option<&Lock>,
     manifest: &Manifest,
+    digest: Option<&framework::digest::Digest>,
     now: u64,
     run: Run,
 ) -> Vec<Diagnostic> {
@@ -299,7 +332,79 @@ fn evaluate(
         ));
     }
 
+    // A feature that does not exist at the pinned commit fails in `cargo build`,
+    // with a message about a feature rather than about the commit. Said here, it
+    // names the commit.
+    if let (Some(digest), Some(spec)) = (digest, spec)
+        && !spec.features.is_empty()
+    {
+        let crate_name = manifest.package.as_deref().unwrap_or("this-rs");
+        if let Err(unknown) = digest.accepts(crate_name, &spec.features) {
+            out.push(Diagnostic::error(
+                "feature-unknown",
+                format!(
+                    "`{crate_name}` at {} has no feature {}",
+                    digest
+                        .rev
+                        .as_deref()
+                        .map(short_rev)
+                        .unwrap_or_else(|| "this commit".to_string()),
+                    unknown
+                        .iter()
+                        .map(|f| format!("`{f}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        }
+    }
+
     out
+}
+
+/// The framework's vocabulary at the pinned commit, or why it cannot be read.
+fn digest(root: &Path, json: bool) -> Result<()> {
+    let spec = read_spec(root)
+        .map_err(|message| anyhow::anyhow!(message))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("`this.yaml` declares no `this:` section: nothing is pinned")
+        })?;
+    let source = spec.source().map_err(|error| anyhow::anyhow!(error))?;
+
+    let checkout = framework::digest::checkout_for(root, &source).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no local checkout for {}: the digest is read from the framework's manifests, so it needs a copy of that commit on this machine",
+            source.describe()
+        )
+    })?;
+
+    let digest = framework::digest::digest_from_checkout(&checkout, source.rev())
+        .map_err(|error| anyhow::anyhow!(error))?;
+
+    if json {
+        let text = serde_json::to_string_pretty(&digest).map_err(|e| anyhow::anyhow!(e))?;
+        output::line(text);
+        return Ok(());
+    }
+
+    say("framework", &source.describe());
+    say("checkout", &digest.checkout);
+    say("crates", &digest.crates.len().to_string());
+    for krate in &digest.crates {
+        say(
+            &krate.name,
+            &format!(
+                "{}  [{}]",
+                krate.version,
+                if krate.features.is_empty() {
+                    "no feature".to_string()
+                } else {
+                    krate.features.join(", ")
+                }
+            ),
+        );
+    }
+    Ok(())
 }
 
 /// The lines a user reads, in order: `(label, value)`.
@@ -643,7 +748,7 @@ mod tests {
             line: Some("this = 1".into()),
             ..Default::default()
         };
-        let found = evaluate(None, None, &manifest, NOW, Run::Local);
+        let found = evaluate(None, None, &manifest, None, NOW, Run::Local);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].code, "manifest-only-pin");
         assert!(!found[0].is_error());
@@ -651,13 +756,20 @@ mod tests {
 
     #[test]
     fn a_project_with_nothing_at_all_has_nothing_to_report() {
-        assert!(evaluate(None, None, &Manifest::default(), NOW, Run::Local).is_empty());
+        assert!(evaluate(None, None, &Manifest::default(), None, NOW, Run::Local).is_empty());
     }
 
     #[test]
     fn a_lock_without_a_declaration_is_reported() {
         let lock = git_lock("abc1234", "2026-11-04T21:59:02Z");
-        let found = evaluate(None, Some(&lock), &Manifest::default(), NOW, Run::Local);
+        let found = evaluate(
+            None,
+            Some(&lock),
+            &Manifest::default(),
+            None,
+            NOW,
+            Run::Local,
+        );
         assert_eq!(found[0].code, "lock-without-spec");
     }
 
@@ -669,6 +781,7 @@ mod tests {
             Some(&spec),
             Some(&lock),
             &Manifest::default(),
+            None,
             NOW,
             Run::Local,
         );
@@ -683,7 +796,7 @@ mod tests {
             "[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"fffffff\" }\n",
         );
 
-        let found = evaluate(Some(&spec), Some(&lock), &manifest, NOW, Run::Local);
+        let found = evaluate(Some(&spec), Some(&lock), &manifest, None, NOW, Run::Local);
 
         assert!(
             found
@@ -698,7 +811,7 @@ mod tests {
         let manifest = Manifest::read(
             "[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", branch = \"main\" }\n",
         );
-        let found = evaluate(None, None, &manifest, NOW, Run::Local);
+        let found = evaluate(None, None, &manifest, None, NOW, Run::Local);
         assert!(found.iter().any(|d| d.code == "manifest-branch-pin"));
     }
 
@@ -706,8 +819,52 @@ mod tests {
     fn a_manifest_that_cannot_be_read_is_said_so() {
         let manifest = Manifest::read("[dependencies]\nthis = { package = \"this-rs\" }\n");
         assert!(manifest.error.is_some(), "the dependency names no source");
-        let found = evaluate(None, None, &manifest, NOW, Run::Local);
+        let found = evaluate(None, None, &manifest, None, NOW, Run::Local);
         assert!(found.iter().any(|d| d.code == "manifest-unreadable"));
+    }
+
+    #[test]
+    fn a_feature_absent_at_the_pinned_commit_is_named() {
+        let spec = PinSpec {
+            source: SourceFields {
+                source: SourceKind::Path,
+                path: Some("../this".into()),
+                ..Default::default()
+            },
+            channel: None,
+            features: vec!["grpc".into(), "frontend".into()],
+        };
+        let digest = framework::digest::Digest {
+            rev: Some("cceb3063e1".into()),
+            checkout: ".".into(),
+            crates: vec![framework::digest::CrateDigest {
+                name: "this-rs".into(),
+                version: "0.0.10".into(),
+                features: vec!["grpc".into()],
+            }],
+        };
+        let manifest = Manifest {
+            package: Some("this-rs".into()),
+            ..Default::default()
+        };
+
+        let found = evaluate(Some(&spec), None, &manifest, Some(&digest), NOW, Run::Local);
+
+        let unknown = found
+            .iter()
+            .find(|d| d.code == "feature-unknown")
+            .expect("the absent feature is reported");
+        assert!(unknown.is_error());
+        assert!(unknown.message.contains("frontend"), "{}", unknown.message);
+        assert!(
+            unknown.message.contains("cceb306"),
+            "the commit is named: {}",
+            unknown.message
+        );
+        assert!(
+            !unknown.message.contains("grpc"),
+            "the present one is not blamed"
+        );
     }
 
     #[test]

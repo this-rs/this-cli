@@ -69,6 +69,20 @@ pub fn dependency_from_manifest(manifest: &str) -> Result<Option<Source>, String
     Err("the `this` dependency names neither a version, a path nor a repository".to_string())
 }
 
+/// The crate the `this` dependency names, when it names one.
+///
+/// `this = { package = "this-rs", ... }` is how a project depends on the
+/// framework under another name; without it the crate is called `this`.
+pub fn dependency_package(manifest: &str) -> Option<String> {
+    let document = manifest.parse::<toml_edit::DocumentMut>().ok()?;
+    let dependency = document.get("dependencies")?.get("this")?;
+    dependency
+        .as_table_like()?
+        .get("package")
+        .and_then(|package| package.as_str())
+        .map(str::to_string)
+}
+
 /// How the manifest (what Cargo builds) disagrees with the pin.
 ///
 /// `spec` is the declaration, `lock` the recorded resolution; both are optional
@@ -188,6 +202,17 @@ impl SourceMismatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_package_the_dependency_names_is_read() {
+        let manifest = "[dependencies]\nthis = { package = \"this-rs\", version = \"0.0.9\" }\n";
+        assert_eq!(dependency_package(manifest).as_deref(), Some("this-rs"));
+
+        let renamed = "[dependencies]\nthis = \"0.0.9\"\n";
+        assert_eq!(dependency_package(renamed), None);
+
+        assert_eq!(dependency_package("[dependencies]\nanyhow = \"1\"\n"), None);
+    }
 
     #[test]
     fn a_plain_version_string_is_read() {

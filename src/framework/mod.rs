@@ -27,6 +27,7 @@
 //! No network, no git, no clock of its own: [`lock::validate`] takes the current
 //! time as an argument, so every rule is testable to the millisecond.
 
+pub mod digest;
 pub mod lock;
 pub mod manifest;
 pub mod migration;
