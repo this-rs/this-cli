@@ -206,6 +206,11 @@ fn run_desktop(args: AddTargetArgs, writer: &dyn FileWriter, cwd: &std::path::Pa
     ctx.insert("project_name_snake", &project_name_snake);
     ctx.insert("api_port", &api_port);
     ctx.insert("front_path", &front_path);
+    // Local checkout of this-rs: the shell plugin is a path dependency. Without it, the
+    // desktop shell keeps the plain Tauri setup (the plugin is not published yet).
+    if let Some(ref this_path) = args.this_path {
+        ctx.insert("this_path", this_path);
+    }
 
     let templates = [
         ("desktop/tauri-cargo.toml", "src-tauri/Cargo.toml"),
@@ -443,6 +448,7 @@ mod tests {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         // Pass a path that has no this.yaml anywhere up the tree
         let result = run_in(args, &writer, tmp.path());
@@ -464,6 +470,7 @@ mod tests {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_ok(), "Should succeed: {:?}", result.err());
@@ -487,6 +494,7 @@ mod tests {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -509,6 +517,7 @@ mod tests {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -517,6 +526,7 @@ mod tests {
             target_type: TargetType::Webapp,
             framework: "vue".to_string(),
             name: Some("front2".to_string()),
+            this_path: None,
         };
         let result = run_in(args2, &writer, &ws);
         assert!(result.is_err());
@@ -537,6 +547,7 @@ mod tests {
             target_type: TargetType::Webapp,
             framework: "react".to_string(),
             name: Some("frontend".to_string()),
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -556,6 +567,7 @@ mod tests {
             target_type: TargetType::Website,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_err());
@@ -593,6 +605,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_err());
@@ -613,6 +626,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_ok(), "Should succeed: {:?}", result.err());
@@ -640,6 +654,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -665,6 +680,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -673,6 +689,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: Some("targets/desktop2".to_string()),
+            this_path: None,
         };
         let result = run_in(args2, &writer, &ws);
         assert!(result.is_err());
@@ -693,6 +710,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: Some("my-desktop".to_string()),
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -717,6 +735,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -742,6 +761,7 @@ mod tests {
             target_type: TargetType::Desktop,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -772,6 +792,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_err());
@@ -792,6 +813,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_ok(), "Should succeed: {:?}", result.err());
@@ -810,6 +832,7 @@ mod tests {
             target_type: TargetType::Android,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         let result = run_in(args, &writer, &ws);
         assert!(result.is_ok(), "Should succeed: {:?}", result.err());
@@ -828,6 +851,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -852,6 +876,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -859,6 +884,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: Some("targets/ios2".to_string()),
+            this_path: None,
         };
         let result = run_in(args2, &writer, &ws);
         assert!(result.is_err());
@@ -881,6 +907,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args_ios, &writer, &ws).unwrap();
 
@@ -889,6 +916,7 @@ mod tests {
             target_type: TargetType::Android,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args_android, &writer, &ws).unwrap();
 
@@ -920,6 +948,7 @@ mod tests {
             target_type: TargetType::Ios,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 
@@ -952,6 +981,7 @@ mod tests {
             target_type: TargetType::Android,
             framework: "react".to_string(),
             name: None,
+            this_path: None,
         };
         run_in(args, &writer, &ws).unwrap();
 

@@ -257,6 +257,11 @@ pub struct AddTargetArgs {
     /// Custom name for the target directory
     #[arg(long)]
     pub name: Option<String>,
+
+    /// Path to a local this-rs checkout: the desktop shell then depends on the
+    /// `this-shell-tauri` plugin (same as `init --this-path`).
+    #[arg(long, hide = true)]
+    pub this_path: Option<String>,
 }
 
 /// Arguments for `this add event-flow <name>`

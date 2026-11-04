@@ -27,7 +27,9 @@ async fn main() {
     // Launch Tauri app
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .run(tauri::generate_context!())
+{% if this_path %}        // Window, Dock and lifecycle: closing hides on macOS, the Dock icon reopens.
+        .plugin(this_shell_tauri::init(this_shell_tauri::ShellConfig::default()))
+{% endif %}        .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
