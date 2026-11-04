@@ -139,6 +139,25 @@ pub fn manifest_dependency(manifest: &str) -> Option<String> {
     None
 }
 
+/// Render the `this:` section of a `this.yaml` from a declaration.
+///
+/// Written by `init`, so a generated project declares its pin from birth. The
+/// round trip is the contract: what this writes, [`read_spec`] must read back
+/// as the same declaration — a test holds the two together.
+pub fn spec_yaml(spec: &PinSpec) -> Result<String, String> {
+    let body = serde_yaml::to_string(spec).map_err(|error| error.to_string())?;
+    let mut out = String::from("this:\n");
+    for line in body.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        out.push_str("  ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
 /// Read the `this:` section of a `this.yaml`, without requiring the rest of the
 /// workspace schema to be complete.
 ///
@@ -435,6 +454,50 @@ mod tests {
     #[test]
     fn a_manifest_without_the_dependency_reports_nothing() {
         assert!(manifest_dependency("[dependencies]\nanyhow = \"1\"\n").is_none());
+    }
+
+    #[test]
+    fn what_a_declaration_writes_is_what_it_reads_back() {
+        let cases = [
+            PinSpec::crates_io("0.0.9"),
+            PinSpec {
+                source: pin::SourceFields {
+                    source: pin::SourceKind::Git,
+                    url: Some("https://github.com/this-rs/this".into()),
+                    rev: Some("cceb306".into()),
+                    ..Default::default()
+                },
+                channel: Some(pin::Channel::Stable),
+                features: vec!["grpc".into(), "websocket".into()],
+            },
+            PinSpec {
+                source: pin::SourceFields {
+                    source: pin::SourceKind::Git,
+                    url: Some("https://github.com/this-rs/this".into()),
+                    ..Default::default()
+                },
+                channel: Some(pin::Channel::Canary),
+                features: vec![],
+            },
+            PinSpec {
+                source: pin::SourceFields {
+                    source: pin::SourceKind::Path,
+                    path: Some("../this".into()),
+                    ..Default::default()
+                },
+                channel: None,
+                features: vec![],
+            },
+        ];
+
+        for spec in cases {
+            let yaml = format!(
+                "name: shop\napi:\n  path: api\n{}",
+                spec_yaml(&spec).unwrap()
+            );
+            let read = pin_from_yaml(&yaml).unwrap().expect("a pin is declared");
+            assert_eq!(read, spec, "round trip failed for:\n{yaml}");
+        }
     }
 
     #[test]
