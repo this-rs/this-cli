@@ -2,6 +2,7 @@ mod codegen;
 mod commands;
 mod config;
 mod descriptor;
+mod framework;
 mod mcp;
 mod templates;
 #[cfg(test)]
@@ -54,6 +55,7 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
             commands::GenerateCommands::Client(args) => commands::generate::run(args, writer),
         },
         Commands::Doctor => commands::doctor::run(),
+        Commands::Framework(fw) => commands::framework::run(fw.command),
         Commands::Completions { shell } => commands::completions::run(shell),
         Commands::Build(args) => commands::build::run(args, writer),
         Commands::Dev(args) => commands::dev::run(args),

@@ -1803,7 +1803,7 @@ fn test_init_grpc_websocket_combined() {
 
     let cargo_toml = std::fs::read_to_string(tmp.path().join("both-proj/Cargo.toml")).unwrap();
     assert!(
-        cargo_toml.contains(r#"features = ["websocket", "grpc"]"#),
+        cargo_toml.contains(r#"features = ["grpc", "websocket"]"#),
         "Cargo.toml should contain both features, got:\n{}",
         cargo_toml
     );
@@ -1913,7 +1913,7 @@ fn test_init_grpc_websocket_workspace_combined() {
     // Cargo.toml should have both features AND embedded-frontend
     let cargo_toml = std::fs::read_to_string(ws_dir.join("api/Cargo.toml")).unwrap();
     assert!(
-        cargo_toml.contains(r#"features = ["websocket", "grpc"]"#),
+        cargo_toml.contains(r#"features = ["grpc", "websocket"]"#),
         "Cargo.toml should contain both features, got:\n{}",
         cargo_toml
     );

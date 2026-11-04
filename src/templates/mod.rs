@@ -200,7 +200,10 @@ mod tests {
         ctx.insert("project_name", "test-project");
         ctx.insert("project_name_snake", "test_project");
         ctx.insert("port", &3000u16);
-        ctx.insert("features_list", "");
+        ctx.insert(
+            "this_dependency",
+            "this = { package = \"this-rs\", version = \"0.0.9\", features = [\"grpc\"] }",
+        );
         ctx
     }
 

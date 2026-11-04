@@ -930,7 +930,7 @@ fn test_mcp_init_project_grpc_websocket() {
     let project_dir = tmpdir.path().join("both_project");
     let cargo_toml = std::fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
     assert!(
-        cargo_toml.contains(r#"features = ["websocket", "grpc"]"#),
+        cargo_toml.contains(r#"features = ["grpc", "websocket"]"#),
         "Cargo.toml should contain both features. Got:\n{}",
         cargo_toml
     );

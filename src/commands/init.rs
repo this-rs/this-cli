@@ -4,11 +4,54 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
 use super::InitArgs;
+use crate::framework;
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::naming;
 use crate::utils::output;
 use crate::utils::output::human;
+
+/// The framework pin this project is born with.
+fn pin_of(args: &InitArgs, features: &[String]) -> Result<framework::PinSpec> {
+    framework::pin_from_request(
+        framework::PinRequest {
+            path: args.this_path.as_deref(),
+            url: args.this_url.as_deref(),
+            rev: args.this_rev.as_deref(),
+            channel: args.this_channel.as_deref(),
+        },
+        features,
+    )
+    .map_err(|error| anyhow::anyhow!(error))
+}
+
+/// Cargo features the generated manifest asks of the framework, by name.
+///
+/// Derived from the flags, never typed as a string: the manifest renders the
+/// quoting itself, so a feature cannot be half-quoted in one place and not in
+/// the other.
+fn requested_features(args: &InitArgs, workspace: bool) -> Vec<String> {
+    let mut features = Vec::new();
+    if args.websocket {
+        features.push("websocket".to_string());
+    }
+    if args.grpc {
+        features.push("grpc".to_string());
+    }
+    if args.auth {
+        features.push("wami".to_string());
+    }
+    if args.cognitive {
+        features.push("obrain".to_string());
+    }
+    // vite-rs frontend hosting (this::server::frontend) only exists on a local
+    // this-rs checkout — a published this-rs (no `frontend` feature yet) keeps
+    // the legacy in-project serving path in the templates.
+    if workspace && args.this_path.is_some() {
+        features.push("frontend".to_string());
+    }
+    features
+}
 
 /// Entry point: dispatch to classic or workspace mode based on `--workspace` flag.
 pub fn run(args: InitArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -81,21 +124,12 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
         context.insert("this_path", this_path);
     }
 
-    // Build features list for Cargo.toml
-    let mut features: Vec<&str> = vec![];
-    if args.websocket {
-        features.push("\"websocket\"");
-    }
-    if args.grpc {
-        features.push("\"grpc\"");
-    }
-    if args.auth {
-        features.push("\"wami\"");
-    }
-    if args.cognitive {
-        features.push("\"obrain\"");
-    }
-    context.insert("features_list", &features.join(", "));
+    // The framework dependency comes from the pin, not from a string spelled in
+    // the template: one rule, and the version lives in `framework::PUBLISHED_VERSION`.
+    let features: Vec<String> = requested_features(&args, false);
+    let pin = pin_of(&args, &features)?;
+    let this_dependency = framework::this_dependency(&pin, None).map_err(|e| anyhow::anyhow!(e))?;
+    context.insert("this_dependency", &this_dependency);
 
     let mut files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
@@ -233,27 +267,11 @@ fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<
         api_context.insert("this_path", this_path);
     }
 
-    // Build features list for workspace Cargo.toml
-    let mut ws_features: Vec<&str> = vec![];
-    if args.websocket {
-        ws_features.push("\"websocket\"");
-    }
-    if args.grpc {
-        ws_features.push("\"grpc\"");
-    }
-    if args.auth {
-        ws_features.push("\"wami\"");
-    }
-    if args.cognitive {
-        ws_features.push("\"obrain\"");
-    }
-    // vite-rs frontend hosting (this::server::frontend) only exists on a local
-    // this-rs checkout — a published this-rs (no `frontend` feature yet) keeps
-    // the legacy in-project serving path in the templates.
-    if args.this_path.is_some() {
-        ws_features.push("\"frontend\"");
-    }
-    api_context.insert("features_list", &ws_features.join(", "));
+    let ws_features: Vec<String> = requested_features(&args, true);
+    let ws_pin = pin_of(&args, &ws_features)?;
+    let ws_this_dependency =
+        framework::this_dependency(&ws_pin, None).map_err(|e| anyhow::anyhow!(e))?;
+    api_context.insert("this_dependency", &ws_this_dependency);
 
     let mut api_files: Vec<(&str, &str)> = vec![
         ("project/Cargo.toml", "Cargo.toml"),
@@ -371,6 +389,9 @@ mod tests {
             no_git: true,
             port: 3000,
             this_path: None,
+            this_url: None,
+            this_rev: None,
+            this_channel: None,
             workspace: false,
             websocket: false,
             grpc: false,
@@ -388,6 +409,9 @@ mod tests {
             no_git: true,
             port: 3000,
             this_path: None,
+            this_url: None,
+            this_rev: None,
+            this_channel: None,
             workspace: true,
             websocket: false,
             grpc: false,
