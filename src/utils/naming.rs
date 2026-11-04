@@ -1,3 +1,45 @@
+/// Keywords that cannot be used as a Rust module, type or crate identifier.
+/// Strict, reserved and 2018+ keywords, all lowercase (names are normalised first).
+const RUST_KEYWORDS: &[&str] = &[
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
+    "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl",
+    "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",
+    "return", "self", "static", "struct", "super", "trait", "true", "try", "type", "typeof",
+    "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
+/// Normalise a user-supplied entity or project name and check that it is a safe
+/// identifier for generated code and paths.
+///
+/// Rejects, with an error naming `what` and the offending input: empty names,
+/// anything containing `/`, `\` or `.` (path separators, `..`, absolute paths), and
+/// names that are not `^[a-z][a-z0-9_]*$` after [`to_snake_case`], or that are Rust
+/// keywords. Returns the normalised name.
+pub fn checked_name(raw: &str, what: &str) -> anyhow::Result<String> {
+    if raw.trim().is_empty() {
+        anyhow::bail!("{what} name cannot be empty");
+    }
+    if raw.contains(['/', '\\', '.']) {
+        anyhow::bail!(
+            "invalid {what} name '{raw}': path separators, '.' and absolute paths are not allowed"
+        );
+    }
+    let normalized = to_snake_case(raw);
+    let mut chars = normalized.chars();
+    let well_formed = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if !well_formed {
+        anyhow::bail!(
+            "invalid {what} name '{raw}': after normalisation it must match ^[a-z][a-z0-9_]*$ \
+             (got '{normalized}')"
+        );
+    }
+    if RUST_KEYWORDS.contains(&normalized.as_str()) {
+        anyhow::bail!("invalid {what} name '{raw}': '{normalized}' is a Rust keyword");
+    }
+    Ok(normalized)
+}
+
 /// Convert a string to snake_case
 /// "ProductCategory" -> "product_category"
 /// "product-category" -> "product_category"
@@ -103,6 +145,37 @@ mod tests {
         assert_eq!(pluralize("day"), "days");
         assert_eq!(pluralize("bush"), "bushes");
         assert_eq!(pluralize("match"), "matches");
+    }
+
+    #[test]
+    fn checked_name_accepts_identifiers_and_normalises_them() {
+        assert_eq!(checked_name("product", "entity").unwrap(), "product");
+        assert_eq!(
+            checked_name("ProductCategory", "entity").unwrap(),
+            "product_category"
+        );
+        assert_eq!(checked_name("my-project", "project").unwrap(), "my_project");
+        assert_eq!(checked_name("item2", "entity").unwrap(), "item2");
+    }
+
+    #[test]
+    fn checked_name_refuses_path_like_names() {
+        for bad in ["../evil", "a/b", "a\\b", "/etc/passwd", "x.y", "."] {
+            let err = checked_name(bad, "entity").unwrap_err().to_string();
+            assert!(err.contains("invalid entity name"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn checked_name_refuses_non_identifiers_and_keywords() {
+        for bad in ["2fast", "émoji", "a b c!", "type", "match", "Self"] {
+            assert!(
+                checked_name(bad, "project").is_err(),
+                "{bad} must be refused"
+            );
+        }
+        assert!(checked_name("", "entity").is_err());
+        assert!(checked_name("   ", "entity").is_err());
     }
 
     #[test]

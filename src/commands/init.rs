@@ -6,6 +6,7 @@ use colored::Colorize;
 use super::InitArgs;
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
+use crate::utils::naming;
 use crate::utils::output;
 use crate::utils::output::human;
 
@@ -28,6 +29,7 @@ pub(crate) fn run_in(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Res
 
 /// Classic init: creates a flat this-rs project (backward-compatible, unchanged behavior).
 fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()> {
+    naming::checked_name(&args.name, "project")?;
     let project_dir = resolve_project_dir(cwd, &args.path, &args.name);
 
     if project_dir.exists() && !writer.is_dry_run() {
@@ -164,6 +166,7 @@ fn run_classic(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()
 
 /// Workspace init: creates a multi-target workspace with this.yaml and api/ subdirectory.
 fn run_workspace(args: InitArgs, writer: &dyn FileWriter, cwd: &Path) -> Result<()> {
+    naming::checked_name(&args.name, "project")?;
     let workspace_dir = resolve_project_dir(cwd, &args.path, &args.name);
 
     if workspace_dir.exists() && !writer.is_dry_run() {
@@ -801,6 +804,29 @@ mod tests {
     // ========================================================================
     // resolve_project_dir helper
     // ========================================================================
+
+    #[test]
+    fn test_init_refuses_path_like_project_names_without_writing() {
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        for bad in ["../evil", "a/b", "/abs/evil", "x.y"] {
+            let tmp = TempDir::new().unwrap();
+            let cwd = tmp.path().join("cwd");
+            std::fs::create_dir_all(&cwd).unwrap();
+
+            let classic = run_in(classic_args(bad), &writer, &cwd);
+            let workspace = run_in(workspace_args(bad), &writer, &cwd);
+
+            for result in [classic, workspace] {
+                let err = result.unwrap_err().to_string();
+                assert!(err.contains("invalid project name"), "{bad}: {err}");
+            }
+            assert_eq!(
+                std::fs::read_dir(tmp.path()).unwrap().count(),
+                1,
+                "{bad}: only the cwd may exist, nothing was written outside it"
+            );
+        }
+    }
 
     #[test]
     fn test_resolve_project_dir_relative_path() {

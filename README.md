@@ -16,7 +16,7 @@ Generate fully compilable this-rs projects and entities from the command line �
 - **EventBus & SSE** — `--events` flag enables EventBus broadcasting + SSE streaming endpoint
 - **WAMI Auth** — `--auth` flag enables JWT authentication (Ed25519), RBAC policies, custom resolvers, multi-tenant, GDPR erasure
 - **Cognitive Signals** — `--cognitive` flag enables CognitiveNotificationBridge with anomaly detection, co-change tracking, and threshold-based routing
-- **Storage backends** — `--storage <backend>` supports postgres, mongodb, neo4j, scylladb, mysql, lmdb, dynamodb, obrain (default: in-memory)
+- **Storage backends** — `this add entity --backend <backend>` supports postgres, mongodb, neo4j, scylladb, mysql, lmdb (default: in-memory); any other value is an error
 - **Workspace mode** — `this init --workspace` creates a multi-target project with `this.yaml` and `api/` subdirectory
 - **Frontend targets** — `this add target webapp` scaffolds a React/Vue/Svelte SPA with Vite, TypeScript, and API proxy; the scaffolded `package.json` also ships a `build:fast` script (fast `vite build`) used by the vite-rs dev loop
 - **Native targets** — Desktop (Tauri 2), iOS & Android (Capacitor 6) with `this add target desktop|ios|android`
@@ -154,11 +154,13 @@ this init my-api --grpc             # Enable gRPC support
 this init my-api --events           # Enable EventBus + SSE streaming
 this init my-api --auth             # Enable WAMI Auth STS (JWT, RBAC, GDPR)
 this init my-api --cognitive        # Enable Cognitive Signals (anomaly, co-change...)
-this init my-api --storage postgres # Use PostgreSQL backend
 this init my-api --grpc --websocket --events --auth --cognitive  # All features
 this init my-app --workspace        # Create workspace layout (this.yaml + api/)
+this init my-app --workspace --this-path <local this>  # Required for now, see note below
 this --dry-run init my-api          # Preview without creating files
 ```
+
+> **Note:** without `--this-path`, the scaffold pins `this-rs = "0.0.9"`, which does not provide the APIs the project templates use. A scaffold made that way does not compile until this-rs 0.0.10 is published, so pass `--this-path <local this-rs checkout>` for now.
 
 ### this add entity
 
@@ -399,7 +401,7 @@ this completions powershell > $PROFILE.CurrentUserAllHosts
 - EventBus + SSE support (`--events` flag)
 - WAMI Auth STS (`--auth` flag) — JWT, RBAC, custom resolvers, multi-tenant, GDPR erasure
 - Cognitive Signals (`--cognitive` flag) — anomaly detection, co-change, stigmergy, scars, episodes
-- Storage backend selection (`--storage <backend>`) — 9 backends supported
+- Storage backend selection (`this add entity --backend <backend>`) — 6 backends plus in-memory
 - Shell completions, dry-run mode
 - 267+ tests, CI with fmt/clippy/cross-platform
 

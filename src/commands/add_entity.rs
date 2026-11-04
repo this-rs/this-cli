@@ -10,6 +10,18 @@ use crate::utils::file_writer::FileWriter;
 use crate::utils::output::human;
 use crate::utils::{markers, naming, output, project};
 
+/// Storage backends `add entity --backend` accepts. Anything else is an error, not a
+/// silent fallback to in-memory.
+pub(crate) const KNOWN_BACKENDS: &[&str] = &[
+    "in-memory",
+    "postgres",
+    "mongodb",
+    "neo4j",
+    "scylladb",
+    "mysql",
+    "lmdb",
+];
+
 /// Parsed field definition (legacy view, kept for the parse tests)
 #[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -50,8 +62,17 @@ pub(crate) fn run_in(
     writer: &dyn FileWriter,
     cwd: &std::path::Path,
 ) -> Result<()> {
+    // Validate before anything is read or written: the name becomes a directory
+    // (src/entities/<name>) and generated code, the backend selects a store template.
+    let entity_name = naming::checked_name(&args.name, "entity")?;
+    if !KNOWN_BACKENDS.contains(&args.backend.as_str()) {
+        bail!(
+            "unknown backend '{}'. Supported backends: {}",
+            args.backend,
+            KNOWN_BACKENDS.join(", ")
+        );
+    }
     let project_root = project::detect_project_root_from(cwd)?;
-    let entity_name = naming::to_snake_case(&args.name);
     let entity_pascal = naming::to_pascal_case(&args.name);
     let entity_plural = naming::pluralize(&entity_name);
 
@@ -1404,6 +1425,41 @@ impl Module for TestModule {{
             err.contains("Not inside a this-rs project"),
             "Error should mention not in project: {}",
             err
+        );
+    }
+
+    #[test]
+    fn test_add_entity_refuses_path_like_name_without_writing() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "path_name");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let args = default_args("../escape");
+
+        let err = run_in(args, &writer, &project).unwrap_err().to_string();
+        assert!(err.contains("invalid entity name"), "{err}");
+        assert!(!project.join("src/escape").exists());
+        assert_eq!(
+            std::fs::read_dir(project.join("src/entities"))
+                .unwrap()
+                .count(),
+            0,
+            "a refused name must not write anything"
+        );
+    }
+
+    #[test]
+    fn test_add_entity_refuses_unknown_backend_without_writing() {
+        let tmp = TempDir::new().unwrap();
+        let project = setup_entity_project(&tmp, "unknown_backend");
+        let writer = crate::mcp::handlers::McpFileWriter::new();
+        let mut args = default_args("product");
+        args.backend = "sqlite".to_string();
+
+        let err = run_in(args, &writer, &project).unwrap_err().to_string();
+        assert!(err.contains("unknown backend 'sqlite'"), "{err}");
+        assert!(
+            !project.join("src/entities/product").exists(),
+            "an unknown backend must not fall back to in-memory and write files"
         );
     }
 

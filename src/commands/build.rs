@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
@@ -10,8 +11,35 @@ use crate::config::{self, TargetType, WorkspaceConfig};
 use crate::templates::TemplateEngine;
 use crate::utils::file_writer::FileWriter;
 use crate::utils::output;
-use crate::utils::output::human;
+use crate::utils::output::{OutputMode, human};
 use crate::utils::project;
+
+/// Run one build subprocess (cargo, npm, cargo tauri, npx cap) and return its status.
+///
+/// In MCP mode stdout is the JSON-RPC channel, so a child must not inherit it: its
+/// stdout and stderr are captured and relayed on stderr, and its stdin is closed.
+/// In CLI mode the child inherits the terminal, as it always did.
+fn run_build_cmd(cmd: &mut Command) -> std::io::Result<ExitStatus> {
+    relay_build_cmd(cmd, output::mode(), &mut std::io::stderr())
+}
+
+/// [`run_build_cmd`] with the mode and the relay channel passed in, so the MCP
+/// branch can be tested without a process-wide `OutputMode`.
+fn relay_build_cmd(
+    cmd: &mut Command,
+    mode: OutputMode,
+    relay: &mut dyn Write,
+) -> std::io::Result<ExitStatus> {
+    if mode == OutputMode::Cli {
+        return cmd.status();
+    }
+    cmd.stdin(Stdio::null());
+    let out = cmd.output()?;
+    // Relay errors are dropped, like every other human line (see utils::output).
+    let _ = relay.write_all(&out.stdout);
+    let _ = relay.write_all(&out.stderr);
+    Ok(out.status)
+}
 
 /// Entry point for `this build`.
 pub fn run(args: BuildArgs, writer: &dyn FileWriter) -> Result<()> {
@@ -88,9 +116,8 @@ fn run_api_build(api_path: &Path, release: bool) -> Result<()> {
         cmd.arg("--release");
     }
 
-    let status = cmd
-        .status()
-        .context("Failed to execute cargo build. Is Rust installed?")?;
+    let status =
+        run_build_cmd(&mut cmd).context("Failed to execute cargo build. Is Rust installed?")?;
 
     if !status.success() {
         bail!("cargo build failed with exit code: {}", status);
@@ -137,11 +164,12 @@ fn run_front_build(webapp: &config::TargetConfig, workspace_root: &Path) -> Resu
 
     output::print_step("Building frontend...");
 
-    let status = Command::new("npm")
-        .args(["run", "build"])
-        .current_dir(&front_path)
-        .status()
-        .context("Failed to execute npm run build. Is Node.js installed?")?;
+    let status = run_build_cmd(
+        Command::new("npm")
+            .args(["run", "build"])
+            .current_dir(&front_path),
+    )
+    .context("Failed to execute npm run build. Is Node.js installed?")?;
 
     if !status.success() {
         bail!("npm run build failed with exit code: {}", status);
@@ -178,11 +206,12 @@ fn run_embed(
     // 3. Build API with embedded-frontend feature
     output::print_step("Building API with embedded frontend...");
 
-    let status = Command::new("cargo")
-        .args(["build", "--release", "--features", "embedded-frontend"])
-        .current_dir(api_path)
-        .status()
-        .context("Failed to execute cargo build --features embedded-frontend")?;
+    let status = run_build_cmd(
+        Command::new("cargo")
+            .args(["build", "--release", "--features", "embedded-frontend"])
+            .current_dir(api_path),
+    )
+    .context("Failed to execute cargo build --features embedded-frontend")?;
 
     if !status.success() {
         bail!("cargo build --features embedded-frontend failed");
@@ -361,14 +390,15 @@ fn run_build_desktop(
     output::print_step(&format!("Building desktop app ({})...", config.name));
 
     // Use cargo tauri build (requires @tauri-apps/cli or cargo-tauri)
-    let status = Command::new("cargo")
-        .args(["tauri", "build"])
-        .current_dir(&tauri_dir)
-        .status()
-        .context(
-            "Failed to execute 'cargo tauri build'. Is cargo-tauri installed?\n\
+    let status = run_build_cmd(
+        Command::new("cargo")
+            .args(["tauri", "build"])
+            .current_dir(&tauri_dir),
+    )
+    .context(
+        "Failed to execute 'cargo tauri build'. Is cargo-tauri installed?\n\
              Install with: cargo install tauri-cli",
-        )?;
+    )?;
 
     if !status.success() {
         bail!("cargo tauri build failed with exit code: {}", status);
@@ -409,14 +439,15 @@ fn run_build_mobile(
 
     output::print_step(&format!("Syncing {} target...", platform));
 
-    let status = Command::new("npx")
-        .args(["cap", "sync", &platform])
-        .current_dir(&target_dir)
-        .status()
-        .context(format!(
-            "Failed to execute 'npx cap sync {}'. Is Capacitor installed?",
-            platform
-        ))?;
+    let status = run_build_cmd(
+        Command::new("npx")
+            .args(["cap", "sync", &platform])
+            .current_dir(&target_dir),
+    )
+    .context(format!(
+        "Failed to execute 'npx cap sync {}'. Is Capacitor installed?",
+        platform
+    ))?;
 
     if !status.success() {
         bail!(
@@ -453,6 +484,40 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn mcp_build_child_output_is_captured_and_relayed_on_stderr() {
+        // In MCP mode the child must not inherit stdout (the JSON-RPC channel): its
+        // stdout is piped by `output()`, and both streams reach the relay sink. That
+        // stdout is not written by the test process itself is structural (`output()`
+        // pipes fd 1); an end-to-end check would need a real `cargo build` run.
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "echo build-stdout; echo build-stderr >&2; exit 3"]);
+        let mut relay: Vec<u8> = Vec::new();
+
+        let status = relay_build_cmd(&mut cmd, OutputMode::Mcp, &mut relay).unwrap();
+
+        assert_eq!(status.code(), Some(3));
+        let text = String::from_utf8(relay).unwrap();
+        assert!(text.contains("build-stdout"), "stdout relayed: {text:?}");
+        assert!(text.contains("build-stderr"), "stderr relayed: {text:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_build_child_is_not_captured() {
+        // CLI mode keeps the historical behaviour: the child inherits the terminal,
+        // so nothing is relayed through the sink.
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "exit 0"]);
+        let mut relay: Vec<u8> = Vec::new();
+
+        let status = relay_build_cmd(&mut cmd, OutputMode::Cli, &mut relay).unwrap();
+
+        assert!(status.success());
+        assert!(relay.is_empty());
+    }
 
     #[test]
     fn test_find_webapp_target_found() {
