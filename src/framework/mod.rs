@@ -356,6 +356,68 @@ mod tests {
         assert!(error.contains("stable, canary, next"), "{error}");
     }
 
+    fn sample_lock() -> Lock {
+        Lock {
+            source: pin::SourceFields {
+                source: pin::SourceKind::Git,
+                url: Some("https://github.com/this-rs/this".into()),
+                rev: Some("abc1234".into()),
+                ..Default::default()
+            },
+            resolved_at: "2026-11-04T21:59:02Z".into(),
+            channel: Some(pin::Channel::Stable),
+            crates: vec![lock::LockedCrate::new("this-rs", Some("abc1234".into()))],
+            features: vec!["grpc".into()],
+            api_digest: None,
+            migrations: vec!["0009-session-to-capabilities".into()],
+        }
+    }
+
+    #[test]
+    fn a_missing_lock_is_absence_rather_than_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_lock(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_lock_survives_a_trip_through_the_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = sample_lock();
+        write_lock(dir.path(), &lock).unwrap();
+        assert_eq!(read_lock(dir.path()).unwrap().unwrap(), lock);
+        assert!(lock_path(dir.path()).ends_with(".this/framework.lock"));
+    }
+
+    #[test]
+    fn an_unreadable_lock_is_an_error_not_a_silent_absence() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(LOCK_DIR)).unwrap();
+        std::fs::write(lock_path(dir.path()), "source: [not, a, mapping").unwrap();
+        assert!(read_lock(dir.path()).is_err());
+    }
+
+    #[test]
+    fn a_spec_is_read_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let yaml = "name: shop\nthis:\n  source: crates-io\n  version: 0.0.9\n";
+        std::fs::write(dir.path().join("this.yaml"), yaml).unwrap();
+        let spec = read_spec(dir.path()).unwrap().expect("a pin is declared");
+        assert_eq!(spec.source.version.as_deref(), Some("0.0.9"));
+    }
+
+    #[test]
+    fn a_project_without_a_this_yaml_declares_no_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_spec(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_broken_this_yaml_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("this.yaml"), "this: [not, a, mapping").unwrap();
+        assert!(read_spec(dir.path()).is_err());
+    }
+
     #[test]
     fn the_manifest_dependency_is_found_wherever_it_sits() {
         let manifest = "[package]\nname = \"shop\"\n\n[dependencies]\nanyhow = \"1\"\nthis = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"cceb306\" }\n";

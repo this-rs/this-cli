@@ -2391,3 +2391,143 @@ fn test_init_all_features_combined() {
     assert!(proj_dir.join("config/events.yaml").exists(), "events.yaml");
     assert!(proj_dir.join("config/links.yaml").exists(), "links.yaml");
 }
+
+// ============================================================================
+// this framework tests
+// ============================================================================
+
+/// A crate that looks like a this-rs project, so the CLI finds its root.
+fn framework_project(dir: &Path, dependency: &str) -> std::path::PathBuf {
+    let root = dir.join("api");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        format!("[package]\nname = \"api\"\nversion = \"0.1.0\"\n\n[dependencies]\n{dependency}\n"),
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn test_framework_status_says_a_pin_is_undeclared() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", version = \"0.0.9\" }",
+    );
+
+    let (success, stdout, _) = run_this(&["framework", "status"], &root);
+
+    assert!(success, "status is read-only and should succeed");
+    assert!(
+        stdout.contains("not declared"),
+        "status should say nothing is declared, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("this:"),
+        "status should hint at the declaration, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_framework_check_passes_on_a_manifest_only_pin_but_says_so() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", version = \"0.0.9\" }",
+    );
+
+    let (success, stdout, _) = run_this(&["framework", "check"], &root);
+
+    assert!(
+        success,
+        "a manifest-only pin is a warning, not a blocking finding"
+    );
+    assert!(
+        stdout.contains("manifest-only-pin"),
+        "the warning should name the code, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_framework_check_blocks_on_a_commit_that_disagrees_with_the_lock() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }",
+    );
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: api\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join(".this")).unwrap();
+    std::fs::write(
+        root.join(".this/framework.lock"),
+        "source: git\nurl: https://github.com/this-rs/this\nrev: bbbbbbb\nresolved_at: 2026-11-04T21:59:02Z\ncrates:\n  - name: this-rs\n    rev: bbbbbbb\n",
+    )
+    .unwrap();
+
+    let (success, _, stderr) = run_this(&["framework", "check"], &root);
+
+    assert!(!success, "a disagreeing commit must exit non-zero");
+    assert!(
+        stderr.contains("lock-rev-mismatch"),
+        "the blocking finding should be named on stderr, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_framework_status_shows_the_lock_it_found() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }",
+    );
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: api\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n  channel: stable\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join(".this")).unwrap();
+    std::fs::write(
+        root.join(".this/framework.lock"),
+        "source: git\nurl: https://github.com/this-rs/this\nrev: aaaaaaa\nresolved_at: 2026-11-04T21:59:02Z\nchannel: stable\ncrates:\n  - name: this-rs\n    rev: aaaaaaa\n",
+    )
+    .unwrap();
+
+    let (success, stdout, _) = run_this(&["framework", "status"], &root);
+
+    assert!(success);
+    assert!(stdout.contains("commit"), "got:\n{stdout}");
+    assert!(stdout.contains("aaaaaaa"), "got:\n{stdout}");
+    assert!(stdout.contains("this-rs @ aaaaaaa"), "got:\n{stdout}");
+}
+
+#[test]
+fn test_framework_check_accepts_a_coherent_pin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }",
+    );
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: api\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join(".this")).unwrap();
+    std::fs::write(
+        root.join(".this/framework.lock"),
+        "source: git\nurl: https://github.com/this-rs/this\nrev: aaaaaaa\nresolved_at: 2026-11-04T21:59:02Z\ncrates:\n  - name: this-rs\n    rev: aaaaaaa\n",
+    )
+    .unwrap();
+
+    let (success, stdout, _) = run_this(&["framework", "check"], &root);
+
+    assert!(success, "a coherent pin passes");
+    assert!(
+        stdout.contains("consistent"),
+        "the verdict should be explicit, got:\n{stdout}"
+    );
+}

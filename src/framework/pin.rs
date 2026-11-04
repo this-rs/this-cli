@@ -389,6 +389,100 @@ features:
     }
 
     #[test]
+    fn every_channel_says_its_name() {
+        assert_eq!(Channel::Stable.as_str(), "stable");
+        assert_eq!(Channel::Canary.as_str(), "canary");
+        assert_eq!(Channel::Next.as_str(), "next");
+    }
+
+    #[test]
+    fn only_a_git_source_names_a_commit() {
+        assert_eq!(
+            Source::CratesIo {
+                version: "0.0.9".into()
+            }
+            .rev(),
+            None
+        );
+        assert_eq!(
+            Source::Path {
+                path: "../this".into()
+            }
+            .rev(),
+            None
+        );
+    }
+
+    #[test]
+    fn every_source_kind_says_its_name() {
+        assert_eq!(SourceKind::CratesIo.as_str(), "crates-io");
+        assert_eq!(SourceKind::Path.as_str(), "path");
+        assert_eq!(SourceKind::Git.as_str(), "git");
+    }
+
+    #[test]
+    fn a_source_describes_itself_in_one_line() {
+        let crates = Source::CratesIo {
+            version: "0.0.9".into(),
+        };
+        assert_eq!(crates.describe(), "crates.io 0.0.9");
+
+        let path = Source::Path {
+            path: "../this".into(),
+        };
+        assert_eq!(path.describe(), "path ../this");
+
+        let pinned = Source::Git {
+            url: "https://github.com/this-rs/this".into(),
+            rev: Some("cceb3063e1".into()),
+        };
+        assert_eq!(
+            pinned.describe(),
+            "https://github.com/this-rs/this @ cceb306"
+        );
+
+        let unresolved = Source::Git {
+            url: "https://github.com/this-rs/this".into(),
+            rev: None,
+        };
+        assert_eq!(
+            unresolved.describe(),
+            "https://github.com/this-rs/this (unresolved)"
+        );
+    }
+
+    #[test]
+    fn raw_fields_describe_themselves_even_when_incomplete() {
+        let missing = SourceFields {
+            source: SourceKind::Git,
+            ..Default::default()
+        };
+        assert_eq!(missing.describe_hint(), "git (url missing)");
+
+        let crates = SourceFields {
+            source: SourceKind::CratesIo,
+            ..Default::default()
+        };
+        assert_eq!(crates.describe_hint(), "crates.io (version missing)");
+
+        let path = SourceFields {
+            source: SourceKind::Path,
+            ..Default::default()
+        };
+        assert_eq!(path.describe_hint(), "path (path missing)");
+
+        let unresolved = SourceFields {
+            source: SourceKind::Git,
+            url: Some("https://github.com/this-rs/this".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            unresolved.describe_hint(),
+            "https://github.com/this-rs/this (unresolved)"
+        );
+    }
+
+    #[test]
     fn a_rev_is_shortened_for_display() {
         assert_eq!(short_rev("cceb3063e1aabbcc"), "cceb306");
         assert_eq!(short_rev("abc"), "abc");

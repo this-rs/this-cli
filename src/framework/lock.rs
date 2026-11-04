@@ -649,6 +649,91 @@ mod tests {
     }
 
     #[test]
+    fn a_lock_of_another_url_is_an_error() {
+        let spec = git_spec(Some("abc123"), None);
+        let mut lock = git_lock(Some("abc123"), vec![]);
+        lock.source.url = Some("https://gitlab.com/other/this".into());
+        assert!(
+            codes(&validate(&spec, Some(&lock), NOW, Run::Local)).contains(&"lock-url-mismatch")
+        );
+    }
+
+    #[test]
+    fn a_lock_with_another_path_is_an_error() {
+        let spec = PinSpec {
+            source: SourceFields {
+                source: SourceKind::Path,
+                path: Some("../this".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let lock = Lock {
+            source: SourceFields {
+                source: SourceKind::Path,
+                path: Some("/elsewhere/this".into()),
+                ..Default::default()
+            },
+            resolved_at: "2026-11-04T21:59:02Z".into(),
+            channel: None,
+            crates: vec![],
+            features: vec![],
+            api_digest: None,
+            migrations: vec![],
+        };
+        assert!(
+            codes(&validate(&spec, Some(&lock), NOW, Run::Local)).contains(&"lock-path-mismatch")
+        );
+    }
+
+    #[test]
+    fn an_incomplete_lock_is_an_error_rather_than_a_guess() {
+        let spec = git_spec(Some("abc123"), None);
+        let lock = Lock {
+            source: SourceFields {
+                source: SourceKind::Git,
+                ..Default::default()
+            },
+            resolved_at: "2026-11-04T21:59:02Z".into(),
+            channel: None,
+            crates: vec![],
+            features: vec![],
+            api_digest: None,
+            migrations: vec![],
+        };
+        assert!(codes(&validate(&spec, Some(&lock), NOW, Run::Local)).contains(&"lock-incomplete"));
+    }
+
+    #[test]
+    fn a_feature_listed_twice_in_the_lock_is_warned_about() {
+        let spec = git_spec(Some("abc123"), None);
+        let mut lock = git_lock(Some("abc123"), vec![]);
+        lock.features = vec!["grpc".into(), "grpc".into()];
+        let found = validate(&spec, Some(&lock), NOW, Run::Local);
+        assert!(found.iter().any(|d| d.code == "duplicate-feature"));
+        assert!(!found.iter().any(|d| d.is_error()));
+    }
+
+    #[test]
+    fn an_unreadable_date_makes_freshness_unknown_instead_of_stale() {
+        let spec = git_spec(Some("abc123"), None);
+        let mut lock = git_lock(Some("abc123"), vec![]);
+        lock.resolved_at = "last tuesday".into();
+        let found = validate(&spec, Some(&lock), NOW, Run::Local);
+        assert!(found.iter().any(|d| d.code == "lock-date-unreadable"));
+        assert!(!found.iter().any(|d| d.code == "lock-stale"));
+    }
+
+    #[test]
+    fn an_unreadable_date_has_no_age_to_report() {
+        let lock = Lock {
+            resolved_at: "not a date".into(),
+            ..git_lock(Some("abc123"), vec![])
+        };
+        assert!(lock.age_ms(NOW).is_none());
+    }
+
+    #[test]
     fn an_iso_date_is_read_back_to_the_millisecond() {
         assert_eq!(iso8601_ms("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(iso8601_ms("2026-11-04T21:59:02Z"), Some(1_793_829_542_000));
