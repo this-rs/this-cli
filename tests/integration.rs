@@ -2598,3 +2598,185 @@ fn test_init_workspace_declares_its_framework_pin() {
         "the manifest follows the declaration, got:\n{cargo}"
     );
 }
+
+/// A generated workspace pinned to a git commit, ready to be moved.
+fn pinned_workspace(dir: &Path) -> std::path::PathBuf {
+    let (success, _, stderr) = run_this(
+        &[
+            "init",
+            "shop",
+            "--workspace",
+            "--grpc",
+            "--this-url",
+            "https://github.com/this-rs/this",
+            "--this-rev",
+            "aaaaaaa",
+        ],
+        dir,
+    );
+    assert!(success, "init should succeed: {stderr}");
+    dir.join("shop")
+}
+
+#[test]
+fn test_framework_upgrade_moves_the_declaration_the_manifest_and_the_lock() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = pinned_workspace(tmp.path());
+
+    let (success, stdout, stderr) = run_this(&["framework", "upgrade", "--to", "bbbbbbb"], &root);
+    assert!(success, "upgrade should succeed: {stderr}");
+    assert!(stdout.contains("bbbbbbb"), "got:\n{stdout}");
+
+    let yaml = std::fs::read_to_string(root.join("this.yaml")).unwrap();
+    assert!(
+        yaml.contains("rev: bbbbbbb"),
+        "the declaration moved:\n{yaml}"
+    );
+
+    let cargo = std::fs::read_to_string(root.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo.contains(r#"rev = "bbbbbbb""#),
+        "the manifest moved:\n{cargo}"
+    );
+
+    let lock = std::fs::read_to_string(root.join(".this/framework.lock")).unwrap();
+    assert!(
+        lock.contains("previous_rev: aaaaaaa"),
+        "the lock remembers:\n{lock}"
+    );
+
+    // And the result is coherent, which is the point of the whole device.
+    let (ok, _, check_stderr) = run_this(&["framework", "check"], &root);
+    assert!(ok, "check should pass after an upgrade: {check_stderr}");
+}
+
+#[test]
+fn test_framework_upgrade_dry_run_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = pinned_workspace(tmp.path());
+
+    let (success, stdout, _) = run_this(
+        &["framework", "upgrade", "--to", "bbbbbbb", "--dry-run"],
+        &root,
+    );
+    assert!(success);
+
+    assert!(stdout.contains("would write"), "got:\n{stdout}");
+    let yaml = std::fs::read_to_string(root.join("this.yaml")).unwrap();
+    assert!(yaml.contains("rev: aaaaaaa"), "nothing moved:\n{yaml}");
+    assert!(
+        !root.join(".this/framework.lock").exists(),
+        "no lock written"
+    );
+}
+
+#[test]
+fn test_framework_rollback_returns_to_the_commit_it_replaced() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = pinned_workspace(tmp.path());
+
+    let (moved, _, stderr) = run_this(&["framework", "upgrade", "--to", "bbbbbbb"], &root);
+    assert!(moved, "{stderr}");
+
+    let (back, stdout, back_stderr) = run_this(&["framework", "rollback"], &root);
+    assert!(back, "rollback should succeed: {back_stderr}");
+    assert!(stdout.contains("aaaaaaa"), "got:\n{stdout}");
+
+    let yaml = std::fs::read_to_string(root.join("this.yaml")).unwrap();
+    assert!(
+        yaml.contains("rev: aaaaaaa"),
+        "the declaration is back:\n{yaml}"
+    );
+    let cargo = std::fs::read_to_string(root.join("api/Cargo.toml")).unwrap();
+    assert!(
+        cargo.contains(r#"rev = "aaaaaaa""#),
+        "the manifest is back:\n{cargo}"
+    );
+
+    // Rolling back flips the memory, so rolling forward is possible again.
+    let lock = std::fs::read_to_string(root.join(".this/framework.lock")).unwrap();
+    assert!(lock.contains("previous_rev: bbbbbbb"), "{lock}");
+}
+
+#[test]
+fn test_framework_upgrade_without_a_declaration_says_what_is_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", version = \"0.0.9\" }",
+    );
+
+    let (success, _, stderr) = run_this(&["framework", "upgrade", "--to", "bbbbbbb"], &root);
+
+    assert!(!success, "an undeclared project cannot be moved");
+    assert!(
+        stderr.contains("this.yaml"),
+        "the message should name what is missing, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_framework_upgrade_refuses_a_this_yaml_without_a_declaration() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }",
+    );
+    std::fs::write(root.join("this.yaml"), "name: api\napi:\n  path: .\n").unwrap();
+
+    let (success, _, stderr) = run_this(&["framework", "upgrade", "--to", "bbbbbbb"], &root);
+
+    assert!(!success);
+    assert!(
+        stderr.contains("no `this:` section"),
+        "the message should name what to declare, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_framework_upgrade_says_when_there_is_no_crate_manifest() {
+    let tmp = tempfile::tempdir().unwrap();
+    // A workspace whose declared api path holds nothing.
+    std::fs::write(
+        tmp.path().join("this.yaml"),
+        "name: shop\napi:\n  path: nope\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+    )
+    .unwrap();
+
+    let (success, _, stderr) = run_this(&["framework", "upgrade", "--to", "bbbbbbb"], tmp.path());
+
+    assert!(!success);
+    assert!(
+        stderr.contains("no crate manifest"),
+        "the message should say the file is missing, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_framework_rollback_without_a_previous_commit_says_so() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }",
+    );
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: api\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join(".this")).unwrap();
+    // A lock that has never moved: nothing to go back to.
+    std::fs::write(
+        root.join(".this/framework.lock"),
+        "source: git\nurl: https://github.com/this-rs/this\nrev: aaaaaaa\nresolved_at: 2026-11-04T21:59:02Z\ncrates:\n  - name: this-rs\n    rev: aaaaaaa\n",
+    )
+    .unwrap();
+
+    let (success, _, stderr) = run_this(&["framework", "rollback"], &root);
+
+    assert!(!success);
+    assert!(
+        stderr.contains("nothing to go back to"),
+        "the message should say why, got:\n{stderr}"
+    );
+}

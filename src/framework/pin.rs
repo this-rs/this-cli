@@ -174,6 +174,28 @@ impl Source {
         }
     }
 
+    /// The loose form, for writing back into a lock.
+    pub fn to_fields(&self) -> SourceFields {
+        match self {
+            Source::CratesIo { version } => SourceFields {
+                source: SourceKind::CratesIo,
+                version: Some(version.clone()),
+                ..Default::default()
+            },
+            Source::Path { path } => SourceFields {
+                source: SourceKind::Path,
+                path: Some(path.clone()),
+                ..Default::default()
+            },
+            Source::Git { url, rev } => SourceFields {
+                source: SourceKind::Git,
+                url: Some(url.clone()),
+                rev: rev.clone(),
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn rev(&self) -> Option<&str> {
         match self {
             Source::Git { rev, .. } => rev.as_deref(),
@@ -386,6 +408,30 @@ features:
         let spec: PinSpec = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(spec.channel, None);
         assert!(spec.features.is_empty());
+    }
+
+    #[test]
+    fn every_source_goes_back_to_the_fields_it_came_from() {
+        let cases = [
+            Source::CratesIo {
+                version: "0.0.9".into(),
+            },
+            Source::Path {
+                path: "../this".into(),
+            },
+            Source::Git {
+                url: "https://github.com/this-rs/this".into(),
+                rev: Some("cceb306".into()),
+            },
+        ];
+        for source in cases {
+            let fields = source.to_fields();
+            assert_eq!(
+                fields.to_source().unwrap(),
+                source,
+                "round trip of {source:?}"
+            );
+        }
     }
 
     #[test]

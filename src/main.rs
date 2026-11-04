@@ -36,6 +36,7 @@ fn main() {
 }
 
 fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow::Result<()> {
+    let dry_run = cli.dry_run;
     match cli.command {
         Commands::Init(args) => commands::init::run(args, writer),
         Commands::Add(add) => match add.command {
@@ -55,7 +56,7 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
             commands::GenerateCommands::Client(args) => commands::generate::run(args, writer),
         },
         Commands::Doctor => commands::doctor::run(),
-        Commands::Framework(fw) => commands::framework::run(fw.command),
+        Commands::Framework(fw) => commands::framework::run(fw.command, dry_run),
         Commands::Completions { shell } => commands::completions::run(shell),
         Commands::Build(args) => commands::build::run(args, writer),
         Commands::Dev(args) => commands::dev::run(args),
