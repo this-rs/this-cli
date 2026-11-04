@@ -28,10 +28,12 @@
 //! time as an argument, so every rule is testable to the millisecond.
 
 pub mod lock;
+pub mod manifest;
 pub mod pin;
 
 pub use lock::{Lock, this_dependency, validate};
-pub use pin::{PinSpec, normalized_features, short_rev};
+pub use manifest::{dependency_from_manifest, manifest_drift};
+pub use pin::{PinSpec, Source, normalized_features, short_rev};
 
 use std::path::{Path, PathBuf};
 

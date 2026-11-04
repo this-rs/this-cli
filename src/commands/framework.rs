@@ -14,7 +14,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::framework::{
-    self, Diagnostic, Level, Lock, PinSpec, Run, error_count, now_ms, read_lock, read_spec,
+    self, Diagnostic, Level, Lock, PinSpec, Run, Source, error_count, now_ms, read_lock, read_spec,
     short_rev, validate,
 };
 use crate::utils::{output, project};
@@ -43,28 +43,17 @@ pub fn run(command: FrameworkSubcommand) -> Result<()> {
     let spec = read_spec(&root).map_err(|message| anyhow::anyhow!("{message}"))?;
     let lock = read_lock(&root).map_err(|message| anyhow::anyhow!("{message}"))?;
 
-    // What the crate manifest says, when the project declares nothing.
-    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
-    let declared = framework::manifest_dependency(&manifest);
+    // What Cargo actually builds. Neither the declaration nor the lock says it,
+    // so it is read and compared to both.
+    let manifest_text = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
+    let manifest = Manifest::read(&manifest_text);
 
     let now = now_ms();
-    let diagnostics = evaluate(
-        spec.as_ref(),
-        lock.as_ref(),
-        declared.as_deref(),
-        now,
-        Run::detect(),
-    );
+    let diagnostics = evaluate(spec.as_ref(), lock.as_ref(), &manifest, now, Run::detect());
 
     let blocking = match command {
         FrameworkSubcommand::Status => {
-            for (label, value) in report(
-                spec.as_ref(),
-                lock.as_ref(),
-                declared.as_deref(),
-                &root,
-                now,
-            ) {
+            for (label, value) in report(spec.as_ref(), lock.as_ref(), &manifest, &root, now) {
                 output::line(format!("{label:<10} {value}"));
             }
             print_diagnostics(&diagnostics);
@@ -91,16 +80,41 @@ pub fn run(command: FrameworkSubcommand) -> Result<()> {
     Ok(())
 }
 
+/// What the crate manifest says, in the same vocabulary as the pin.
+#[derive(Default)]
+struct Manifest {
+    /// The raw `this` line, used for display when nothing else speaks.
+    line: Option<String>,
+    /// The dependency parsed into a [`Source`], when it could be read.
+    source: Option<Source>,
+    /// Why it could not be read, when it could not.
+    error: Option<String>,
+}
+
+impl Manifest {
+    fn read(text: &str) -> Manifest {
+        let (source, error) = match framework::dependency_from_manifest(text) {
+            Ok(source) => (source, None),
+            Err(message) => (None, Some(message)),
+        };
+        Manifest {
+            line: framework::manifest_dependency(text),
+            source,
+            error,
+        }
+    }
+}
+
 /// What blocks, and what only deserves a word.
 fn evaluate(
     spec: Option<&PinSpec>,
     lock: Option<&Lock>,
-    manifest_dependency: Option<&str>,
+    manifest: &Manifest,
     now: u64,
     run: Run,
 ) -> Vec<Diagnostic> {
-    match (spec, lock) {
-        (None, None) => match manifest_dependency {
+    let mut out = match (spec, lock) {
+        (None, None) => match manifest.line {
             Some(_) => vec![Diagnostic::warn(
                 "manifest-only-pin",
                 "the framework is pinned by the manifest only: the channel and the intent are not declared, so nothing can move the project forward",
@@ -112,14 +126,35 @@ fn evaluate(
             "a lock exists but this.yaml declares no `this:` section: nothing checks it",
         )],
         (Some(spec), lock) => validate(spec, lock, now, run),
+    };
+
+    if let Some(error) = &manifest.error {
+        out.push(Diagnostic::warn(
+            "manifest-unreadable",
+            format!("the `this` dependency cannot be read: {error}"),
+        ));
     }
+
+    // The declaration and the lock can agree with each other and still describe
+    // something other than what Cargo builds. That gap is the whole point.
+    if let Some(manifest_source) = manifest.source.as_ref() {
+        let declared = spec.and_then(|spec| spec.source().ok());
+        let locked = lock.and_then(|lock| lock.source().ok());
+        out.extend(framework::manifest_drift(
+            manifest_source,
+            declared.as_ref(),
+            locked.as_ref(),
+        ));
+    }
+
+    out
 }
 
 /// The lines a user reads, in order: `(label, value)`.
 fn report(
     spec: Option<&PinSpec>,
     lock: Option<&Lock>,
-    manifest_dependency: Option<&str>,
+    manifest: &Manifest,
     root: &Path,
     now: u64,
 ) -> Vec<(&'static str, String)> {
@@ -129,7 +164,10 @@ fn report(
         None => {
             rows.push((
                 "framework",
-                manifest_dependency.map_or_else(|| "not declared".to_string(), str::to_string),
+                manifest
+                    .line
+                    .clone()
+                    .unwrap_or_else(|| "not declared".to_string()),
             ));
             rows.push((
                 "hint",
@@ -140,6 +178,13 @@ fn report(
         Some(spec) => match spec.source() {
             Ok(source) => {
                 rows.push(("framework", source.describe()));
+                // What Cargo actually builds, when it is not what is declared:
+                // two lines that disagree are clearer than one that lies.
+                if let Some(built) = manifest.source.as_ref()
+                    && !framework::manifest::names_the_same(built, &source)
+                {
+                    rows.push(("builds", built.describe()));
+                }
                 // The question a user actually asks of a pin: can somebody else
                 // rebuild this? A version and a commit can, a local path cannot.
                 rows.push((
@@ -290,7 +335,7 @@ mod tests {
 
     #[test]
     fn a_project_with_nothing_declared_says_so_and_hints() {
-        let rows = report(None, None, None, Path::new("/tmp/p"), NOW);
+        let rows = report(None, None, &Manifest::default(), Path::new("/tmp/p"), NOW);
         assert_eq!(value(&rows, "framework"), "not declared");
         assert!(value(&rows, "hint").contains("this:"));
     }
@@ -298,7 +343,11 @@ mod tests {
     #[test]
     fn a_manifest_only_pin_is_shown_rather_than_called_absent() {
         let declared = "this = { package = \"this-rs\", version = \"0.0.9\" }";
-        let rows = report(None, None, Some(declared), Path::new("/tmp/p"), NOW);
+        let manifest = Manifest {
+            line: Some(declared.into()),
+            ..Default::default()
+        };
+        let rows = report(None, None, &manifest, Path::new("/tmp/p"), NOW);
         assert_eq!(value(&rows, "framework"), declared);
     }
 
@@ -307,7 +356,7 @@ mod tests {
         let rows = report(
             Some(&git_spec(None, Some(Channel::Stable))),
             None,
-            None,
+            &Manifest::default(),
             Path::new("/tmp/p"),
             NOW,
         );
@@ -320,7 +369,13 @@ mod tests {
     fn a_pinned_commit_is_rebuildable_and_shows_its_lock() {
         let spec = git_spec(Some("abc1234def"), Some(Channel::Stable));
         let lock = git_lock("abc1234def", "2026-11-04T21:59:02Z");
-        let rows = report(Some(&spec), Some(&lock), None, Path::new("/tmp/p"), NOW);
+        let rows = report(
+            Some(&spec),
+            Some(&lock),
+            &Manifest::default(),
+            Path::new("/tmp/p"),
+            NOW,
+        );
 
         assert!(value(&rows, "rebuildable").starts_with("yes"));
         assert_eq!(value(&rows, "commit"), "abc1234");
@@ -357,11 +412,42 @@ mod tests {
         let rows = report(
             Some(&git_spec(Some("abc1234"), None)),
             Some(&lock),
-            None,
+            &Manifest::default(),
             Path::new("/tmp/p"),
             NOW,
         );
         assert_eq!(value(&rows, "crates"), "this-rs @ abc1234, this-descriptor");
+    }
+
+    #[test]
+    fn a_manifest_building_another_commit_is_shown_side_by_side() {
+        let spec = git_spec(Some("aaaaaaa"), None);
+        let manifest = Manifest::read(
+            "[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"fffffff\" }\n",
+        );
+
+        let rows = report(Some(&spec), None, &manifest, Path::new("/tmp/p"), NOW);
+
+        assert_eq!(
+            value(&rows, "framework"),
+            "https://github.com/this-rs/this @ aaaaaaa"
+        );
+        assert_eq!(
+            value(&rows, "builds"),
+            "https://github.com/this-rs/this @ fffffff"
+        );
+    }
+
+    #[test]
+    fn a_manifest_that_agrees_adds_no_second_line() {
+        let spec = git_spec(Some("aaaaaaa"), None);
+        let manifest = Manifest::read(
+            "[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }\n",
+        );
+
+        let rows = report(Some(&spec), None, &manifest, Path::new("/tmp/p"), NOW);
+
+        assert!(!labels(&rows).contains(&"builds"), "{rows:?}");
     }
 
     #[test]
@@ -373,7 +459,13 @@ mod tests {
             },
             ..Default::default()
         };
-        let rows = report(Some(&spec), None, None, Path::new("/tmp/p"), NOW);
+        let rows = report(
+            Some(&spec),
+            None,
+            &Manifest::default(),
+            Path::new("/tmp/p"),
+            NOW,
+        );
         assert!(value(&rows, "framework").starts_with("incomplete"));
         assert_eq!(value(&rows, "declared"), "git (url missing)");
     }
@@ -381,14 +473,24 @@ mod tests {
     #[test]
     fn no_features_is_said_plainly() {
         let spec = PinSpec::crates_io("0.0.9");
-        let rows = report(Some(&spec), None, None, Path::new("/tmp/p"), NOW);
+        let rows = report(
+            Some(&spec),
+            None,
+            &Manifest::default(),
+            Path::new("/tmp/p"),
+            NOW,
+        );
         assert_eq!(value(&rows, "features"), "(none)");
         assert!(value(&rows, "lock").contains("needs no resolution"));
     }
 
     #[test]
     fn a_manifest_only_pin_warns_but_does_not_block() {
-        let found = evaluate(None, None, Some("this = 1"), NOW, Run::Local);
+        let manifest = Manifest {
+            line: Some("this = 1".into()),
+            ..Default::default()
+        };
+        let found = evaluate(None, None, &manifest, NOW, Run::Local);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].code, "manifest-only-pin");
         assert!(!found[0].is_error());
@@ -396,13 +498,13 @@ mod tests {
 
     #[test]
     fn a_project_with_nothing_at_all_has_nothing_to_report() {
-        assert!(evaluate(None, None, None, NOW, Run::Local).is_empty());
+        assert!(evaluate(None, None, &Manifest::default(), NOW, Run::Local).is_empty());
     }
 
     #[test]
     fn a_lock_without_a_declaration_is_reported() {
         let lock = git_lock("abc1234", "2026-11-04T21:59:02Z");
-        let found = evaluate(None, Some(&lock), None, NOW, Run::Local);
+        let found = evaluate(None, Some(&lock), &Manifest::default(), NOW, Run::Local);
         assert_eq!(found[0].code, "lock-without-spec");
     }
 
@@ -410,8 +512,49 @@ mod tests {
     fn a_declaration_is_checked_against_its_lock() {
         let spec = git_spec(Some("abc1234"), None);
         let lock = git_lock("ffffff", "2026-11-04T21:59:02Z");
-        let found = evaluate(Some(&spec), Some(&lock), None, NOW, Run::Local);
+        let found = evaluate(
+            Some(&spec),
+            Some(&lock),
+            &Manifest::default(),
+            NOW,
+            Run::Local,
+        );
         assert!(found.iter().any(|d| d.code == "lock-rev-mismatch"));
+    }
+
+    #[test]
+    fn the_manifest_is_compared_to_the_lock_not_only_to_the_declaration() {
+        let spec = git_spec(Some("abc1234"), None);
+        let lock = git_lock("abc1234", "2026-11-04T21:59:02Z");
+        let manifest = Manifest::read(
+            "[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"fffffff\" }\n",
+        );
+
+        let found = evaluate(Some(&spec), Some(&lock), &manifest, NOW, Run::Local);
+
+        assert!(
+            found
+                .iter()
+                .any(|d| d.code == "manifest-lock-drift" && d.is_error()),
+            "the declaration and the lock agree, but Cargo builds another commit: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_branch_in_the_manifest_is_reported_even_when_everything_else_agrees() {
+        let manifest = Manifest::read(
+            "[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", branch = \"main\" }\n",
+        );
+        let found = evaluate(None, None, &manifest, NOW, Run::Local);
+        assert!(found.iter().any(|d| d.code == "manifest-branch-pin"));
+    }
+
+    #[test]
+    fn a_manifest_that_cannot_be_read_is_said_so() {
+        let manifest = Manifest::read("[dependencies]\nthis = { package = \"this-rs\" }\n");
+        assert!(manifest.error.is_some(), "the dependency names no source");
+        let found = evaluate(None, None, &manifest, NOW, Run::Local);
+        assert!(found.iter().any(|d| d.code == "manifest-unreadable"));
     }
 
     #[test]
