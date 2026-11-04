@@ -5,6 +5,7 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::config;
+use crate::framework;
 use crate::utils::output::human;
 use crate::utils::{markers, naming, project};
 
@@ -107,6 +108,7 @@ fn run_checks(project_root: &Path) -> Vec<DiagnosticResult> {
     }
 
     results.push(check_cargo_toml(project_root));
+    results.extend(check_framework_pin(project_root));
     results.extend(check_entities(project_root));
     results.extend(check_module_registration(project_root));
     results.extend(check_stores_configuration(project_root));
@@ -288,30 +290,108 @@ fn check_cargo_toml(project_root: &Path) -> DiagnosticResult {
         None => return DiagnosticResult::error("Cargo.toml", "No [dependencies] section"),
     };
 
-    match deps.get("this") {
-        Some(this_dep) => {
-            let version = this_dep
-                .as_str()
-                .map(|v| format!("v{}", v))
-                .or_else(|| {
-                    this_dep
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .map(|v| format!("v{}", v))
-                })
-                .or_else(|| {
-                    this_dep
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .map(|p| format!("path: {}", p))
-                })
-                .unwrap_or_else(|| "unknown version".to_string());
-            DiagnosticResult::pass("Cargo.toml", &format!("this-rs {} detected", version))
-        }
-        None => DiagnosticResult::error(
+    // The same reader the pin uses: a version, a path, or a repository at a
+    // commit are all reported as what they are, not flattened to a string.
+    match framework::dependency_from_manifest(&content) {
+        Ok(Some(source)) => DiagnosticResult::pass(
             "Cargo.toml",
-            "No 'this' dependency found. Is this a this-rs project?",
+            &format!("this-rs {} detected", source.describe()),
         ),
+        Ok(None) => {
+            let inherited = deps
+                .get("this")
+                .and_then(|d| d.get("workspace"))
+                .and_then(|w| w.as_bool())
+                == Some(true);
+            if inherited {
+                DiagnosticResult::pass(
+                    "Cargo.toml",
+                    "this-rs dependency inherited from the workspace",
+                )
+            } else {
+                DiagnosticResult::error(
+                    "Cargo.toml",
+                    "No 'this' dependency found. Is this a this-rs project?",
+                )
+            }
+        }
+        Err(message) => DiagnosticResult::warn(
+            "Cargo.toml",
+            &format!("the `this` dependency cannot be read: {message}"),
+        ),
+    }
+}
+
+/// Check the framework pin: what Cargo builds, what is declared, what is locked,
+/// and whether the three agree. This is where `doctor` finally reads the version
+/// it used to merely detect.
+fn check_framework_pin(project_root: &Path) -> Vec<DiagnosticResult> {
+    let root = project::find_workspace_root_from(project_root)
+        .unwrap_or_else(|| project_root.to_path_buf());
+
+    let spec = match framework::read_spec(&root) {
+        Ok(spec) => spec,
+        Err(message) => {
+            return vec![DiagnosticResult::warn(
+                "Framework pin",
+                &format!("this.yaml unreadable: {message}"),
+            )];
+        }
+    };
+    let lock = match framework::read_lock(&root) {
+        Ok(lock) => lock,
+        Err(message) => {
+            return vec![DiagnosticResult::warn(
+                "Framework pin",
+                &format!("the lock is unreadable: {message}"),
+            )];
+        }
+    };
+
+    let manifest_text = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
+    let manifest = framework::dependency_from_manifest(&manifest_text);
+
+    let mut out = Vec::new();
+
+    match &manifest {
+        Ok(Some(source)) => out.push(DiagnosticResult::pass(
+            "Framework pin",
+            &format!("Cargo builds {}", source.describe()),
+        )),
+        Ok(None) => {}
+        Err(message) => out.push(DiagnosticResult::warn(
+            "Framework pin",
+            &format!("the `this` dependency cannot be read: {message}"),
+        )),
+    }
+
+    if let Some(spec) = &spec {
+        let diagnostics = framework::validate(
+            spec,
+            lock.as_ref(),
+            framework::now_ms(),
+            framework::Run::detect(),
+        );
+        out.extend(diagnostics.into_iter().map(from_pin_diagnostic));
+    }
+
+    if let Ok(Some(manifest_source)) = &manifest {
+        let declared = spec.as_ref().and_then(|s| s.source().ok());
+        let locked = lock.as_ref().and_then(|l| l.source().ok());
+        let drift = framework::manifest_drift(manifest_source, declared.as_ref(), locked.as_ref());
+        out.extend(drift.into_iter().map(from_pin_diagnostic));
+    }
+
+    out
+}
+
+/// A pin finding, in the doctor's vocabulary.
+fn from_pin_diagnostic(diagnostic: framework::Diagnostic) -> DiagnosticResult {
+    let message = format!("{}: {}", diagnostic.code, diagnostic.message);
+    if diagnostic.is_error() {
+        DiagnosticResult::error("Framework pin", &message)
+    } else {
+        DiagnosticResult::warn("Framework pin", &message)
     }
 }
 
@@ -1317,7 +1397,154 @@ this = { package = "this-rs", version = "0.0.6" }
 
         let result = check_cargo_toml(dir.path());
         assert!(matches!(result.level, DiagnosticLevel::Pass));
-        assert!(result.message.contains("v0.0.6"));
+        assert!(
+            result.message.contains("crates.io 0.0.6"),
+            "{}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn check_framework_pin_reports_what_cargo_builds() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }\n",
+        )
+        .unwrap();
+
+        let results = check_framework_pin(dir.path());
+
+        assert!(
+            results
+                .iter()
+                .any(|r| r.message.contains("Cargo builds") && r.message.contains("aaaaaaa")),
+            "{results:?}"
+        );
+    }
+
+    #[test]
+    fn check_framework_pin_catches_a_manifest_that_builds_another_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"fffffff\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: p\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".this")).unwrap();
+        std::fs::write(
+            dir.path().join(".this/framework.lock"),
+            "source: git\nurl: https://github.com/this-rs/this\nrev: aaaaaaa\nresolved_at: 2026-11-04T21:59:02Z\ncrates:\n  - name: this-rs\n    rev: aaaaaaa\n",
+        )
+        .unwrap();
+
+        let results = check_framework_pin(dir.path());
+
+        assert!(
+            results
+                .iter()
+                .any(|r| r.message.contains("manifest-lock-drift")
+                    && matches!(r.level, DiagnosticLevel::Error)),
+            "{results:?}"
+        );
+    }
+
+    #[test]
+    fn check_framework_pin_reports_an_unreadable_declaration() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = \"0.0.9\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("this.yaml"), "this: [not, a, mapping").unwrap();
+
+        let results = check_framework_pin(dir.path());
+
+        assert!(
+            results
+                .iter()
+                .any(|r| r.message.contains("this.yaml unreadable")),
+            "{results:?}"
+        );
+    }
+
+    #[test]
+    fn check_framework_pin_reports_an_unreadable_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = \"0.0.9\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: p\napi:\n  path: .\nthis:\n  source: crates-io\n  version: 0.0.9\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".this")).unwrap();
+        std::fs::write(dir.path().join(".this/framework.lock"), "source: [nope").unwrap();
+
+        let results = check_framework_pin(dir.path());
+
+        assert!(
+            results
+                .iter()
+                .any(|r| r.message.contains("lock is unreadable")),
+            "{results:?}"
+        );
+    }
+
+    #[test]
+    fn check_framework_pin_reports_a_dependency_that_names_no_source() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { package = \"this-rs\" }\n",
+        )
+        .unwrap();
+
+        let results = check_framework_pin(dir.path());
+
+        assert!(
+            results.iter().any(|r| r.message.contains("cannot be read")),
+            "{results:?}"
+        );
+    }
+
+    #[test]
+    fn check_framework_pin_says_nothing_blocking_on_a_coherent_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { git = \"https://github.com/this-rs/this\", rev = \"aaaaaaa\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: p\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".this")).unwrap();
+        std::fs::write(
+            dir.path().join(".this/framework.lock"),
+            "source: git\nurl: https://github.com/this-rs/this\nrev: aaaaaaa\nresolved_at: 2026-11-04T21:59:02Z\ncrates:\n  - name: this-rs\n    rev: aaaaaaa\n",
+        )
+        .unwrap();
+
+        let results = check_framework_pin(dir.path());
+
+        assert!(
+            !results
+                .iter()
+                .any(|r| matches!(r.level, DiagnosticLevel::Error)),
+            "{results:?}"
+        );
     }
 
     #[test]
@@ -2063,7 +2290,11 @@ this = { package = "this-rs", path = "../this" }
 
         let result = check_cargo_toml(dir.path());
         assert!(matches!(result.level, DiagnosticLevel::Pass));
-        assert!(result.message.contains("path:"));
+        assert!(
+            result.message.contains("path ../this"),
+            "{}",
+            result.message
+        );
     }
 
     // ================================================================
