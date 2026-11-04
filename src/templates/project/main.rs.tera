@@ -69,8 +69,13 @@ async fn main() -> anyhow::Result<()> {
 {% endif %}
 {% if grpc %}
 
-    // gRPC exposure — merge gRPC routes with REST
-    let grpc_router = GrpcExposure::build_router(host.clone())?;
+    // gRPC exposure — merge gRPC routes with REST, and speak gRPC-Web on the same port
+    //
+    // A browser cannot speak gRPC (HTTP/2 binary). `GrpcWebLayer` translates gRPC-Web
+    // (HTTP/1.1) to the same service, so a web front and a native client hit one
+    // implementation — and there is no second port, hence no CORS.
+    let grpc_router = GrpcExposure::build_router(host.clone())?
+        .layer(tonic_web::GrpcWebLayer::new());
     let app = app.merge(grpc_router);
 {% endif %}
 {% else %}
