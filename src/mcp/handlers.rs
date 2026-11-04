@@ -573,6 +573,7 @@ fn handle_add_target(args: &Value) -> Result<Value> {
         target_type: target_type.clone(),
         framework: framework.clone(),
         name,
+        this_path: None,
     };
 
     crate::commands::add_target::run(target_args, &writer)?;

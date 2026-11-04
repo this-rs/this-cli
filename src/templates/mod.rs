@@ -953,6 +953,37 @@ mod tests {
     }
 
     #[test]
+    fn desktop_shell_plugin_is_added_only_for_a_local_this_checkout() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let without = make_desktop_context();
+        let main_plain = engine.render("desktop/tauri-main.rs", &without).unwrap();
+        let cargo_plain = engine.render("desktop/tauri-cargo.toml", &without).unwrap();
+        let caps_plain = engine
+            .render("desktop/capabilities.json", &without)
+            .unwrap();
+        assert!(!main_plain.contains("this_shell_tauri"));
+        assert!(!cargo_plain.contains("this-shell-tauri"));
+        assert!(!caps_plain.contains("this-shell:default"));
+
+        let mut with = make_desktop_context();
+        with.insert("this_path", "/local/this-rs/this");
+        let main = engine.render("desktop/tauri-main.rs", &with).unwrap();
+        let cargo = engine.render("desktop/tauri-cargo.toml", &with).unwrap();
+        let caps = engine.render("desktop/capabilities.json", &with).unwrap();
+        assert!(
+            main.contains(
+                ".plugin(this_shell_tauri::init(this_shell_tauri::ShellConfig::default()))"
+            )
+        );
+        assert!(cargo.contains(r#"path = "/local/this-rs/this/crates/this-shell-tauri""#));
+        assert!(caps.contains(r#""this-shell:default""#));
+        // the capabilities stay valid JSON in both cases
+        serde_json::from_str::<serde_json::Value>(&caps_plain).unwrap();
+        serde_json::from_str::<serde_json::Value>(&caps).unwrap();
+    }
+
+    #[test]
     fn test_desktop_tauri_cargo_toml() {
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render("desktop/tauri-cargo.toml", &make_desktop_context());
