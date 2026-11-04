@@ -2788,3 +2788,51 @@ fn test_framework_rollback_without_a_previous_commit_says_so() {
         "the message should say why, got:\n{stderr}"
     );
 }
+
+#[test]
+fn test_upgrade_names_the_migrations_that_cannot_be_decided_from_the_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = pinned_workspace(tmp.path());
+
+    let (success, stdout, _) = run_this(
+        &["framework", "upgrade", "--to", "bbbbbbb", "--dry-run"],
+        &root,
+    );
+    assert!(success);
+
+    assert!(stdout.contains("migrations"), "got:\n{stdout}");
+    assert!(
+        stdout.contains("0002") && stdout.contains("cannot be decided"),
+        "an undecidable migration is always named, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("0001"),
+        "a generated project does not use the old Session, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("no automatic repair"),
+        "the limit is stated rather than hidden, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_upgrade_names_the_migration_a_project_actually_uses() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = pinned_workspace(tmp.path());
+    std::fs::write(
+        root.join("api/src/auth.rs"),
+        "pub fn make() { let _ = Session::anonymous(); }\n",
+    )
+    .unwrap();
+
+    let (success, stdout, _) = run_this(
+        &["framework", "upgrade", "--to", "bbbbbbb", "--dry-run"],
+        &root,
+    );
+    assert!(success);
+
+    assert!(
+        stdout.contains("0001") && stdout.contains("Session::anonymous"),
+        "the symbol in use is named, got:\n{stdout}"
+    );
+}
