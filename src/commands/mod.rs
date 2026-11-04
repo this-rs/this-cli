@@ -9,6 +9,7 @@ pub mod completions;
 pub mod descriptor;
 pub mod dev;
 pub mod doctor;
+pub mod framework;
 pub mod generate;
 pub mod info;
 pub mod init;
@@ -66,6 +67,12 @@ pub enum Commands {
 
     /// Check project health and consistency
     Doctor,
+
+    /// Which framework this project targets: the pin, its lock, what is inconsistent
+    ///
+    /// A project does not depend on "a version" but on a commit of the framework.
+    /// `status` says where it stands, `check` exits 1 when the pin does not hold.
+    Framework(framework::FrameworkCommand),
 
     /// Generate shell completions
     ///
@@ -155,6 +162,18 @@ pub struct InitArgs {
     /// Path to this-rs crate for local development (uses path dependency instead of crates.io)
     #[arg(long, hide = true)]
     pub this_path: Option<String>,
+
+    /// Pin the framework to a git repository
+    #[arg(long, hide = true)]
+    pub this_url: Option<String>,
+
+    /// Commit of the framework to pin (requires --this-url)
+    #[arg(long, hide = true)]
+    pub this_rev: Option<String>,
+
+    /// Channel to follow instead of a commit (requires --this-url)
+    #[arg(long, hide = true)]
+    pub this_channel: Option<String>,
 
     /// Create a workspace layout with this.yaml and api/ subdirectory
     #[arg(long)]
