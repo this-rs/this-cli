@@ -2531,3 +2531,36 @@ fn test_framework_check_accepts_a_coherent_pin() {
         "the verdict should be explicit, got:\n{stdout}"
     );
 }
+
+#[test]
+fn test_framework_check_catches_a_manifest_that_builds_another_commit() {
+    // The defect this exists for: the declaration and the lock agree, and Cargo
+    // builds a third commit. Before the manifest was read, nothing saw it.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = framework_project(
+        tmp.path(),
+        "this = { package = \"this-rs\", git = \"https://github.com/this-rs/this\", rev = \"fffffff\" }",
+    );
+    std::fs::write(
+        root.join("this.yaml"),
+        "name: api\napi:\n  path: .\nthis:\n  source: git\n  url: https://github.com/this-rs/this\n  rev: aaaaaaa\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join(".this")).unwrap();
+    std::fs::write(
+        root.join(".this/framework.lock"),
+        "source: git\nurl: https://github.com/this-rs/this\nrev: aaaaaaa\nresolved_at: 2026-11-04T21:59:02Z\ncrates:\n  - name: this-rs\n    rev: aaaaaaa\n",
+    )
+    .unwrap();
+
+    let (success, _, stderr) = run_this(&["framework", "check"], &root);
+
+    assert!(
+        !success,
+        "a manifest building another commit than the lock must exit non-zero"
+    );
+    assert!(
+        stderr.contains("manifest-lock-drift"),
+        "the finding should be named on stderr, got:\n{stderr}"
+    );
+}
