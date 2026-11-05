@@ -12,6 +12,20 @@
 use crate::framework::Diagnostic;
 use crate::framework::pin::Source;
 
+/// The names the framework can be depended on under.
+///
+/// The CLI generates `this = { package = "this-rs", ... }` — an alias. Existing
+/// projects (this-examples' own examples) depend on `this-rs` directly. Reading
+/// only the alias made `check` see no dependency at all, and answer "consistent"
+/// on a project it had not read: measured on `examples/websocket`.
+const NAMES: [&str; 2] = ["this", "this-rs"];
+
+/// The `this` dependency item, whatever it is called.
+fn this_dependency(document: &toml_edit::DocumentMut) -> Option<&toml_edit::Item> {
+    let dependencies = document.get("dependencies")?.as_table_like()?;
+    NAMES.iter().find_map(|name| dependencies.get(name))
+}
+
 /// The `this` dependency of a crate manifest, parsed like a pin.
 ///
 /// `Ok(None)` means "nothing to read here": no dependency, or one inherited
@@ -21,13 +35,77 @@ pub fn dependency_from_manifest(manifest: &str) -> Result<Option<Source>, String
         .parse::<toml_edit::DocumentMut>()
         .map_err(|error| error.to_string())?;
 
-    let Some(dependencies) = document.get("dependencies").and_then(|d| d.as_table_like()) else {
-        return Ok(None);
-    };
-    let Some(dependency) = dependencies.get("this") else {
+    let Some(dependency) = this_dependency(&document) else {
         return Ok(None);
     };
 
+    dependency_as_source(dependency)
+}
+
+/// The crate the `this` dependency names, when it names one.
+///
+/// `this = { package = "this-rs", ... }` is how a project depends on the
+/// framework under another name; without it the crate is called `this`.
+pub fn dependency_package(manifest: &str) -> Option<String> {
+    let document = manifest.parse::<toml_edit::DocumentMut>().ok()?;
+    let dependency = this_dependency(&document)?;
+    dependency
+        .as_table_like()?
+        .get("package")
+        .and_then(|package| package.as_str())
+        .map(str::to_string)
+}
+
+/// Whether the `this` dependency is inherited from a workspace.
+///
+/// `this = { workspace = true }` names no source: the value lives in the root
+/// manifest's `[workspace.dependencies]`. Returning `Ok(None)` for it, as the
+/// reader used to, made `check` conclude "consistent" without having read
+/// anything — measured on a real generated example.
+pub fn inherits_this(manifest: &str) -> bool {
+    let Ok(document) = manifest.parse::<toml_edit::DocumentMut>() else {
+        return false;
+    };
+    this_dependency(&document)
+        .and_then(|dependency| dependency.as_table_like())
+        .and_then(|table| table.get("workspace"))
+        .and_then(|workspace| workspace.as_bool())
+        == Some(true)
+}
+
+/// The `this` dependency of the nearest enclosing workspace manifest.
+///
+/// Walks up from the crate: a workspace root is a manifest with a `[workspace]`
+/// table. The first one found decides — if it declares no `this` under
+/// `[workspace.dependencies]`, the answer is `Ok(None)` rather than a guess from
+/// further up.
+pub fn workspace_dependency(start: &std::path::Path) -> Result<Option<Source>, String> {
+    let mut current = start;
+    loop {
+        let candidate = current.join("Cargo.toml");
+        if let Ok(text) = std::fs::read_to_string(&candidate)
+            && let Ok(document) = text.parse::<toml_edit::DocumentMut>()
+            && let Some(workspace) = document.get("workspace")
+        {
+            let dependency = workspace
+                .get("dependencies")
+                .and_then(|dependencies| dependencies.as_table_like())
+                .and_then(|dependencies| NAMES.iter().find_map(|name| dependencies.get(name)));
+            let Some(dependency) = dependency else {
+                return Ok(None);
+            };
+            return dependency_as_source(dependency);
+        }
+
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return Ok(None),
+        }
+    }
+}
+
+/// One `[dependencies]` entry, read as a source.
+fn dependency_as_source(dependency: &toml_edit::Item) -> Result<Option<Source>, String> {
     // `this = "0.0.9"`
     if let Some(version) = dependency.as_str() {
         return Ok(Some(Source::CratesIo {
@@ -39,7 +117,6 @@ pub fn dependency_from_manifest(manifest: &str) -> Result<Option<Source>, String
         return Err("the `this` dependency is neither a version string nor a table".to_string());
     };
 
-    // `this.workspace = true`: the value is in the workspace manifest.
     if table.get("workspace").and_then(|value| value.as_bool()) == Some(true) {
         return Ok(None);
     }
@@ -55,8 +132,6 @@ pub fn dependency_from_manifest(manifest: &str) -> Result<Option<Source>, String
         return Ok(Some(Source::Path { path }));
     }
     if let Some(url) = field("git") {
-        // `branch` and `tag` are read as none: a branch is not a commit, and
-        // that is exactly what `manifest-branch-pin` exists to say.
         return Ok(Some(Source::Git {
             url,
             rev: field("rev"),
@@ -67,20 +142,6 @@ pub fn dependency_from_manifest(manifest: &str) -> Result<Option<Source>, String
     }
 
     Err("the `this` dependency names neither a version, a path nor a repository".to_string())
-}
-
-/// The crate the `this` dependency names, when it names one.
-///
-/// `this = { package = "this-rs", ... }` is how a project depends on the
-/// framework under another name; without it the crate is called `this`.
-pub fn dependency_package(manifest: &str) -> Option<String> {
-    let document = manifest.parse::<toml_edit::DocumentMut>().ok()?;
-    let dependency = document.get("dependencies")?.get("this")?;
-    dependency
-        .as_table_like()?
-        .get("package")
-        .and_then(|package| package.as_str())
-        .map(str::to_string)
 }
 
 /// How the manifest (what Cargo builds) disagrees with the pin.
@@ -212,6 +273,62 @@ mod tests {
         assert_eq!(dependency_package(renamed), None);
 
         assert_eq!(dependency_package("[dependencies]\nanyhow = \"1\"\n"), None);
+    }
+
+    #[test]
+    fn an_inherited_dependency_is_recognised() {
+        let inherited = "[dependencies]\nthis = { workspace = true }\n";
+        assert!(inherits_this(inherited));
+
+        let direct = "[dependencies]\nthis = { package = \"this-rs\", version = \"0.0.9\" }\n";
+        assert!(!inherits_this(direct));
+        assert!(!inherits_this("[dependencies]\nthis = \"0.0.9\"\n"));
+    }
+
+    #[test]
+    fn a_manifest_that_is_not_toml_inherits_nothing() {
+        assert!(!inherits_this("this = { workspace = true "));
+    }
+
+    #[test]
+    fn the_workspace_root_is_walked_up_to() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"api\"]\n\n[workspace.dependencies]\nthis = { package = \"this-rs\", path = \"../this\", features = [\"grpc\"] }\n",
+        )
+        .unwrap();
+        let api = dir.path().join("api");
+        std::fs::create_dir_all(&api).unwrap();
+        std::fs::write(
+            api.join("Cargo.toml"),
+            "[dependencies]\nthis = { workspace = true }\n",
+        )
+        .unwrap();
+
+        let found = workspace_dependency(&api).unwrap();
+        assert_eq!(
+            found,
+            Some(Source::Path {
+                path: "../this".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_workspace_that_declares_nothing_answers_none_rather_than_guessing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
+        let api = dir.path().join("api");
+        std::fs::create_dir_all(&api).unwrap();
+
+        assert_eq!(workspace_dependency(&api).unwrap(), None);
+    }
+
+    #[test]
+    fn no_workspace_above_answers_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(workspace_dependency(dir.path()).unwrap(), None);
     }
 
     #[test]
