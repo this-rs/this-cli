@@ -206,7 +206,22 @@ pub fn read_spec(root: &Path) -> Result<Option<PinSpec>, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
-    pin_from_yaml(&text).map_err(|error| format!("{}: {error}", path.display()))
+    let spec = pin_from_yaml(&text).map_err(|error| format!("{}: {error}", path.display()))?;
+
+    // Le chemin d'un pin `path` est écrit depuis le projet ; on le résout ici
+    // pour que la comparaison avec le manifeste porte sur des lieux, pas sur des
+    // chaînes — `../../../this` et `../this` peuvent désigner le même dossier.
+    Ok(spec.map(|spec| {
+        let Some(source) = spec.source.to_source().ok() else {
+            return spec;
+        };
+        let resolved = manifest::resolve_paths(source, root);
+        PinSpec {
+            source: resolved.to_fields(),
+            channel: spec.channel,
+            features: spec.features,
+        }
+    }))
 }
 
 /// The pure half of [`read_spec`]: what a `this.yaml` *text* declares.
@@ -581,6 +596,22 @@ mod tests {
             spec.source.url.as_deref(),
             Some("https://github.com/this-rs/this")
         );
+    }
+
+    #[test]
+    fn an_incomplete_declaration_is_returned_untouched() {
+        // `source: git` sans `url` : rien à résoudre, et surtout pas un panic.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("this.yaml"),
+            "name: p\nthis:\n  source: git\n",
+        )
+        .unwrap();
+
+        let spec = read_spec(dir.path())
+            .unwrap()
+            .expect("une déclaration existe");
+        assert!(spec.source.url.is_none());
     }
 
     #[test]
