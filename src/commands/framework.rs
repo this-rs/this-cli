@@ -285,9 +285,13 @@ impl Manifest {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let mut manifest = Manifest::read(&text);
 
+        let directory = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        manifest.source = manifest
+            .source
+            .map(|source| framework::manifest::resolve_paths(source, &directory));
+
         if framework::manifest::inherits_this(&text) {
-            let directory = path.parent().unwrap_or(Path::new("."));
-            match framework::manifest::workspace_dependency(directory) {
+            match framework::manifest::workspace_dependency(&directory) {
                 Ok(Some(source)) => {
                     manifest.source = Some(source);
                     manifest.inherited = true;
@@ -503,14 +507,14 @@ fn report(
                     },
                 ));
                 if lock.is_none() {
-                    rows.push((
-                        "lock",
-                        if source.is_reproducible() {
-                            "absent (this source needs no resolution)".to_string()
-                        } else {
-                            "absent (the channel is not resolved yet)".to_string()
-                        },
-                    ));
+                    // Le message suit la source : un chemin n'a pas de canal à
+                    // résoudre, il EST sa propre résolution.
+                    let why = match &source {
+                        Source::Git { rev: None, .. } => "absent (the channel is not resolved yet)",
+                        Source::Path { .. } => "absent (a local path is its own resolution)",
+                        _ => "absent (this source needs no resolution)",
+                    };
+                    rows.push(("lock", why.to_string()));
                 }
             }
             Err(message) => {
@@ -902,6 +906,22 @@ mod tests {
         assert!(
             !unknown.message.contains("grpc"),
             "the present one is not blamed"
+        );
+    }
+
+    #[test]
+    fn a_published_version_says_it_needs_no_lock() {
+        let spec = PinSpec::crates_io("0.0.9");
+        let rows = report(
+            Some(&spec),
+            None,
+            &Manifest::default(),
+            Path::new("/tmp/p"),
+            NOW,
+        );
+        assert_eq!(
+            value(&rows, "lock"),
+            "absent (this source needs no resolution)"
         );
     }
 

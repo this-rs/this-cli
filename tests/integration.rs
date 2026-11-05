@@ -3062,3 +3062,32 @@ fn test_framework_check_names_an_inherited_dependency_the_workspace_does_not_dec
         "the silence is the defect being fixed, got:\n{said}"
     );
 }
+
+#[test]
+fn test_framework_status_says_when_the_workspace_dependency_is_unreadable() {
+    // Le workspace déclare `this` mais sans source : il faut le dire, pas tomber.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"api\"]\n\n[workspace.dependencies]\nthis = { package = \"this-rs\" }\n",
+    )
+    .unwrap();
+
+    let api = tmp.path().join("api");
+    std::fs::create_dir_all(&api).unwrap();
+    std::fs::write(
+        api.join("Cargo.toml"),
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { workspace = true }\n",
+    )
+    .unwrap();
+    std::fs::write(api.join("this.yaml"), "name: api\napi:\n  path: \".\"\n").unwrap();
+
+    let (success, stdout, stderr) = run_this(&["framework", "status"], &api);
+
+    let said = format!("{stdout}{stderr}");
+    assert!(success, "status ne doit pas tomber : {said}");
+    assert!(
+        said.contains("cannot be read") || said.contains("names neither"),
+        "la source illisible doit être nommée, got:\n{said}"
+    );
+}

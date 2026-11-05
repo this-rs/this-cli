@@ -56,6 +56,26 @@ pub fn dependency_package(manifest: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Une source dont le chemin est résolu, pour comparer deux façons d'écrire le
+/// même endroit.
+///
+/// Mesuré sur `examples/websocket` : le manifeste racine du workspace écrit
+/// `path = "../this"`, la déclaration du projet écrit `path = "../../../this"`
+/// — le même dossier, deux bases. Comparées comme des chaînes, elles
+/// produisaient un `manifest-spec-drift` qui n'existait pas.
+pub fn resolve_paths(source: Source, base: &std::path::Path) -> Source {
+    match source {
+        Source::Path { path } => {
+            let joined = base.join(&path);
+            let resolved = joined.canonicalize().unwrap_or(joined);
+            Source::Path {
+                path: resolved.display().to_string(),
+            }
+        }
+        other => other,
+    }
+}
+
 /// Whether the `this` dependency is inherited from a workspace.
 ///
 /// `this = { workspace = true }` names no source: the value lives in the root
@@ -94,7 +114,8 @@ pub fn workspace_dependency(start: &std::path::Path) -> Result<Option<Source>, S
             let Some(dependency) = dependency else {
                 return Ok(None);
             };
-            return dependency_as_source(dependency);
+            let source = dependency_as_source(dependency)?;
+            return Ok(source.map(|source| resolve_paths(source, current)));
         }
 
         match current.parent() {
@@ -306,11 +327,14 @@ mod tests {
         )
         .unwrap();
 
-        let found = workspace_dependency(&api).unwrap();
+        // Le chemin est résolu : `../this` écrit depuis la racine du workspace
+        // devient un chemin absolu, pour être comparable à celui du projet.
+        let raw = dir.path().join("../this");
+        let expected = raw.canonicalize().unwrap_or(raw);
         assert_eq!(
-            found,
+            workspace_dependency(&api).unwrap(),
             Some(Source::Path {
-                path: "../this".into()
+                path: expected.display().to_string()
             })
         );
     }
