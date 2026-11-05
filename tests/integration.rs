@@ -3000,3 +3000,65 @@ fn test_framework_digest_is_stable_and_ordered_by_declaration_alone() {
         "features are sorted"
     );
 }
+
+#[test]
+fn test_framework_status_resolves_a_dependency_inherited_from_the_workspace() {
+    // Le cas mesuré sur examples/websocket : la dépendance n'est pas dans le
+    // manifeste du crate, elle est héritée du workspace. `check` répondait
+    // « cohérent » sans avoir rien lu.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"api\"]\n\n[workspace.dependencies]\nthis = { package = \"this-rs\", path = \"../this\" }\n",
+    )
+    .unwrap();
+
+    let api = tmp.path().join("api");
+    std::fs::create_dir_all(&api).unwrap();
+    std::fs::write(
+        api.join("Cargo.toml"),
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { workspace = true }\n",
+    )
+    .unwrap();
+    std::fs::write(api.join("this.yaml"), "name: api\napi:\n  path: \".\"\n").unwrap();
+
+    let (success, stdout, stderr) = run_this(&["framework", "status"], &api);
+
+    assert!(success, "status should succeed: {stderr}");
+    assert!(
+        stdout.contains("builds"),
+        "the resolved source must be shown, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("this"),
+        "the inherited path must appear, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_framework_check_names_an_inherited_dependency_the_workspace_does_not_declare() {
+    // Hérité, mais le workspace ne dit rien : il faut le dire, pas se taire.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"api\"]\n",
+    )
+    .unwrap();
+
+    let api = tmp.path().join("api");
+    std::fs::create_dir_all(&api).unwrap();
+    std::fs::write(
+        api.join("Cargo.toml"),
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\n\n[dependencies]\nthis = { workspace = true }\n",
+    )
+    .unwrap();
+    std::fs::write(api.join("this.yaml"), "name: api\napi:\n  path: \".\"\n").unwrap();
+
+    let (_, stdout, stderr) = run_this(&["framework", "check"], &api);
+
+    let said = format!("{stdout}{stderr}");
+    assert!(
+        said.contains("inherited"),
+        "the silence is the defect being fixed, got:\n{said}"
+    );
+}

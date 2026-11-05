@@ -160,9 +160,13 @@ pub fn manifest_path(root: &Path) -> Option<PathBuf> {
 pub fn manifest_dependency(manifest: &str) -> Option<String> {
     for line in manifest.lines() {
         let line = line.trim();
+        // Deux noms : l'alias que le CLI génère (`this`) et le nom du crate,
+        // que les projets existants utilisent (`this-rs`).
         let is_this = line.starts_with("this =")
             || line.starts_with("this=")
-            || line.starts_with("this.workspace");
+            || line.starts_with("this.workspace")
+            || line.starts_with("this-rs =")
+            || line.starts_with("this-rs.workspace");
         if is_this {
             return Some(line.to_string());
         }

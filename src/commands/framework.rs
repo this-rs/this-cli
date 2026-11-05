@@ -75,10 +75,9 @@ pub fn run(command: FrameworkSubcommand, dry_run: bool) -> Result<()> {
 
     // What Cargo actually builds. Neither the declaration nor the lock says it,
     // so it is read and compared to both.
-    let manifest_text = framework::manifest_path(&root)
-        .and_then(|path| std::fs::read_to_string(path).ok())
+    let manifest = framework::manifest_path(&root)
+        .map(|path| Manifest::read_at(&path))
         .unwrap_or_default();
-    let manifest = Manifest::read(&manifest_text);
 
     // The vocabulary of the pinned commit, when it is readable here.
     let digest = spec
@@ -272,9 +271,40 @@ struct Manifest {
     error: Option<String>,
     /// The crate the dependency names (`package = "this-rs"`), when it says so.
     package: Option<String>,
+    /// Whether the source came from the enclosing workspace manifest.
+    inherited: bool,
 }
 
 impl Manifest {
+    /// Lit le manifeste d'un crate, en résolvant une dépendance héritée.
+    ///
+    /// `this = { workspace = true }` ne nomme aucune source : la valeur vit dans
+    /// le manifeste racine. Ne pas la chercher faisait répondre « cohérent » à
+    /// `check` sans avoir rien lu — mesuré sur un exemple généré réel.
+    fn read_at(path: &Path) -> Manifest {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let mut manifest = Manifest::read(&text);
+
+        if framework::manifest::inherits_this(&text) {
+            let directory = path.parent().unwrap_or(Path::new("."));
+            match framework::manifest::workspace_dependency(directory) {
+                Ok(Some(source)) => {
+                    manifest.source = Some(source);
+                    manifest.inherited = true;
+                }
+                Ok(None) => {
+                    manifest.error = Some(
+                        "the `this` dependency is inherited, but the workspace manifest declares no `this` under `[workspace.dependencies]`"
+                            .to_string(),
+                    );
+                }
+                Err(message) => manifest.error = Some(message),
+            }
+        }
+
+        manifest
+    }
+
     fn read(text: &str) -> Manifest {
         let (source, error) = match framework::dependency_from_manifest(text) {
             Ok(source) => (source, None),
@@ -285,6 +315,7 @@ impl Manifest {
             source,
             error,
             package: framework::manifest::dependency_package(text),
+            inherited: false,
         }
     }
 }
@@ -426,6 +457,13 @@ fn report(
                     .clone()
                     .unwrap_or_else(|| "not declared".to_string()),
             ));
+            // Une dépendance héritée est résolue plus haut : le dire, plutôt que
+            // de laisser croire qu'on n'a rien lu.
+            if manifest.inherited
+                && let Some(source) = manifest.source.as_ref()
+            {
+                rows.push(("builds", source.describe()));
+            }
             rows.push((
                 "hint",
                 "add a `this:` section to this.yaml to declare the source and the channel"
@@ -865,6 +903,24 @@ mod tests {
             !unknown.message.contains("grpc"),
             "the present one is not blamed"
         );
+    }
+
+    #[test]
+    fn an_inherited_source_is_shown_rather_than_left_silent() {
+        // Le cas mesuré : `this = { workspace = true }`, résolu plus haut. Sans
+        // la ligne `builds`, l'affichage laisse croire qu'on n'a rien lu.
+        let manifest = Manifest {
+            line: Some("this = { workspace = true }".into()),
+            source: Some(framework::Source::Path {
+                path: "/opt/this".into(),
+            }),
+            inherited: true,
+            ..Default::default()
+        };
+
+        let rows = report(None, None, &manifest, Path::new("/tmp/p"), NOW);
+
+        assert_eq!(value(&rows, "builds"), "path /opt/this");
     }
 
     #[test]
