@@ -40,27 +40,31 @@ pub enum Detect {
 /// The migrations this CLI knows about.
 ///
 /// Compiled in, because a CLI ships alongside the framework it was built
-/// against. Each entry is a real change made in the repository, not a guess:
-/// `0001` and `0003` come from the event/publication work, `0002` from the
-/// cascade decision.
+/// against. Each entry is a change that **breaks or silently changes** a
+/// project, verified against the source — not a guess, and not an addition.
+///
+/// The distinction is the whole point, and the first version of this registry
+/// got it wrong: it announced that `Session` had *become* `Capabilities`. Both
+/// exist (`crates/this-descriptor/src/capabilities.rs:152` and `:378`, no
+/// `#[deprecated]` anywhere), `Capabilities` only adds a layer on top of
+/// `Session`, and nothing breaks. A registry that names a break where there is
+/// an addition is worse than an empty one: it sends people to change code that
+/// works.
 pub const REGISTRY: &[Migration] = &[
     Migration {
         id: "0001",
-        summary: "`Session` became `Capabilities`, and permissions are read from the module descriptor",
-        // Qualified forms only. A bare `Session` matched ScyllaDB's, whose
-        // stores template writes `scylla::client::session::Session` — a warning
-        // that fires on an homonym is worse than no warning at all.
-        detect: Detect::Mentions(&["Session::anonymous", "PolicyExpr::permissions"]),
-    },
-    Migration {
-        id: "0002",
-        summary: "a `Ref` field must declare `on_delete` (`restrict` or `cascade`); the old default silently refused deletions",
+        summary: "deleting a record a `Ref` points at no longer goes through silently: `on_delete` defaults to `restrict`, `cascade` opts in",
+        // The field has a default, so nothing fails to compile: what changes is
+        // the answer to a deletion. No text can prove a project relies on it.
         detect: Detect::Always,
     },
     Migration {
-        id: "0003",
-        summary: "`with_event_bus` must be called once: assigning `event_bus` on the host no longer publishes link events",
-        detect: Detect::Mentions(&["event_bus", "with_event_bus"]),
+        id: "0002",
+        summary: "link events are published by the seam `with_event_bus` installs: a host assembled by setting `event_bus` directly publishes none",
+        // Qualified forms only. A bare `Session` matched ScyllaDB's, whose
+        // stores template writes `scylla::client::session::Session` — a warning
+        // that fires on an homonym is worse than no warning at all.
+        detect: Detect::Mentions(&["with_event_bus", "event_bus"]),
     },
 ];
 
@@ -235,10 +239,19 @@ mod tests {
         // undecidable one is reported.
         let found = detect("fn main() {}", REGISTRY);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].id, "0002");
+        assert_eq!(found[0].id, "0001");
 
+        // A mention pulls in the one that can be decided from the text.
+        let found = detect("host.with_event_bus(1024);", REGISTRY);
+        assert!(found.iter().any(|m| m.id == "0002"));
+
+        // And the claim the first version made — that `Session` had become
+        // `Capabilities` — must not send anybody anywhere: it is not a break.
         let found = detect("let s = Session::anonymous();", REGISTRY);
-        assert!(found.iter().any(|m| m.id == "0001"));
+        assert!(
+            !found.iter().any(|m| m.id == "0002"),
+            "an addition is not a migration"
+        );
     }
 
     #[test]
