@@ -904,7 +904,31 @@ pub fn run(args: HarnessArgs) -> Result<()> {
     );
 
     if let Some(texte) = args.once {
-        let issue = runtime.block_on(session.harness.send(texte));
+        // Ctrl+C pendant un tour : on demande l'arrêt au harnais, qui lit le
+        // drapeau dans le transport et entre deux outils. `Cancel` est un `Rc`,
+        // donc l'appel doit se faire sur CE thread — d'où un `select!` plutôt
+        // qu'un gestionnaire de signal sur un autre thread, qui ne pourrait pas
+        // l'atteindre.
+        let issue = runtime.block_on(async {
+            let poignee = session.harness.handle();
+            let mut envoi = std::pin::pin!(session.harness.send(texte));
+            let mut peut_annuler = true;
+            loop {
+                tokio::select! {
+                    issue = &mut envoi => break issue,
+                    res = tokio::signal::ctrl_c(), if peut_annuler => {
+                        match res {
+                            Ok(()) => {
+                                println!("\n{}", "· annulation demandée (Ctrl+C)".yellow());
+                                poignee.interrupt();
+                            }
+                            // Pas de pilote de signaux : on ne boucle pas là-dessus.
+                            Err(_) => peut_annuler = false,
+                        }
+                    }
+                }
+            }
+        });
         if matches!(issue, Running::Queued) {
             println!(
                 "{}",
@@ -942,7 +966,31 @@ fn boucle(
             }
             continue;
         }
-        let issue = runtime.block_on(session.harness.send(texte));
+        // Ctrl+C pendant un tour : on demande l'arrêt au harnais, qui lit le
+        // drapeau dans le transport et entre deux outils. `Cancel` est un `Rc`,
+        // donc l'appel doit se faire sur CE thread — d'où un `select!` plutôt
+        // qu'un gestionnaire de signal sur un autre thread, qui ne pourrait pas
+        // l'atteindre.
+        let issue = runtime.block_on(async {
+            let poignee = session.harness.handle();
+            let mut envoi = std::pin::pin!(session.harness.send(texte));
+            let mut peut_annuler = true;
+            loop {
+                tokio::select! {
+                    issue = &mut envoi => break issue,
+                    res = tokio::signal::ctrl_c(), if peut_annuler => {
+                        match res {
+                            Ok(()) => {
+                                println!("\n{}", "· annulation demandée (Ctrl+C)".yellow());
+                                poignee.interrupt();
+                            }
+                            // Pas de pilote de signaux : on ne boucle pas là-dessus.
+                            Err(_) => peut_annuler = false,
+                        }
+                    }
+                }
+            }
+        });
         if matches!(issue, Running::Queued) {
             println!(
                 "{}",

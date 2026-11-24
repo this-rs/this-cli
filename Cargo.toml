@@ -37,7 +37,7 @@ this-llm-providers = { version = "0.0.1", path = "../this/crates/this-llm-provid
 this-agent = { version = "0.0.1", path = "../this/crates/this-agent" }
 async-trait = "0.1"
 # Le harnais est `!Send` : un runtime mono-thread suffit, et c'est le seul correct.
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "signal", "macros"] }
 toml = "0.8"
 semver = "1"
 
