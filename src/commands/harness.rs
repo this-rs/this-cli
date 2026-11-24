@@ -915,13 +915,21 @@ pub fn run(args: HarnessArgs) -> Result<()> {
         return Ok(());
     }
 
-    let stdin = std::io::stdin();
+    boucle(&mut session, &runtime, std::io::stdin().lock())
+}
+
+/// La boucle interactive, séparée de [`run`] pour être éprouvée avec une entrée scriptée.
+fn boucle(
+    session: &mut Session,
+    runtime: &tokio::runtime::Runtime,
+    mut entree: impl BufRead,
+) -> Result<()> {
     let mut ligne = String::new();
     loop {
         print!("{} ", "›".cyan());
         let _ = std::io::stdout().flush();
         ligne.clear();
-        if stdin.lock().read_line(&mut ligne)? == 0 {
+        if entree.read_line(&mut ligne)? == 0 {
             break;
         }
         let texte = ligne.trim();
@@ -929,7 +937,7 @@ pub fn run(args: HarnessArgs) -> Result<()> {
             continue;
         }
         if texte.starts_with('/') {
-            if !traiter_commande(&mut session, texte)? {
+            if !traiter_commande(session, texte)? {
                 break;
             }
             continue;
@@ -1398,6 +1406,128 @@ mod tests {
         assert!(traiter_commande(&mut session, "/reset").unwrap());
         assert!(traiter_commande(&mut session, "/inconnue").unwrap());
         assert!(!traiter_commande(&mut session, "/quitter").unwrap());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ---- chemins d'erreur --------------------------------------------
+
+    #[test]
+    fn une_racine_inexistante_est_refusee() {
+        let err = OutilsLocaux::new(Some(PathBuf::from("/n-existe-pas-ici-42")), false, false)
+            .err()
+            .expect("une racine inexistante doit être refusée")
+            .to_string();
+        assert!(err.contains("racine introuvable"), "{err}");
+    }
+
+    #[test]
+    fn un_fichier_de_configuration_absent_est_refuse() {
+        let err = resoudre_profil(&args(PathBuf::from("/tmp/pas-la-42.toml")))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("lecture de"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn les_arguments_manquants_sont_des_echecs() {
+        let base = dossier("this-cli-args");
+        let outils = OutilsLocaux::new(Some(base.clone()), true, true).unwrap();
+        for (outil, args) in [
+            ("lire", serde_json::json!({})),
+            ("ecrire", serde_json::json!({"chemin": "x"})),
+            ("executer", serde_json::json!({})),
+        ] {
+            let issue = outils
+                .call(&ToolCall {
+                    id: "c".into(),
+                    name: outil.into(),
+                    arguments: args,
+                })
+                .await;
+            assert!(issue.failed.is_some(), "{outil} sans argument doit échouer");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn lire_et_lister_sur_un_absent_echouent() {
+        let base = dossier("this-cli-absent");
+        let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
+        let lire = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "lire".into(),
+                arguments: serde_json::json!({"chemin": "nulle-part.txt"}),
+            })
+            .await;
+        assert!(lire.failed.is_some());
+        let lister = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "lister".into(),
+                arguments: serde_json::json!({"chemin": "nulle-part"}),
+            })
+            .await;
+        assert!(lister.failed.is_some());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn ecrire_et_executer_hors_racine_refusent() {
+        let base = dossier("this-cli-hors");
+        let outils = OutilsLocaux::new(Some(base.clone()), true, true).unwrap();
+        let ecrire = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "ecrire".into(),
+                arguments: serde_json::json!({"chemin": "../evasion.txt", "contenu": "x"}),
+            })
+            .await;
+        assert!(ecrire.refused.is_some());
+        let exec = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "executer".into(),
+                arguments: serde_json::json!({"commande": "echo x", "cwd": "/"}),
+            })
+            .await;
+        assert!(exec.refused.is_some(), "un cwd hors racine est refusé");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ---- run / boucle -------------------------------------------------
+
+    #[test]
+    fn la_boucle_consomme_une_entree_scriptee() {
+        let base = dossier("this-cli-boucle");
+        let outils = Rc::new(OutilsLocaux::new(Some(base.clone()), false, false).unwrap());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut session = {
+            let _g = runtime.enter();
+            Session::nouvelle(profil_de_test(), outils).unwrap()
+        };
+        // Ligne vide (ignorée), commande, puis un tour réel vers un provider mort :
+        // la connexion est refusée tout de suite, donc le test reste rapide.
+        let entree = std::io::Cursor::new(b"\n/outils\nbonjour\n/quitter\n".to_vec());
+        boucle(&mut session, &runtime, entree).expect("la boucle ne doit pas échouer");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn run_en_once_rend_la_main_meme_si_le_provider_est_mort() {
+        let base = dossier("this-cli-once");
+        let p = ecrire_config(
+            &base,
+            "[[providers]]\nid = \"mort\"\nbase_url = \"http://127.0.0.1:1/v1\"\n",
+        );
+        let mut a = args(p);
+        a.provider = Some("mort".into());
+        a.cwd = Some(base.clone());
+        a.once = Some("bonjour".into());
+        run(a).expect("un provider injoignable n'est pas une erreur de la CLI");
         let _ = std::fs::remove_dir_all(&base);
     }
 }
