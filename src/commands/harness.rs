@@ -953,16 +953,53 @@ pub fn run(args: HarnessArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use this_agent::substrate::Verdict;
+    use this_harness::HintKind;
 
-    #[test]
-    fn le_sample_versionne_se_parse() {
-        let chemin = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness.sample.toml");
-        let fichier = charger(&chemin).expect("le sample doit se parser");
-        assert!(
-            !fichier.providers.is_empty(),
-            "le sample doit déclarer au moins un provider"
-        );
+    fn dossier(prefixe: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("{prefixe}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
     }
+
+    fn args(config: PathBuf) -> HarnessArgs {
+        HarnessArgs {
+            config: Some(config),
+            provider: None,
+            model: None,
+            system: None,
+            cwd: None,
+            allow_write: false,
+            allow_exec: false,
+            once: None,
+        }
+    }
+
+    fn ecrire_config(d: &Path, contenu: &str) -> PathBuf {
+        let p = d.join("harness.toml");
+        std::fs::write(&p, contenu).unwrap();
+        p
+    }
+
+    fn profil_de_test() -> Profil {
+        Profil {
+            entree: Entree {
+                id: "test".into(),
+                label: None,
+                preset: "openai_compatible".into(),
+                base_url: Some("http://127.0.0.1:1/v1".into()),
+                model: Some("modele-de-test".into()),
+                credential: "none".into(),
+            },
+            modele: Some("modele-de-test".into()),
+            system: "sys".into(),
+            max_tours: 1,
+            budget_ms: Some(1_000),
+        }
+    }
+
+    // ---- presets, sample, helpers -------------------------------------
 
     #[test]
     fn les_presets_se_lisent_dans_les_deux_ecritures() {
@@ -975,15 +1012,127 @@ mod tests {
             Ok(Preset::OpenAiCompatible)
         ));
         assert!(matches!(preset("Ollama"), Ok(Preset::Ollama)));
+        assert!(matches!(preset("nvidia-nim"), Ok(Preset::NvidiaNim)));
         assert!(preset("pas-un-preset").is_err());
     }
 
     #[test]
+    fn le_sample_versionne_se_parse() {
+        let chemin = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness.sample.toml");
+        let fichier = charger(&chemin).expect("le sample doit se parser");
+        assert!(
+            !fichier.providers.is_empty(),
+            "le sample doit déclarer au moins un provider"
+        );
+        assert!(
+            fichier.harness.provider.is_some(),
+            "le sample doit nommer un provider par défaut"
+        );
+    }
+
+    #[test]
+    fn normaliser_remonte_les_parents() {
+        assert_eq!(
+            normaliser(Path::new("/a/b/../c/./d")),
+            PathBuf::from("/a/c/d")
+        );
+        assert_eq!(normaliser(Path::new("a/b/../../c")), PathBuf::from("c"));
+    }
+
+    #[test]
+    fn abreges_coupe_au_plafond_et_le_dit() {
+        let (t, coupe) = abreges("abcdef", 3);
+        assert_eq!(t, "abc");
+        assert!(coupe);
+        let (t, coupe) = abreges("abc", 3);
+        assert_eq!(t, "abc");
+        assert!(!coupe);
+    }
+
+    #[test]
+    fn abrege_json_met_une_ligne_et_tronque() {
+        let v = serde_json::json!({"a": 1, "b": "x\ny"});
+        let s = abrege_json(&v, 200);
+        assert!(!s.contains('\n'), "les sauts de ligne sont aplatis : {s}");
+        assert!(abrege_json(&v, 4).ends_with('…'));
+    }
+
+    // ---- configuration ------------------------------------------------
+
+    #[test]
+    fn resoudre_profil_prend_le_provider_par_defaut() {
+        let d = dossier("this-cli-conf");
+        let p = ecrire_config(
+            &d,
+            "[harness]\nprovider = \"deuxieme\"\n\n[[providers]]\nid = \"premier\"\n\n\
+             [[providers]]\nid = \"deuxieme\"\nmodel = \"m2\"\n",
+        );
+        let profil = resoudre_profil(&args(p)).expect("profil");
+        assert_eq!(profil.entree.id, "deuxieme");
+        assert_eq!(profil.modele.as_deref(), Some("m2"));
+        assert_eq!(profil.max_tours, 12, "défaut quand la clé est absente");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn resoudre_profil_sans_harness_prend_le_premier() {
+        let d = dossier("this-cli-conf2");
+        let p = ecrire_config(&d, "[[providers]]\nid = \"seul\"\n");
+        let profil = resoudre_profil(&args(p)).expect("profil");
+        assert_eq!(profil.entree.id, "seul");
+        assert!(profil.system.contains("agent de développement"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn resoudre_profil_refuse_un_provider_absent() {
+        let d = dossier("this-cli-conf3");
+        let p = ecrire_config(&d, "[[providers]]\nid = \"seul\"\n");
+        let mut a = args(p);
+        a.provider = Some("fantome".into());
+        let err = resoudre_profil(&a).unwrap_err().to_string();
+        assert!(err.contains("fantome"), "{err}");
+        assert!(
+            err.contains("seul"),
+            "la liste des disponibles est dite : {err}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn resoudre_profil_refuse_un_fichier_sans_provider() {
+        let d = dossier("this-cli-conf4");
+        let p = ecrire_config(&d, "[harness]\nprovider = \"x\"\n");
+        let err = resoudre_profil(&args(p)).unwrap_err().to_string();
+        assert!(err.contains("aucun [[providers]]"), "{err}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn les_drapeaux_ecrasent_le_fichier() {
+        let d = dossier("this-cli-conf5");
+        let p = ecrire_config(
+            &d,
+            "[harness]\nsystem = \"du fichier\"\nmodel = \"du-fichier\"\n\n\
+             [[providers]]\nid = \"seul\"\n",
+        );
+        let mut a = args(p);
+        a.model = Some("du-drapeau".into());
+        a.system = Some("du-drapeau".into());
+        let profil = resoudre_profil(&a).expect("profil");
+        assert_eq!(profil.modele.as_deref(), Some("du-drapeau"));
+        assert_eq!(profil.system, "du-drapeau");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // ---- confinement --------------------------------------------------
+
+    #[test]
     fn un_chemin_qui_sort_de_la_racine_est_refuse() {
-        let base = std::env::temp_dir().join(format!("this-cli-racine-{}", std::process::id()));
-        std::fs::create_dir_all(&base).unwrap();
+        let base = dossier("this-cli-racine");
         let outils = OutilsLocaux::new(Some(base.clone()), true, true).unwrap();
         assert!(outils.resoudre("ok.txt").is_ok());
+        assert!(outils.resoudre("sous/ok.txt").is_ok());
         assert!(outils.resoudre("../evasion.txt").is_err());
         assert!(outils.resoudre("/etc/passwd").is_err());
         let _ = std::fs::remove_dir_all(&base);
@@ -991,54 +1140,264 @@ mod tests {
 
     #[test]
     fn les_outils_offerts_sont_ceux_accordes() {
-        let base = std::env::temp_dir().join(format!("this-cli-grants-{}", std::process::id()));
-        std::fs::create_dir_all(&base).unwrap();
+        let base = dossier("this-cli-grants");
         let sans = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
         let noms: Vec<String> = sans.specs().into_iter().map(|s| s.name).collect();
         assert_eq!(noms, vec!["lire", "lister"]);
         let grants = sans.grants().expect("grants");
         for nom in &noms {
             assert!(
-                matches!(grants.allows(nom), this_agent::substrate::Verdict::Allow),
+                matches!(grants.allows(nom), Verdict::Allow),
                 "{nom} doit être accordé"
             );
         }
-        assert!(matches!(
-            grants.allows("executer"),
-            this_agent::substrate::Verdict::Refuse(_)
-        ));
+        assert!(matches!(grants.allows("executer"), Verdict::Refuse(_)));
+        assert_eq!(sans.declarations().len(), 2);
+
         let avec = OutilsLocaux::new(Some(base.clone()), true, true).unwrap();
         assert_eq!(avec.specs().len(), 4);
+        assert_eq!(avec.declarations().len(), 4);
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    #[test]
-    fn ecrire_sans_le_drapeau_est_refuse() {
-        let base = std::env::temp_dir().join(format!("this-cli-ecrit-{}", std::process::id()));
-        std::fs::create_dir_all(&base).unwrap();
+    // ---- outils -------------------------------------------------------
+
+    #[tokio::test]
+    async fn lire_rend_le_contenu() {
+        let base = dossier("this-cli-lire");
+        std::fs::write(base.join("a.txt"), "bonjour").unwrap();
         let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
-        let issue = futures_lite_block_on(outils.ecrire(&serde_json::json!({
-            "chemin": "x.txt", "contenu": "non"
-        })));
-        assert!(
-            issue.refused.is_some(),
-            "l'écriture doit être refusée sans --allow-write"
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "lire".into(),
+                arguments: serde_json::json!({"chemin": "a.txt"}),
+            })
+            .await;
+        assert!(issue.refused.is_none() && issue.failed.is_none());
+        assert_eq!(issue.text, "bonjour");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn lire_hors_racine_refuse() {
+        let base = dossier("this-cli-lire2");
+        let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "lire".into(),
+                arguments: serde_json::json!({"chemin": "../secret"}),
+            })
+            .await;
+        assert!(issue.refused.is_some(), "hors racine doit être refusé");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn lister_donne_les_entrees() {
+        let base = dossier("this-cli-lister");
+        std::fs::write(base.join("fichier.txt"), "x").unwrap();
+        std::fs::create_dir_all(base.join("sous")).unwrap();
+        let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "lister".into(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
+        assert!(issue.text.contains("fichier.txt"), "{}", issue.text);
+        assert!(issue.text.contains("dossier"), "{}", issue.text);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn ecrire_sans_le_drapeau_est_refuse() {
+        let base = dossier("this-cli-ecrit");
+        let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "ecrire".into(),
+                arguments: serde_json::json!({"chemin": "x.txt", "contenu": "non"}),
+            })
+            .await;
+        assert!(issue.refused.is_some(), "l'écriture doit être refusée");
+        assert!(!base.join("x.txt").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn ecrire_avec_le_drapeau_ecrit() {
+        let base = dossier("this-cli-ecrit2");
+        let outils = OutilsLocaux::new(Some(base.clone()), true, false).unwrap();
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "ecrire".into(),
+                arguments: serde_json::json!({"chemin": "sous/x.txt", "contenu": "oui"}),
+            })
+            .await;
+        assert!(issue.failed.is_none(), "{:?}", issue.failed);
+        assert_eq!(
+            std::fs::read_to_string(base.join("sous/x.txt")).unwrap(),
+            "oui"
         );
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    /// `OutilsLocaux` est `!Send` et ses méthodes sont `async` : on les pousse sur un
-    /// exécuteur minimal pour les tests (pas de dépendance à tokio ici).
-    fn futures_lite_block_on<F: std::future::Future>(f: F) -> F::Output {
-        use std::task::{Context, Poll};
-        let waker = std::task::Waker::noop();
-        let mut cx = Context::from_waker(waker);
-        let mut fut = std::pin::pin!(f);
-        for _ in 0..1000 {
-            if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
-                return v;
-            }
+    #[tokio::test]
+    async fn executer_sans_le_drapeau_est_refuse() {
+        let base = dossier("this-cli-exec");
+        let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "executer".into(),
+                arguments: serde_json::json!({"commande": "echo non"}),
+            })
+            .await;
+        assert!(issue.refused.is_some());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn executer_rend_la_sortie_et_le_code() {
+        let base = dossier("this-cli-exec2");
+        let outils = OutilsLocaux::new(Some(base.clone()), false, true).unwrap();
+        let ok = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "executer".into(),
+                arguments: serde_json::json!({"commande": "echo bonjour"}),
+            })
+            .await;
+        assert!(ok.failed.is_none(), "{:?}", ok.failed);
+        assert!(ok.text.contains("bonjour"), "{}", ok.text);
+        assert!(ok.text.contains("code 0"), "{}", ok.text);
+
+        let ko = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "executer".into(),
+                arguments: serde_json::json!({"commande": "exit 3"}),
+            })
+            .await;
+        assert!(ko.failed.is_some(), "un code non nul est un échec");
+        assert!(ko.text.contains("code 3"), "{}", ko.text);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn un_outil_inconnu_est_refuse() {
+        let base = dossier("this-cli-inconnu");
+        let outils = OutilsLocaux::new(Some(base.clone()), false, false).unwrap();
+        let issue = outils
+            .call(&ToolCall {
+                id: "c".into(),
+                name: "supprimer".into(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
+        assert!(issue.refused.is_some());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ---- affichage ----------------------------------------------------
+
+    #[test]
+    fn afficher_consomme_une_sequence_complete() {
+        let permissions: Rc<RefCell<Vec<(u64, String)>>> = Rc::default();
+        let mut f = afficher(permissions.clone());
+        f(Event::Turn { index: 0 });
+        f(Event::Delta { text: "bon".into() });
+        f(Event::Served { served: "m".into() });
+        f(Event::Spoke { text: "bon".into() });
+        f(Event::Spoke {
+            text: String::new(),
+        });
+        f(Event::ToolUse {
+            id: "c1".into(),
+            tool: "lire".into(),
+            input: serde_json::json!({"chemin": "x"}),
+        });
+        for (refused, failed) in [(false, false), (true, false), (false, true)] {
+            f(Event::ToolResult {
+                id: "c1".into(),
+                tool: "lire".into(),
+                text: "contenu".into(),
+                refused,
+                failed,
+                failure: None,
+                unchanged: false,
+                before: String::new(),
+                after: String::new(),
+                ms: 3,
+            });
         }
-        panic!("le futur ne s'est jamais résolu")
+        f(Event::Hint {
+            text: "note".into(),
+            kind: HintKind::Other,
+        });
+        f(Event::PermissionRequest {
+            id: 7,
+            tool: "ecrire".into(),
+        });
+        f(Event::Stopped {
+            stop: Stop::Done,
+            text: String::new(),
+            turns: 1,
+            ms: 10,
+            code: None,
+            verdict: None,
+        });
+        f(Event::Stopped {
+            stop: Stop::Refused("non".into()),
+            text: String::new(),
+            turns: 1,
+            ms: 10,
+            code: Some("E1".into()),
+            verdict: None,
+        });
+        // Un type d'événement que la CLI ignore doit être avalé sans bruit.
+        f(Event::User { text: "x".into() });
+
+        let attente = permissions.borrow();
+        assert_eq!(attente.len(), 1, "la demande de permission est retenue");
+        assert_eq!(attente[0].1, "ecrire");
+    }
+
+    #[test]
+    fn le_bilan_nomme_l_arret() {
+        assert!(bilan(&Stop::Done, 2, 1500, None).contains("terminé"));
+        assert!(bilan(&Stop::Budget, 2, 1500, None).contains("budget"));
+        assert!(bilan(&Stop::Cancelled, 2, 1500, None).contains("annulé"));
+        assert!(bilan(&Stop::Interrupted, 2, 1500, None).contains("interrompu"));
+        assert!(bilan(&Stop::Failed("boom".into()), 2, 1500, Some("E2")).contains("boom"));
+        assert!(bilan(&Stop::Refused("non".into()), 2, 1500, None).contains("non"));
+    }
+
+    // ---- session et commandes -----------------------------------------
+
+    #[tokio::test]
+    async fn les_commandes_du_repl_repondent() {
+        let base = dossier("this-cli-repl");
+        let outils = Rc::new(OutilsLocaux::new(Some(base.clone()), false, false).unwrap());
+        let mut session = Session::nouvelle(profil_de_test(), outils).expect("session");
+
+        assert!(traiter_commande(&mut session, "/aide").unwrap());
+        assert!(traiter_commande(&mut session, "/outils").unwrap());
+        assert!(traiter_commande(&mut session, "/provider").unwrap());
+        assert!(traiter_commande(&mut session, "/provider autre").unwrap());
+        assert_eq!(session.profil.entree.id, "autre");
+        assert!(traiter_commande(&mut session, "/modele nouveau").unwrap());
+        assert_eq!(session.profil.modele.as_deref(), Some("nouveau"));
+        assert!(traiter_commande(&mut session, "/systeme autre chose").unwrap());
+        assert_eq!(session.profil.system, "autre chose");
+        assert!(traiter_commande(&mut session, "/reset").unwrap());
+        assert!(traiter_commande(&mut session, "/inconnue").unwrap());
+        assert!(!traiter_commande(&mut session, "/quitter").unwrap());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

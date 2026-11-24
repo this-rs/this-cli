@@ -49,6 +49,8 @@ semver = "1"
 libc = "0.2"
 
 [dev-dependencies]
+# `#[tokio::test]` : le toolbox `executer` attend sur `tokio::time::sleep`.
+tokio = { version = "1", features = ["rt", "time", "macros"] }
 tempfile = "3"
 serial_test = "3"
 
