@@ -137,6 +137,7 @@ The generated project includes:
 | `this adopt obrain` | Prepare an **existing** project for this-rs + obrain + IAM: enables the `obrain` feature, inserts (or shows) the store wiring, and prints the adoption order — observe first, then arm. It writes no authentication configuration |
 | `this build` | Build the project (API + frontend if configured) |
 | `this dev` | Start dev servers (API + SPA together — vite-rs flow or legacy `npm run dev` fallback) |
+| `this harness` | Drive the harness loop from a terminal: multi-provider config, four tools confined to a root |
 | `this framework <status\|check\|upgrade\|rollback\|digest>` | See, verify and move the framework commit a project follows (see [Pinning the framework](#pinning-the-framework)) |
 | `this info` | Display project summary and coherence status |
 | `this doctor` | Run diagnostic checks on project health |
@@ -259,6 +260,29 @@ this dev --port 8080                # Custom API port
 ```
 
 Auto-detects `cargo-watch`, `watchexec`, or `bacon` for live reload. When the API enables the `frontend` feature, `this dev` runs the vite-rs single-process flow — the API serves the SPA on the same port (hot reload + `/__dev` AI bridge). Otherwise it falls back to spawning `npm run dev` (Node/Vite, port 5173) with a warning. Output is prefixed with colored `[API]`/`[FRONT]` labels. Press `Ctrl+C` to stop all servers.
+
+### this harness
+
+```sh
+cp harness.sample.toml harness.toml   # once — harness.toml is git-ignored
+this harness                          # REPL against the configured provider
+this harness --provider local --allow-write --allow-exec
+this harness --once "summarise README.md"   # one turn, no REPL
+```
+
+The same loop the app runs (`this-harness`), hosted by a shell instead of a page:
+turns, tool calls, budget, named stop. Four tools are offered — `lire`, `lister`,
+`ecrire`, `executer` — all confined to a root directory (`--cwd`, default: the
+current one). `ecrire` and `executer` are **off by default** and only appear behind
+`--allow-write` / `--allow-exec`: a tool that is not announced cannot be called, so
+offering the surface is exactly what gets granted.
+
+The provider list lives in `harness.toml`, which is git-ignored;
+`harness.sample.toml` is the versioned template. A credential is a **reference**,
+never a value: `none`, `env:NAME`, `vault:name` — a raw key is refused by the client.
+
+Inside the REPL: `/aide`, `/outils`, `/provider <id>`, `/modele <name>`,
+`/systeme <text>`, `/reset`, `/quitter`. Everything else is sent to the model.
 
 ### this info
 

@@ -1,0 +1,46 @@
+# Configuration de `this harness` — MODÈLE À COPIER.
+#
+#   cp harness.sample.toml harness.toml
+#
+# `harness.toml` est exclu de git : c'est là que vivent tes adresses et tes
+# références de clés. Ce fichier-ci est versionné et ne doit contenir aucun secret.
+#
+# Aucune clé n'est écrite en clair : `credential` ne porte qu'une RÉFÉRENCE.
+#   none            aucun identifiant (endpoint local, sans clé)
+#   env:NOM         lu dans la variable d'environnement NOM
+#   vault:nom       lu dans le coffre de l'appareil
+# Une valeur brute (sk-…) est refusée par le client : c'est volontaire.
+
+[harness]
+# id du provider utilisé par défaut (sinon : le premier de la liste)
+provider = "ollama"
+# Prompt système (sinon : celui de la commande)
+# system = "Tu es un agent de développement."
+# Plafonds du run
+max_tours = 12
+budget_ms = 900000
+
+# --- Un runner local, sans identifiant -------------------------------------
+[[providers]]
+id = "ollama"
+label = "Ollama (local)"
+preset = "ollama"
+model = "qwen2.5-coder:7b"
+credential = "none"
+
+# --- Un serveur llama.cpp, sans identifiant --------------------------------
+[[providers]]
+id = "llamacpp"
+label = "llama.cpp (local)"
+preset = "openai_compatible"
+base_url = "http://127.0.0.1:8080/v1"
+model = "mon-modele"
+credential = "none"
+
+# --- Un fournisseur distant, clé par variable d'environnement ---------------
+[[providers]]
+id = "deepseek"
+label = "DeepSeek"
+preset = "deepseek"
+model = "deepseek-chat"
+credential = "env:DEEPSEEK_API_KEY"
