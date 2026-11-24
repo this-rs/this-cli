@@ -60,6 +60,7 @@ fn run_command(cli: Cli, writer: &dyn utils::file_writer::FileWriter) -> anyhow:
         Commands::Completions { shell } => commands::completions::run(shell),
         Commands::Build(args) => commands::build::run(args, writer),
         Commands::Dev(args) => commands::dev::run(args),
+        Commands::Harness(args) => commands::harness::run(args),
         Commands::Mcp => {
             // stdout belongs to the JSON-RPC protocol from here on: every human
             // line (banner, "Next steps", diagnostics) must go to stderr, or the

@@ -11,6 +11,7 @@ pub mod dev;
 pub mod doctor;
 pub mod framework;
 pub mod generate;
+pub mod harness;
 pub mod info;
 pub mod init;
 
@@ -73,6 +74,13 @@ pub enum Commands {
     /// A project does not depend on "a version" but on a commit of the framework.
     /// `status` says where it stands, `check` exits 1 when the pin does not hold.
     Framework(framework::FrameworkCommand),
+
+    /// Drive the harness loop from a terminal
+    ///
+    /// Same engine as the app (turns, tools, budget, named stop), but hosted by a
+    /// shell instead of a page. The provider list lives in a local `harness.toml`,
+    /// which is git-ignored; copy `harness.sample.toml` to start.
+    Harness(HarnessArgs),
 
     /// Generate shell completions
     ///
@@ -457,4 +465,40 @@ pub struct AddModuleArgs {
     /// Optional dependency: loaded when present, never required
     #[arg(long)]
     pub optional: bool,
+}
+
+/// Arguments for `this harness`
+#[derive(Parser)]
+pub struct HarnessArgs {
+    /// Config file (default: ./harness.toml, then $XDG_CONFIG_HOME/this/harness.toml)
+    #[arg(long)]
+    pub config: Option<std::path::PathBuf>,
+
+    /// Provider to use (default: `[harness] provider`, else the first one)
+    #[arg(long)]
+    pub provider: Option<String>,
+
+    /// Override the model
+    #[arg(long)]
+    pub model: Option<String>,
+
+    /// Override the system prompt
+    #[arg(long)]
+    pub system: Option<String>,
+
+    /// Root directory the file tools are confined to (default: current directory)
+    #[arg(long)]
+    pub cwd: Option<std::path::PathBuf>,
+
+    /// Enable the `ecrire` tool (off by default: the agent cannot modify files)
+    #[arg(long)]
+    pub allow_write: bool,
+
+    /// Enable the `executer` tool (off by default: no shell command is run)
+    #[arg(long)]
+    pub allow_exec: bool,
+
+    /// Send one message, print the result, and exit (no REPL)
+    #[arg(long)]
+    pub once: Option<String>,
 }

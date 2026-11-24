@@ -14,6 +14,13 @@ retenu depuis le 30/10/2026, release alors différée. Trente commits séparent 
 
 ### Added
 
+- **`this harness`** : la boucle du harnais pilotée depuis un terminal. Même moteur que
+  l'application (`this-harness`) — tours, outils, budget, arrêt nommé — mais hébergé par un
+  shell au lieu d'une page. Quatre outils (`lire`, `lister`, `ecrire`, `executer`) confinés à
+  une racine ; `ecrire` et `executer` ne sont offerts que derrière `--allow-write` /
+  `--allow-exec`, et un outil non annoncé n'est jamais appelable. La liste des providers vit
+  dans un `harness.toml` local, exclu de git, dont `harness.sample.toml` est le modèle
+  versionné ; un identifiant y est une **référence** (`env:`, `vault:`), jamais une valeur.
 - **`this descriptor` : la CLI lit et écrit le `ModuleDescriptor`.** `init` matérialise
   `descriptor/module.yaml` et `descriptor.lock`, `check` valide, `export` rend le descripteur (JSON,
   YAML, `.proto`, SDL), `lock` fige les tags proto. La CLI devient le second écrivain d'un contrat

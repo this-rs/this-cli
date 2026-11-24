@@ -29,6 +29,16 @@ regex = "1"
 # Shared module descriptor (types, check, pluralizer). version + path: publishable, and
 # the path resolves from a checkout of this-cli next to a checkout of this-rs/this.
 this-descriptor = { version = "0.0.1", path = "../this/crates/this-descriptor", features = ["yaml", "pattern"] }
+
+# La boucle du harnais, pilotable depuis un terminal (`this harness`).
+# La feature `providers` branche le transport HTTP sur `this-llm-providers`.
+this-harness = { version = "0.0.1", path = "../this/crates/this-harness", features = ["providers"] }
+this-llm-providers = { version = "0.0.1", path = "../this/crates/this-llm-providers" }
+this-agent = { version = "0.0.1", path = "../this/crates/this-agent" }
+async-trait = "0.1"
+# Le harnais est `!Send` : un runtime mono-thread suffit, et c'est le seul correct.
+tokio = { version = "1", features = ["rt", "time", "signal", "macros"] }
+toml = "0.8"
 semver = "1"
 
 # Signalling a whole dev process group (dev_status / dev_stop) needs `kill(2)`
@@ -39,6 +49,8 @@ semver = "1"
 libc = "0.2"
 
 [dev-dependencies]
+# `#[tokio::test]` : le toolbox `executer` attend sur `tokio::time::sleep`.
+tokio = { version = "1", features = ["rt", "time", "macros"] }
 tempfile = "3"
 serial_test = "3"
 

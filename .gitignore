@@ -6,3 +6,8 @@
 *.log
 .claude
 .deps/
+
+# Configuration locale de `this harness` : providers, adresses, références de clés.
+# Jamais versionnée — le modèle à copier est harness.sample.toml.
+/harness.toml
+/*.local.toml
